@@ -126,7 +126,7 @@ pub mod util {
                                     it: fn(&str) -> bool);
         }
 
-        pub impl<T: io::Reader> T : ReaderUtilEx {
+        pub impl<T: io::Reader> T: ReaderUtilEx {
             fn read_and_fix_utf8_line(&self, handler: pure fn(&[const u8]) -> ~str) -> ~str {
                 let mut bytes = ~[];
                 loop {
@@ -224,6 +224,11 @@ pub mod parser {
     }
 
     pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Bms {
+        let bmsheader = [
+            "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM", "PLAYER",
+            "PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP", "BGA", "STOP", "STP",
+            "RANDOM", "SETRANDOM", "ENDRANDOM", "IF", "ELSEIF", "ELSE", "ENDSW", "END"];
+
         let f =
             match io::file_reader(&Path(bmspath)) {
                 Ok(f) => f,
@@ -231,13 +236,94 @@ pub mod parser {
             };
 
         enum RndState { Process = 0, Ignore = 1, NoFurther = -1 }
+        impl RndState: Eq { // XXX #[deriving_eq] does not work?
+            pure fn eq(&self, other: &RndState) -> bool {
+                match (*self,*other) {
+                    (Process,Process) | (Ignore,Ignore) | (NoFurther,NoFurther) => true,
+                    (_,_) => false
+                }
+            }
+            pure fn ne(&self, other: &RndState) -> bool {
+                match (*self,*other) {
+                    (Process,Process) | (Ignore,Ignore) | (NoFurther,NoFurther) => false,
+                    (_,_) => true
+                }
+            }
+        }
+
         struct Rnd { val: int, inside: bool, state: RndState, skip: bool }
         let rnd = ~[Rnd { val: 0, inside: false, state: Process, skip: false }];
 
-        let lines = vec::split(f.read_whole_stream(), |ch: &u8| *ch == 10u8);
-        for lines.each |line0| {
-            let line = ::util::str::from_fixed_utf8_bytes(*line0, |_| ~"\ufffd");
-            io::println(line);
+        let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
+        for lines.each |&line| {
+            let mut line = ::util::str::from_fixed_utf8_bytes(line, |_| ~"\ufffd");
+            line.trim_left();
+            if !line.starts_with(~"#") { loop; }
+
+            let mut prefix = "";
+            for bmsheader.each |&header| {
+                if line.len() > header.len() &&
+                   line.substr(1, header.len()).to_upper() == header.to_owned() {
+                    prefix = header;
+                    break;
+                }
+            }
+
+            match (prefix, if rnd.last().skip { Ignore } else { rnd.last().state }) {
+                ("TITLE", Process) |
+                ("GENRE", Process) |
+                ("ARTIST", Process) |
+                ("STAGEFILE", Process) |
+                ("PATH_WAV", Process) => {
+                    io::println("TITLE|GENRE|ARTIST|STAGEFILE|PATH_WAV");
+                }
+                ("BPM", Process) => {
+                    io::println("BPM");
+                }
+                ("PLAYER", Process) |
+                ("PLAYLEVEL", Process) |
+                ("RANK", Process) |
+                ("LNTYPE", Process) => {
+                    io::println("PLAYER|PLAYLEVEL|RANK|LNTYPE");
+                }
+                ("LNOBJ", Process) => {
+                    io::println("LNOBJ");
+                }
+                ("WAV", Process) |
+                ("BMP", Process) => {
+                    io::println("WAV|BMP");
+                }
+                ("BGA", Process) => {
+                    io::println("BGA");
+                }
+                ("STOP", Process) => {
+                    io::println("STOP");
+                }
+                ("STP", Process) => {
+                    io::println("STP");
+                }
+                ("RANDOM", _) |
+                ("SETRANDOM", _) => {
+                    io::println("RANDOM|SETRANDOM");
+                }
+                ("ENDRANDOM", _) => {
+                    io::println("ENDRANDOM");
+                }
+                ("IF", _) |
+                ("ELSEIF", _) => {
+                    io::println("IF|ELSEIF");
+                }
+                ("ELSE", _) => {
+                    io::println("ELSE");
+                }
+                ("END", _) => {
+                    io::println("END");
+                }
+                ("", Process) => {
+                    io::println("##### (possibly)");
+                }
+                (_, _) => ()
+            }
         }
 
         fail!(~"TODO");
