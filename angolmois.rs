@@ -1,23 +1,147 @@
+/*
+ * Angolmois -- the simple BMS player
+ * Copyright (c) 2005, 2007, 2009, 2012, 2013, Kang Seonghoon.
+ * Project Angolmois is copyright (c) 2003-2007, Choi Kaya (CHKY).
+ * 
+ * This program is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU General Public License
+ * as published by the Free Software Foundation; either version 2
+ * of the License, or (at your option) any later version.
+ * 
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ * 
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+ */
+
+// This is a direct one-to-one translation of Angolmois which README is
+// available in <http://github.com/lifthrasiir/angolmois/>. Angolmois is
+// distributed under GNU GPL version 2+, so is this translation. The portions
+// of it is intended to be sent as a patch to Rust, so those portions are
+// licensed under Apache License 2.0 and MIT license.
+//
+// Angolmois is a combination of string parsing, path manipulation, two-
+// dimensional graphics and complex game play carefully packed into some
+// thousand lines of code. This translation is intended to provide an example
+// of translating a moderately-sized C code to Rust, and also to investigate
+// additional library supports required for such moderately-sized programs.
+
+#[link(name = "angolmois",
+       vers = "2.0-alpha2",
+       uuid = "0E85EA95-BE62-4E0F-B811-8C1EC46C46EC",
+       url = "https://github.com/lifthrasiir/angolmois/")];
+
+#[comment = "Angolmois"];
+#[license = "GPLv2+"];
+
 extern mod std;
 
 pub pure fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 
-mod util {
+////////////////////////////////////////////////////////////////////////////////
+// utility declarations
 
-    trait StrUtil {
-        pure fn slice_to_end(begin: uint) -> ~str;
-        pure fn each_chari_byte(it: fn(uint, char) -> bool);
-    }
+pub mod util {
 
-    impl &str: StrUtil {
-        pure fn slice_to_end(begin: uint) -> ~str { self.slice(begin, self.len()) }
-        pure fn each_chari_byte(it: fn(uint, char) -> bool) {
+    pub mod str {
+        // NOTE: these additions will be eventually sent to libcore/str.rs
+        // and are not subject to the above copyright notice.
+
+        const tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
+
+        pub pure fn each_chari_byte(s: &str, it: fn(uint, char) -> bool) {
             let mut pos = 0u;
-            let len = self.len();
+            let len = s.len();
             while pos < len {
-                let str::CharRange {ch, next} = str::char_range_at(self, pos);
+                let str::CharRange {ch, next} = ::str::char_range_at(s, pos);
                 if !it(pos, ch) { break; }
                 pos = next;
+            }
+        }
+
+        pub pure fn fix_utf8(v: &[const u8], handler: pure fn(&[const u8])
+                                        -> ~[u8]) -> ~[u8] {
+            let mut i = 0u;
+            let total = vec::len::<u8>(v);
+            let mut result = ~[];
+            while i < total {
+                let chend = i + str::utf8_char_width(v[i]);
+                let mut j = i + 1u;
+                while j < total && j < chend && v[j] & 192u8 == tag_cont_u8 {
+                    j += 1u;
+                }
+                if j == chend {
+                    assert i != chend;
+                    result = vec::append(result, v.view(i, j));
+                } else {
+                    result = vec::append(result, handler(v.view(i, j)));
+                }
+                i = j;
+            }
+            result
+        }
+
+        pub pure fn fix_utf8_str(s: &str, handler: pure fn(&[const u8]) -> ~str) -> ~str {
+            from_fixed_utf8_bytes(str::to_bytes(s), handler)
+        }
+
+        pub pure fn from_fixed_utf8_bytes(v: &[const u8],
+                                          handler: pure fn(&[const u8]) -> ~str) -> ~str {
+            let newhandler: pure fn(&[const u8]) -> ~[u8] =
+                |v: &[const u8]| -> ~[u8] { str::to_bytes(handler(v)) };
+            let bytes = fix_utf8(v, newhandler);
+            unsafe { str::raw::from_bytes(bytes) }
+        }
+
+        pub trait StrUtil {
+            pure fn slice_to_end(&self, begin: uint) -> ~str;
+            pure fn each_chari_byte(self, it: fn(uint, char) -> bool);
+            pure fn fix_utf8(self, handler: pure fn(&[const u8]) -> ~str) -> ~str;
+        }
+
+        pub impl &str: StrUtil {
+            pure fn slice_to_end(&self, begin: uint) -> ~str {
+                self.slice(begin, self.len())
+            }
+            pure fn each_chari_byte(self, it: fn(uint, char) -> bool) {
+                each_chari_byte(self, it)
+            }
+            pure fn fix_utf8(self, handler: pure fn(&[const u8]) -> ~str) -> ~str {
+                fix_utf8_str(self, handler)
+            }
+        }
+    }
+
+    pub mod io {
+        // NOTE: these additions will be eventually sent to libcore/io.rs
+        // and are not subject to the above copyright notice.
+
+        pub trait ReaderUtilEx {
+            fn read_and_fix_utf8_line(&self, handler: pure fn(&[const u8]) -> ~str) -> ~str;
+            fn each_fixed_utf8_line(&self, handler: pure fn(&[const u8]) -> ~str,
+                                    it: fn(&str) -> bool);
+        }
+
+        pub impl<T: io::Reader> T : ReaderUtilEx {
+            fn read_and_fix_utf8_line(&self, handler: pure fn(&[const u8]) -> ~str) -> ~str {
+                let mut bytes = ~[];
+                loop {
+                    let ch = self.read_byte();
+                    if ch == -1 || ch == 10 { break; }
+                    bytes.push(ch as u8);
+                }
+                ::util::str::from_fixed_utf8_bytes(bytes, handler)
+            }
+
+            fn each_fixed_utf8_line(&self, handler: pure fn(&[const u8]) -> ~str,
+                                    it: fn(&str) -> bool) {
+                while !self.eof() {
+                    if !it(self.read_and_fix_utf8_line(handler)) { break; }
+                }
             }
         }
     }
@@ -25,17 +149,20 @@ mod util {
 }
 
 use core::io::{ReaderUtil, WriterUtil};
-use util::*;
+
+use util::str::*;
+use util::io::*;
 
 ////////////////////////////////////////////////////////////////////////////////
+// bms parser
 
 pub mod parser {
 
     pub enum Key = int;
     pub const MAXKEY: int = 36*36;
     pub impl Key {
-        pure fn is_valid() -> bool { let Key(key) = self; 0 <= key && key < MAXKEY }
-        pure fn to_hex() -> Option<int> {
+        pure fn is_valid(self) -> bool { let Key(key) = self; 0 <= key && key < MAXKEY }
+        pure fn to_hex(self) -> Option<int> {
             let Key(key) = self, sixteens = key / 36, ones = key % 36;
             if sixteens < 16 && ones < 16 { Some(sixteens * 16 + ones) } else { None }
         }
@@ -100,24 +227,26 @@ pub mod parser {
         let f =
             match io::file_reader(&Path(bmspath)) {
                 Ok(f) => f,
-                Err(err) => fail fmt!("Couldn't load BMS file %s: %s", bmspath, err)
+                Err(err) => { fail!(fmt!("Couldn't load BMS file %s: %s", bmspath, err)); }
             };
 
         enum RndState { Process = 0, Ignore = 1, NoFurther = -1 }
         struct Rnd { val: int, inside: bool, state: RndState, skip: bool }
         let rnd = ~[Rnd { val: 0, inside: false, state: Process, skip: false }];
 
-        while !f.eof() {
-            let line = f.read_line();
+        let lines = vec::split(f.read_whole_stream(), |ch: &u8| *ch == 10u8);
+        for lines.each |line0| {
+            let line = ::util::str::from_fixed_utf8_bytes(*line0, |_| ~"\ufffd");
             io::println(line);
         }
 
-        fail ~"TODO";
+        fail!(~"TODO");
     }
 
 }
 
 ////////////////////////////////////////////////////////////////////////////////
+// game play
 
 pub mod player {
 
@@ -147,14 +276,15 @@ pub mod player {
         }
     }
 
+    use core::repr;
     pub fn play(opts: &Options) {
         repr::write_repr(io::stdout(), opts);
         io::println("");
 
         let r = rand::task_rng();
         match opts.bmspath {
-            Some(copy path) => parser::parse_bms(path, r),
-            None => fail ~"TODO"
+            Some(copy path) => ::parser::parse_bms(path, r),
+            None => fail!(~"TODO")
         };
     }
 
@@ -165,60 +295,65 @@ pub mod player {
 fn usage() {
     let args = os::args();
     let exename = if args.is_empty() { ~"angolmois" } else { copy args[0] };
-    io::stderr().write_str(
-        version() + ~" -- the simple BMS player\n"
-        + ~"http://mearie.org/projects/angolmois/\n\n"
-        + ~"Usage: " + exename + ~" <options> <path>\n"
-        + ~"  Accepts any BMS, BME, BML or PMS file.\n"
-        + ~"  Resources should be in the same directory as the BMS file.\n\n"
-        + ~"Options:\n"
-        + ~"  -h, --help              This help\n"
-        + ~"  -V, --version           Shows the version\n"
-        + ~"  -a #.#, --speed #.#     Sets the initial play speed (default: 1.0x)\n"
-        + ~"  -#                      Same as '-a #.0'\n"
-        + ~"  -v, --autoplay          Enables AUTO PLAY (viewer) mode\n"
-        + ~"  -x, --exclusive         Enables exclusive (BGA and sound only) mode\n"
-        + ~"  -X, --sound-only        Enables sound only mode, equivalent to -xB\n"
-        + ~"  --fullscreen            Enables the fullscreen mode (default)\n"
-        + ~"  -w, --no-fullscreen     Disables the fullscreen mode\n"
-        + ~"  --info                  Shows a brief information about the song (default)\n"
-        + ~"  -q, --no-info           Do not show an information about the song\n"
-        + ~"  -m, --mirror            Uses a mirror modifier\n"
-        + ~"  -s, --shuffle           Uses a shuffle modifier\n"
-        + ~"  -S, --shuffle-ex        Uses a shuffle modifier, even for scratches\n"
-        + ~"  -r, --random            Uses a random modifier\n"
-        + ~"  -R, --random-ex         Uses a random modifier, even for scratches\n"
-        + ~"  -k NAME, --preset NAME  Forces a use of given key preset (default: bms)\n"
-        + ~"  -K LEFT RIGHT, --key-spec LEFT RIGHT\n"
-        + ~"                          Sets a custom key specification (see the manual)\n"
-        + ~"  --bga                   Loads and shows the BGA (default)\n"
-        + ~"  -B, --no-bga            Do not load and show the BGA\n"
-        + ~"  -M, --no-movie          Do not load and show the BGA movie\n"
-        + ~"  -j #, --joystick #      Enable the joystick with index # (normally 0)\n\n"
-        + ~"Environment Variables:\n"
-        + ~"  ANGOLMOIS_1P_KEYS=<scratch>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<pedal>\n"
-        + ~"  ANGOLMOIS_2P_KEYS=<pedal>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<scratch>\n"
-        + ~"  ANGOLMOIS_PMS_KEYS=<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<8>|<9>\n"
-        + ~"  ANGOLMOIS_SPEED_KEYS=<speed down>|<speed up>\n"
-        + ~"  ANGOLMOIS_XXy_KEY=<keys for channel XX and channel kind y>\n"
-        + ~"    Sets keys used for game play. Use either SDL key names or joystick names\n"
-        + ~"    like 'button #' or 'axis #' can be used. Separate multiple keys by '%%'.\n"
-        + ~"    See the manual for more information.\n\n");
+    io::stderr().write_str(fmt!("\
+%s -- the simple BMS player
+http://mearie.org/projects/angolmois/
+
+Usage: %s <options> <path>
+  Accepts any BMS, BME, BML or PMS file.
+  Resources should be in the same directory as the BMS file.
+
+Options:
+  -h, --help              This help
+  -V, --version           Shows the version
+  -a #.#, --speed #.#     Sets the initial play speed (default: 1.0x)
+  -#                      Same as '-a #.0'
+  -v, --autoplay          Enables AUTO PLAY (viewer) mode
+  -x, --exclusive         Enables exclusive (BGA and sound only) mode
+  -X, --sound-only        Enables sound only mode, equivalent to -xB
+  --fullscreen            Enables the fullscreen mode (default)
+  -w, --no-fullscreen     Disables the fullscreen mode
+  --info                  Shows a brief information about the song (default)
+  -q, --no-info           Do not show an information about the song
+  -m, --mirror            Uses a mirror modifier
+  -s, --shuffle           Uses a shuffle modifier
+  -S, --shuffle-ex        Uses a shuffle modifier, even for scratches
+  -r, --random            Uses a random modifier
+  -R, --random-ex         Uses a random modifier, even for scratches
+  -k NAME, --preset NAME  Forces a use of given key preset (default: bms)
+  -K LEFT RIGHT, --key-spec LEFT RIGHT
+                          Sets a custom key specification (see the manual)
+  --bga                   Loads and shows the BGA (default)
+  -B, --no-bga            Do not load and show the BGA
+  -M, --no-movie          Do not load and show the BGA movie
+  -j #, --joystick #      Enable the joystick with index # (normally 0)
+
+Environment Variables:
+  ANGOLMOIS_1P_KEYS=<scratch>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<pedal>
+  ANGOLMOIS_2P_KEYS=<pedal>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<scratch>
+  ANGOLMOIS_PMS_KEYS=<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<8>|<9>
+  ANGOLMOIS_SPEED_KEYS=<speed down>|<speed up>
+  ANGOLMOIS_XXy_KEY=<keys for channel XX and channel kind y>
+    Sets keys used for game play. Use either SDL key names or joystick names
+    like 'button #' or 'axis #' can be used. Separate multiple keys by '%%'.
+    See the manual for more information.
+
+", version(), exename));
     os::set_exit_status(1);
 }
 
 fn main() {
     use player::*;
 
-    let longargs = std::map::hash_from_vec::<&str,char>([
-        ("--help", 'h'), ("--version", 'V'), ("--speed", 'a'),
-        ("--autoplay", 'v'), ("--exclusive", 'x'), ("--sound-only", 'X'),
-        ("--windowed", 'w'), ("--no-fullscreen", 'w'), ("--fullscreen", ' '),
-        ("--info", ' '), ("--no-info", 'q'), ("--mirror", 'm'),
-        ("--shuffle", 's'), ("--shuffle-ex", 'S'), ("--random", 'r'),
-        ("--random-ex", 'R'), ("--preset", 'k'), ("--key-spec", 'K'),
-        ("--bga", ' '), ("--no-bga", 'B'), ("--movie", ' '),
-        ("--no-movie", 'M'), ("--joystick", 'j'),
+    let longargs = std::oldmap::hash_from_vec::<~str,char>([
+        (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
+        (~"--autoplay", 'v'), (~"--exclusive", 'x'), (~"--sound-only", 'X'),
+        (~"--windowed", 'w'), (~"--no-fullscreen", 'w'), (~"--fullscreen", ' '),
+        (~"--info", ' '), (~"--no-info", 'q'), (~"--mirror", 'm'),
+        (~"--shuffle", 's'), (~"--shuffle-ex", 'S'), (~"--random", 'r'),
+        (~"--random-ex", 'R'), (~"--preset", 'k'), (~"--key-spec", 'K'),
+        (~"--bga", ' '), (~"--no-bga", 'B'), (~"--movie", ' '),
+        (~"--no-movie", 'M'), (~"--joystick", 'j'),
     ]);
 
     let args = os::args();
@@ -236,9 +371,9 @@ fn main() {
         } else {
             let shortargs =
                 if args[i].starts_with("--") {
-                    match longargs.find(args[i]) {
+                    match longargs.find(&args[i]) {
                         Some(c) => str::from_char(c),
-                        None => fail fmt!("Invalid option: %s", args[i])
+                        None => fail!(fmt!("Invalid option: %s", args[i]))
                     }
                 } else {
                     args[i].slice_to_end(1)
@@ -257,7 +392,7 @@ fn main() {
                             if i < nargs {
                                 copy args[i]
                             } else {
-                                fail fmt!("No argument to the option -%c", opt);
+                                fail!(fmt!("No argument to the option -%c", opt));
                             }
                         };
                     inside = false;
@@ -289,17 +424,17 @@ fn main() {
                                 else if speed > 99.0 { 99.0 }
                                 else { speed };
                         },
-                        _ => fail fmt!("Invalid argument to option -a")
+                        _ => fail!(fmt!("Invalid argument to option -a"))
                     },
                     'B' => { opts.bga = NoBga; },
                     'M' => { opts.bga = BgaButNoMovie; },
                     'j' => match int::from_str(fetch_arg('j')) {
                         Some(idx) if idx >= 0 => { opts.joystick = Some(idx); },
-                        _ => fail fmt!("Invalid argument to option -j")
+                        _ => fail!(fmt!("Invalid argument to option -j"))
                     },
                     ' ' => {}, // for ignored long options
                     '1'..'9' => { opts.playspeed = char::to_digit(c, 10).get() as float; },
-                    _ => fail fmt!("Invalid option: -%c", c),
+                    _ => fail!(fmt!("Invalid option: -%c", c)),
                 }
                 if !inside { break; }
             }
