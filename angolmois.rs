@@ -42,8 +42,22 @@ extern mod std;
 
 pub pure fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 
-////////////////////////////////////////////////////////////////////////////////
+//==============================================================================
 // utility declarations
+
+pub fn exename() -> ~str {
+    let args = os::args();
+    if args.is_empty() { ~"angolmois" } else { copy args[0] }
+}
+
+pub fn die(s: ~str) -> ! {
+    io::stderr().write_line(fmt!("%s: %s", exename(), s));
+    unsafe { libc::exit(1); }
+}
+
+macro_rules! die(
+    ($($e:expr),+) => (::die(fmt!($($e),+)))
+)
 
 pub mod util {
 
@@ -153,7 +167,7 @@ use core::io::{ReaderUtil, WriterUtil};
 use util::str::*;
 use util::io::*;
 
-////////////////////////////////////////////////////////////////////////////////
+//==============================================================================
 // bms parser
 
 pub mod parser {
@@ -232,25 +246,10 @@ pub mod parser {
         let f =
             match io::file_reader(&Path(bmspath)) {
                 Ok(f) => f,
-                Err(err) => { fail!(fmt!("Couldn't load BMS file %s: %s", bmspath, err)); }
+                Err(err) => die!("Couldn't load BMS file: %s", err)
             };
 
         enum RndState { Process = 0, Ignore = 1, NoFurther = -1 }
-        impl RndState: Eq { // XXX #[deriving_eq] does not work?
-            pure fn eq(&self, other: &RndState) -> bool {
-                match (*self,*other) {
-                    (Process,Process) | (Ignore,Ignore) | (NoFurther,NoFurther) => true,
-                    (_,_) => false
-                }
-            }
-            pure fn ne(&self, other: &RndState) -> bool {
-                match (*self,*other) {
-                    (Process,Process) | (Ignore,Ignore) | (NoFurther,NoFurther) => false,
-                    (_,_) => true
-                }
-            }
-        }
-
         struct Rnd { val: int, inside: bool, state: RndState, skip: bool }
         let rnd = ~[Rnd { val: 0, inside: false, state: Process, skip: false }];
 
@@ -331,7 +330,7 @@ pub mod parser {
 
 }
 
-////////////////////////////////////////////////////////////////////////////////
+//==============================================================================
 // game play
 
 pub mod player {
@@ -376,11 +375,10 @@ pub mod player {
 
 }
 
-////////////////////////////////////////////////////////////////////////////////
+//==============================================================================
+// entry point
 
 fn usage() {
-    let args = os::args();
-    let exename = if args.is_empty() { ~"angolmois" } else { copy args[0] };
     io::stderr().write_str(fmt!("\
 %s -- the simple BMS player
 http://mearie.org/projects/angolmois/
@@ -424,8 +422,8 @@ Environment Variables:
     like 'button #' or 'axis #' can be used. Separate multiple keys by '%%'.
     See the manual for more information.
 
-", version(), exename));
-    os::set_exit_status(1);
+", version(), exename()));
+    unsafe { libc::exit(1); }
 }
 
 fn main() {
@@ -459,7 +457,7 @@ fn main() {
                 if args[i].starts_with("--") {
                     match longargs.find(&args[i]) {
                         Some(c) => str::from_char(c),
-                        None => fail!(fmt!("Invalid option: %s", args[i]))
+                        None => die!("Invalid option: %s", args[i])
                     }
                 } else {
                     args[i].slice_to_end(1)
@@ -478,7 +476,7 @@ fn main() {
                             if i < nargs {
                                 copy args[i]
                             } else {
-                                fail!(fmt!("No argument to the option -%c", opt));
+                                die!("No argument to the option -%c", opt);
                             }
                         };
                     inside = false;
@@ -510,17 +508,17 @@ fn main() {
                                 else if speed > 99.0 { 99.0 }
                                 else { speed };
                         },
-                        _ => fail!(fmt!("Invalid argument to option -a"))
+                        _ => die!("Invalid argument to option -a")
                     },
                     'B' => { opts.bga = NoBga; },
                     'M' => { opts.bga = BgaButNoMovie; },
                     'j' => match int::from_str(fetch_arg('j')) {
                         Some(idx) if idx >= 0 => { opts.joystick = Some(idx); },
-                        _ => fail!(fmt!("Invalid argument to option -j"))
+                        _ => die!("Invalid argument to option -j")
                     },
                     ' ' => {}, // for ignored long options
                     '1'..'9' => { opts.playspeed = char::to_digit(c, 10).get() as float; },
-                    _ => fail!(fmt!("Invalid option: -%c", c)),
+                    _ => die!("Invalid option: -%c", c),
                 }
                 if !inside { break; }
             }
