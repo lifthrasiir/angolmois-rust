@@ -48,6 +48,7 @@
 #[license = "GPLv2+"];
 
 extern mod std;
+extern mod sdl;
 
 /// (C: `VERSION`)
 pub pure fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
@@ -206,7 +207,7 @@ pub mod util {
             pure fn scan_float(self) -> Option<uint>;
         }
 
-        pub impl StrUtil for &str {
+        impl StrUtil for &str {
             pure fn slice_to_end(self, begin: uint) -> ~str {
                 self.slice(begin, self.len())
             }
@@ -230,7 +231,7 @@ pub mod util {
             pure fn prefix_shifted(&self, s: &str) -> Option<~str>;
         }
 
-        pub impl ShiftablePrefix for char {
+        impl ShiftablePrefix for char {
             pure fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if !s.is_empty() {
                      let str::CharRange {ch, next} = str::char_range_at(s, 0u);
@@ -241,7 +242,7 @@ pub mod util {
             }
         }
 
-        pub impl ShiftablePrefix for &str {
+        impl ShiftablePrefix for &str {
             pure fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if s.starts_with(*self) {
                     Some(s.slice_to_end(self.len()))
@@ -273,7 +274,7 @@ pub mod util {
                                         -> ~str, it: fn(&str) -> bool);
         }
 
-        pub impl<T: io::Reader> ReaderUtilEx for T {
+        impl<T: io::Reader> ReaderUtilEx for T {
             fn read_and_fix_utf8_line(&self, handler: pure fn(&[const u8])
                                         -> ~str) -> ~str {
                 let mut bytes = ~[];
@@ -310,6 +311,7 @@ pub mod parser {
     /// Two-letter alphanumeric identifier (henceforth "key") used for
     /// virtually everything, including resource management, variable BPM and
     /// chart specification.
+    #[deriving_eq]
     pub enum Key = int;
 
     /// The number of all possible keys. (C: `MAXKEY`)
@@ -333,7 +335,7 @@ pub mod parser {
         }
     }
 
-    pub impl ToStr for Key {
+    impl ToStr for Key {
         /// Returns a two-letter representation of key. (C: `TO_KEY`)
         pure fn to_str(&self) -> ~str {
             assert self.is_valid();
@@ -343,21 +345,147 @@ pub mod parser {
         }
     }
 
+    #[deriving_eq]
+    pub struct Lane {
+        player: uint,
+        channel: uint
+    }
+
+    /// Sound reference.
+    #[deriving_eq]
+    pub enum SoundRef = Key;
+
+    /// Image reference.
+    #[deriving_eq]
+    pub enum ImageRef = Key;
+
+    /// BGA layers. (C: `enum BGA_type`)
+    ///
+    /// Rust: why not #[deriving_cmp]?
+    #[deriving_eq]
+    pub enum BGALayer {
+        /// The lowest layer. BMS channel #04. (C: `BGA_LAYER`)
+        Layer1,
+        /// The middle layer. BMS channel #07. (C: `BGA2_LAYER`)
+        Layer2,
+        /// The highest layer. BMS channel #0A. (C: `BGA3_LAYER`)
+        Layer3,
+        /// The layer only displayed shortly after the MISS grade. BMS channel
+        /// #06. (C: `POORBGA_LAYER`)
+        PoorBGA
+    }
+
+    pub enum BPM = float;
+    pub enum Duration { Seconds(float), Measures(float) }
+    pub enum Damage { GaugeDamage(float), InstantDeath }
+
+    pub enum ObjData {
+        /// Visible note. Sound is played when the key is input inside the
+        /// associated grading area. (C: `NOTE`)
+        Visible(Lane, Option<SoundRef>),
+        /// Invisible note. Sound is played when the key is input inside the
+        /// associated grading area. No render nor grading performed.
+        /// (C: `INVNOTE`)
+        Invisible(Lane, Option<SoundRef>),
+        /// Start of long note. Sound is played when the key is down inside
+        /// the associated grading area. (C: `LNSTART`)
+        LNStart(Lane, Option<SoundRef>),
+        /// End of long note. Sound is played when the start of long note is
+        /// graded, the key was down and now up inside the associated grading
+        /// area. (C: `LNDONE`)
+        LNDone(Lane, Option<SoundRef>),
+        /// Bomb. Pressing the key down at the moment that the object is
+        /// on time causes the specified damage; sound is played in this case.
+        /// No associated grading area. (C: `BOMB`)
+        Bomb(Lane, Option<SoundRef>, Damage),
+        /// Plays associated sound. (C: `BGM_CHANNEL`)
+        BGM(SoundRef),
+        /// Sets the virtual BGA layer to given image. The layer itself may
+        /// not be displayed depending on the current game status.
+        /// (C: `BGA_CHANNEL`)
+        ///
+        /// If the reference points to a movie, the movie starts playing; if
+        /// the other layer had the same movie started, it rewinds to
+        /// the beginning. The resulting image from the movie can be shared
+        /// among multiple layers.
+        SetBGA(BGALayer, Option<ImageRef>),
+        /// Sets the BPM. Negative BPM causes the chart scrolls backwards
+        /// (and implicitly signals the end of the chart). (C: `BPM_CHANNEL`)
+        SetBPM(BPM),
+        /// Stops the scroll of the chart for given duration.
+        /// (C: `STOP_CHANNEL`)
+        Stop(Duration)
+    }
+
+    impl ObjData {
+        pub pure fn sounds(self) -> ~[SoundRef] {
+            match self {
+                Visible(_,Some(sref)) => ~[sref],
+                Invisible(_,Some(sref)) => ~[sref],
+                LNStart(_,Some(sref)) => ~[sref],
+                LNDone(_,Some(sref)) => ~[sref],
+                Bomb(_,Some(sref),_) => ~[sref],
+                BGM(sref) => ~[sref],
+                _ => ~[]
+            }
+        }
+
+        pub pure fn keydown_sound(self) -> Option<SoundRef> {
+            match self {
+                Visible(_,sref) | Invisible(_,sref) | LNStart(_,sref) => sref,
+                _ => None
+            }
+        }
+
+        pub pure fn keyup_sound(self) -> Option<SoundRef> {
+            match self {
+                LNDone(_,sref) => sref,
+                _ => None
+            }
+        }
+
+        pub pure fn through_sound(self) -> Option<SoundRef> {
+            match self {
+                Bomb(_,sref,_) => sref,
+                _ => None
+            }
+        }
+
+        pub pure fn images(self) -> ~[ImageRef] {
+            match self {
+                SetBGA(_,Some(iref)) => ~[iref],
+                _ => ~[]
+            }
+        }
+
+        pub pure fn through_damage(self) -> Option<Damage> {
+            match self {
+                Bomb(_,_,damage) => Some(damage),
+                _ => None
+            }
+        }
+    }
+
+    pub struct Obj {
+        time: float, data: ObjData
+    }
+
+    pub const DefaultBPM: float = 130.0;
+
     /// Blit commands, which manipulate the image after the image had been
-    /// loaded. This maps to BMS' #BGA command. (C: `struct blitcmd`)
+    /// loaded. This maps to BMS #BGA command. (C: `struct blitcmd`)
     pub struct BlitCmd {
         /// Destination surface
-        dst: Key,
+        dst: ImageRef,
         /// Source surface
-        src: Key,
+        src: ImageRef,
         x1: int, y1: int,
         x2: int, y2: int, dx: int, dy: int,
     }
 
-    pub struct Obj {
-        time: float,
-        chan: int, typ: int, index: int, value: int, nograding: bool
-    }
+    pub const SinglePlay: int = 1;
+    pub const CouplePlay: int = 2;
+    pub const DoublePlay: int = 3;
 
     /// Loaded BMS data. It is not a global state unlike C.
     pub struct Bms {
@@ -374,58 +502,91 @@ pub mod parser {
         /// #PATH_WAV command. (C: `string[S_BASEPATH]`)
         basepath: Option<~str>,
 
+        /// Game mode. One of `SinglePlay`(1), `CouplePlay`(2) or
+        /// `DoublePlay`(3). Maps to BMS #PLAYER command.
+        /// (C: `value[V_PLAYER]`)
         player: int,
+        /// Game level. Does not affect the actual game play. Maps to BMS
+        /// #PLAYLEVEL command. (C: `value[V_PLAYLEVEL]`)
         playlevel: int,
+        /// Gauge difficulty. Higher is easier. Maps to BMS #RANK command.
+        /// (C: `value[V_RANK]`)
         rank: int,
-        lntype: int,
+        /// Allows long notes to be specified as a consecutive row of same
+        /// or non-zero keys (MGQ type, #LNTYPE 2). The default is to specify
+        /// long notes as two endpoints (RDM type, #LNTYPE 1).
+        /// (C: `value[V_LNTYPE]`)
+        consecutiveln: bool,
+        /// An end-of-long-note marker used in long-note specification for
+        /// channels #1x/2x. Maps to BMS #LNOBJ command. (C: `value[V_LNOBJ]`)
         lnobj: Option<Key>,
 
+        /// Initial BPM. (C: `initbpm`)
         initbpm: float,
-        sndpath: ~[mut Option<~str> * 1296], // XXX 1296=MAXKEY
-        imgpath: ~[mut Option<~str> * 1296], // XXX 1296=MAXKEY
-        blitcmd: ~[mut BlitCmd],
-        bpmtab: ~[mut float * 1296], // XXX 1296=MAXKEY
-        stoptab: ~[mut float * 1296], // XXX 1296=MAXKEY
+        /// Paths to sound file relative to `basepath` or BMS file.
+        /// (C: `sndpath`)
+        ///
+        /// Rust: constant expression in the array size is unsupported.
+        sndpath: ~[Option<~str> * 1296], // 1296=MAXKEY
+        /// Paths to image/movie file relative to `basepath` or BMS file.
+        /// (C: `imgpath`)
+        imgpath: ~[Option<~str> * 1296], // 1296=MAXKEY
+        /// List of blit commands to be executed after `imgpath` is loaded.
+        /// (C: `blitcmd`)
+        blitcmd: ~[BlitCmd],
+        /// (C: `bpmtab`)
+        bpmtab: ~[float * 1296], // 1296=MAXKEY
+        /// (C: `stoptab`)
+        stoptab: ~[float * 1296], // 1296=MAXKEY
 
-        objs: ~[mut Obj],
-        shorten: ~[mut float],
+        objs: ~[Obj],
+        shorten: ~[float],
         originoffset: float,
 
         keysplit: int,
-        keyorder: ~[mut int],
-        keykind: ~[mut Option<int> * 72]
+        keyorder: ~[int],
+        keykind: ~[Option<int> * 72]
     }
 
     /// Creates a default value of BMS data.
     pub pure fn Bms() -> Bms {
         Bms { title: None, genre: None, artist: None, stagefile: None,
-              basepath: None, player: 1, playlevel: 0, rank: 2, lntype: 1,
-              lnobj: None, initbpm: 130.0, sndpath: ~[mut None, ..1296],
-              imgpath: ~[mut None, ..1296], blitcmd: ~[mut],
-              bpmtab: ~[mut 130.0, ..1296], stoptab: ~[mut 0.0, ..1296],
-              objs: ~[mut], shorten: ~[mut], originoffset: 0.0, keysplit: 0,
-              keyorder: ~[mut], keykind: ~[mut None, ..72] }
+              basepath: None, player: SinglePlay, playlevel: 0, rank: 2,
+              consecutiveln: false, lnobj: None, initbpm: DefaultBPM,
+              sndpath: ~[None, ..1296], imgpath: ~[None, ..1296],
+              blitcmd: ~[], bpmtab: ~[DefaultBPM, ..1296],
+              stoptab: ~[0.0, ..1296], objs: ~[], shorten: ~[],
+              originoffset: 0.0, keysplit: 0, keyorder: ~[],
+              keykind: ~[None, ..72] }
+    }
+
+    /// Converts a single alphanumeric (base-36) letter to an integer.
+    /// (C: `getdigit`)
+    pure fn getdigit(n: char) -> Option<int> {
+        match n {
+            '0'..'9' => Some((n as int) - ('0' as int)),
+            'a'..'z' => Some((n as int) - ('a' as int) + 10),
+            'A'..'Z' => Some((n as int) - ('A' as int) + 10),
+            _ => None
+        }
     }
 
     /// Converts the first two letters of `s` to a key. (C: `key2index`)
-    pub pure fn key2index(s: &str) -> Option<int> {
-        /// Converts a single alphanumeric (base-36) letter to an integer.
-        /// (C: `getdigit`)
-        pure fn getdigit(n: char) -> Option<int> {
-            match n {
-                '0'..'9' => Some((n as int) - ('0' as int)),
-                'a'..'z' => Some((n as int) - ('a' as int) + 10),
-                'A'..'Z' => Some((n as int) - ('A' as int) + 10),
-                _ => None
-            }
+    pub pure fn key2index(s: &[char]) -> Option<int> {
+        assert s.len() >= 2;
+        do getdigit(s[0]).chain_ref |&a| {
+            do getdigit(s[1]).map |&b| { a * 36 + b }
         }
+    }
 
+    /// Converts the first two letters of `s` to a key. (C: `key2index`)
+    pub pure fn key2index_str(s: &str) -> Option<int> {
         assert s.len() >= 2;
         let str::CharRange {ch:c1, next:p1} = str::char_range_at(s, 0);
         do getdigit(c1).chain_ref |&a| {
             let str::CharRange {ch:c2, next:p2} = str::char_range_at(s, p1);
             do getdigit(c2).map |&b| {
-                assert p2 == 2;
+                assert p2 == 2; // both characters should be in ASCII
                 a * 36 + b
             }
         }
@@ -446,11 +607,14 @@ pub mod parser {
     // - `float [-> e2]`: Consumes a real number and optionally saves it to
     //   `e2`. (C: `%f` etc.) Again, the real number syntax is slightly
     //   limited; especially an exponent support is missing.
+    // - `str [-> e2]`: Consumes a remaining input as a string and optionally
+    //   saves it to `e2`. The string is at least one character long.
+    //   (C: not really maps to `sscanf`, similar to `fgets`) Implies `!`.
+    //   It can be followed by `ws*` which makes the string right-trimmed.
+    // - `str* [-> e2]`: Same as above but the string can be empty.
     // - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
     //   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
     //   followed by a call to `key2index`)
-    // - `str [-> e2]`: Consumes a remaining input as a string and optionally
-    //   saves it to `e2`. (C: `%s` etc.) Implies `!`.
     // - `!`: Ensures that the entire string has been consumed. Should be the
     //   last format specification.
     // - `"foo"` etc.: An ordinary expression is treated as a literal string
@@ -483,7 +647,6 @@ pub mod parser {
         });
         ($e:expr; uint -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            // Rust: ditto.
             do _line.scan_uint().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
                 do uint::from_str(_prefix).map_default(false) |&_value| {
@@ -494,7 +657,6 @@ pub mod parser {
         });
         ($e:expr; float -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            // Rust: ditto.
             do _line.scan_float().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
                 do float::from_str(_prefix).map_default(false) |&_value| {
@@ -503,18 +665,55 @@ pub mod parser {
                 }
             }
         });
+        ($e:expr; str -> $dst:expr, ws*, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            if !_line.is_empty() {
+                $dst = _line.trim_right();
+                lex!(""; $($tail)*) // optimization!
+            } else {
+                false
+            }
+        });
         ($e:expr; str -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            if !_line.is_empty() {
+                $dst = _line.to_owned();
+                lex!(""; $($tail)*) // optimization!
+            } else {
+                false
+            }
+        });
+        ($e:expr; str* -> $dst:expr, ws*, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            $dst = _line.trim_right();
+            lex!(""; $($tail)*) // optimization!
+        });
+        ($e:expr; str* -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             $dst = _line.to_owned();
             lex!(""; $($tail)*) // optimization!
         });
+        // start Angolmois-specific
         ($e:expr; Key -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            do key2index(_line).map_default(false) |&_value| {
+            do key2index_str(_line).map_default(false) |&_value| {
                 $dst = Key(_value);
                 lex!(_line.slice_to_end(2u); $($tail)*)
             }
         });
+        ($e:expr; Measure -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            let _isdigit = |c| { '0' <= c && c <= '9' };
+            // Rust: this is plain annoying.
+            if _line.len() >= 3 && _isdigit(_line.char_at(0)) &&
+               _isdigit(_line.char_at(1)) && _isdigit(_line.char_at(2)) {
+                $dst = int::from_str(_line.slice(0u, 3u)).unwrap();
+                lex!(_line.slice_to_end(3u); $($tail)*)
+            } else {
+                false
+            }
+        });
+        // end Angolmois-specific
 
         ($e:expr; ws, $($tail:tt)*) => ({
             let _line: &str = $e;
@@ -541,8 +740,21 @@ pub mod parser {
             lex!($e; float -> _dummy, $($tail)*)
         });
         ($e:expr; str, $($tail:tt)*) => ({
+            !$e.is_empty() && lex!(""; $($tail)*) // optimization!
+        });
+        ($e:expr; str*, $($tail:tt)*) => ({
             lex!(""; $($tail)*) // optimization!
         });
+        // start Angolmois-specific
+        ($e:expr; Key, $($tail:tt)*) => ({
+            let mut _dummy: Key = Key(0);
+            lex!($e; Key -> _dummy, $($tail)*)
+        });
+        ($e:expr; Measure, $($tail:tt)*) => ({
+            let mut _dummy: int = 0;
+            lex!($e; Measure -> _dummy, $($tail)*)
+        });
+        // end Angolmois-specific
         ($e:expr; $lit:expr, $($tail:tt)*) => ({
             do $lit.prefix_shifted($e).map_default(false) |&_line| {
                 lex!(_line; $($tail)*)
@@ -553,38 +765,52 @@ pub mod parser {
         ($e:expr; uint -> $dst:expr) => (lex!($e; uint -> $dst, ));
         ($e:expr; float -> $dst:expr) => (lex!($e; float -> $dst, ));
         ($e:expr; str -> $dst:expr) => (lex!($e; str -> $dst, ));
+        ($e:expr; str -> $dst:expr, ws*) => (lex!($e; str -> $dst, ws*, ));
+        ($e:expr; str* -> $dst:expr) => (lex!($e; str* -> $dst, ));
+        ($e:expr; str* -> $dst:expr, ws*) => (lex!($e; str* -> $dst, ws*, ));
+        // start Angolmois-specific
         ($e:expr; Key -> $dst:expr) => (lex!($e; Key -> $dst, ));
+        ($e:expr; Measure -> $dst:expr) => (lex!($e; Measure -> $dst, ));
+        // end Angolmois-specific
+
         ($e:expr; ws) => (lex!($e; ws, ));
         ($e:expr; ws*) => (lex!($e; ws*, ));
         ($e:expr; int) => (lex!($e; int, ));
         ($e:expr; uint) => (lex!($e; uint, ));
         ($e:expr; float) => (lex!($e; float, ));
         ($e:expr; str) => (lex!($e; str, ));
+        ($e:expr; str*) => (lex!($e; str*, ));
+        // start Angolmois-specific
         ($e:expr; Key) => (lex!($e; Key, ));
+        ($e:expr; Measure) => (lex!($e; Measure, ));
+        // end Angolmois-specific
         ($e:expr; $lit:expr) => (lex!($e; $lit, ))
     )
 
-    pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Bms {
+    /// Reads and parses the BMS file with given RNG from given reader.
+    pub fn parse_bms_from_reader(bmspath: &str, f: @io::Reader,
+                                 r: @rand::Rng) -> Result<Bms,~str> {
+        // (C: bmsheader)
         let bmsheader = [
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
             "PLAYER", "PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP",
             "BGA", "STOP", "STP", "RANDOM", "SETRANDOM", "ENDRANDOM", "IF",
             "ELSEIF", "ELSE", "ENDSW", "END"];
 
-        let f =
-            match io::file_reader(&Path(bmspath)) {
-                Ok(f) => f,
-                Err(err) => die!("Couldn't load BMS file: %s", err)
-            };
         let mut bms = Bms();
 
         enum RndState { Process = 0, Ignore = 1, NoFurther = -1 }
         struct Rnd { val: int, inside: bool, state: RndState, skip: bool }
-        let rnd = ~[Rnd { val: 0, inside: false, state: Process, skip: false }];
+        let rnd = ~[Rnd { val: 0, inside: false,
+                          state: Process, skip: false }];
+
+        struct BmsLine { measure: int, chan: Key, data: ~[Key] }
+        let mut bmsline = ~[]; // (C: `bmsline`)
 
         let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
         for lines.each |&line| {
-            let mut line = ::util::str::from_fixed_utf8_bytes(line, |_| ~"\ufffd");
+            let mut line =
+                ::util::str::from_fixed_utf8_bytes(line, |_| ~"\ufffd");
             line = line.trim_left();
             if !line.starts_with(~"#") { loop; }
             line = line.slice_to_end(1);
@@ -592,41 +818,46 @@ pub mod parser {
             let mut prefix = "";
             for bmsheader.each |&header| {
                 if line.len() >= header.len() &&
-                   line.substr(0, header.len()).to_upper() == header.to_owned() {
+                   line.slice(0, header.len()).to_upper()
+                        == header.to_owned() {
                     prefix = header;
                     line = line.slice_to_end(header.len());
                     break;
                 }
             }
 
-            macro_rules! read_string(
-                ($string:ident) =>
-                    ({
-                        let mut text = ~"";
-                        if lex!(line; ws, str -> text, !) {
-                            bms.$string = Some(text.trim_right());
-                        }
-                    })
+            macro_rules! read(
+                (string $string:ident) => ({
+                    let mut text = ~"";
+                    if lex!(line; ws, str* -> text, ws*, !) {
+                        bms.$string = Some(text);
+                    }
+                });
+                (value $value:ident) => ({
+                    lex!(line; ws, int -> bms.$value);
+                });
+                (path $paths:ident) => ({
+                    let mut key = Key(-1), path = ~"";
+                    if lex!(line; Key -> key, ws, str -> path, ws*, !) {
+                        let Key(key) = key;
+                        bms.$paths[key] = Some(path);
+                    }
+                })
             )
 
             let state = if rnd.last().skip { Ignore }
                         else { rnd.last().state };
             match (prefix, state) {
-                // #TITLE <string>
-                ("TITLE", Process) => read_string!(title),
-                // #GENRE <string>
-                ("GENRE", Process) => read_string!(genre),
-                // #ARTIST <string>
-                ("ARTIST", Process) => read_string!(artist),
-                // #STAGEFILE <path>
-                ("STAGEFILE", Process) => read_string!(stagefile),
-                // #PATH_FILE <path>
-                ("PATH_WAV", Process) => read_string!(basepath),
+                // #TITLE|#GENRE|#ARTIST|#STAGEFILE|#PATH_WAV <string>
+                ("TITLE", Process) => read!(string title),
+                ("GENRE", Process) => read!(string genre),
+                ("ARTIST", Process) => read!(string artist),
+                ("STAGEFILE", Process) => read!(string stagefile),
+                ("PATH_WAV", Process) => read!(string basepath),
 
                 // #BPM <float> or #BPMxx <float>
                 ("BPM", Process) => {
-                    let mut bpm: float = 130.0;
-                    let mut key: Key = Key(-1);
+                    let mut key = Key(-1), bpm = DefaultBPM;
                     if lex!(line; Key -> key, ws, float -> bpm) {
                         let Key(key) = key; bms.bpmtab[key] = bpm;
                     } else if lex!(line; ws, float -> bpm) {
@@ -634,101 +865,154 @@ pub mod parser {
                     }
                 }
 
-                // #PLAYER <int>
-                ("PLAYER", Process) => {
-                    lex!(line; ws, int -> bms.player);
-                }
-                // #PLAYLEVEL <int>
-                ("PLAYLEVEL", Process) => {
-                    lex!(line; ws, int -> bms.playlevel);
-                }
-                // #RANK <int>
-                ("RANK", Process) => {
-                    lex!(line; ws, int -> bms.rank);
-                }
+                // #PLAYER|#PLAYLEVEL|#RANK <int>
+                ("PLAYER", Process) => read!(value player),
+                ("PLAYLEVEL", Process) => read!(value playlevel),
+                ("RANK", Process) => read!(value rank),
+
                 // #LNTYPE <int>
                 ("LNTYPE", Process) => {
-                    lex!(line; ws, int -> bms.lntype);
+                    let mut lntype = 1;
+                    if lex!(line; ws, int -> lntype) {
+                        bms.consecutiveln = (lntype == 2);
+                    }
                 }
-
                 // #LNOBJ <key>
                 ("LNOBJ", Process) => {
-                    let mut key: Key = Key(-1);
+                    let mut key = Key(-1);
                     if lex!(line; ws, Key -> key) { bms.lnobj = Some(key); }
                 }
 
-                ("WAV", Process) |
-                ("BMP", Process) => {
-                    io::println("WAV|BMP");
-                }
+                // #WAVxx|#BMPxx <path>
+                ("WAV", Process) => read!(path sndpath),
+                ("BMP", Process) => read!(path imgpath),
+
+                // #BGAxx yy <int> <int> <int> <int> <int> <int>
                 ("BGA", Process) => {
-                    io::println("BGA");
+                    let mut dst = Key(0), src = Key(0);
+                    let mut bc = BlitCmd {
+                        dst: ImageRef(Key(0)), src: ImageRef(Key(0)),
+                        x1: 0, y1: 0, x2: 0, y2: 0, dx: 0, dy: 0 };
+                    if lex!(line; Key -> dst, ws, Key -> src, ws,
+                            int -> bc.x1, ws, int -> bc.y1, ws,
+                            int -> bc.x2, ws, int -> bc.y2, ws,
+                            int -> bc.dx, ws, int -> bc.dy) {
+                        bc.src = ImageRef(src);
+                        bc.dst = ImageRef(dst);
+                        bms.blitcmd.push(bc);
+                    }
                 }
+
+                // #STOPxx <int>
                 ("STOP", Process) => {
-                    io::println("STOP");
+                    let mut key = Key(-1), duration = 0;
+                    if lex!(line; Key -> key, ws, int -> duration) {
+                        let Key(key) = key;
+                        bms.stoptab[key] = duration as float / 192.0;
+                    }
                 }
+
+                // #STP<int>.<int> <int>
                 ("STP", Process) => {
-                    io::println("STP");
+                    let mut measure = 0, frac = 0, duration = 0;
+                    if lex!(line; Measure -> measure, '.', uint -> frac, ws,
+                            int -> duration) {
+                        // TODO
+                        io::println("STP");
+                    }
                 }
+
+                // #RANDOM <int>
                 ("RANDOM", _) |
+                // #SETRANDOM <int>
                 ("SETRANDOM", _) => {
                     io::println("RANDOM|SETRANDOM");
                 }
+
+                // #ENDRANDOM
                 ("ENDRANDOM", _) => {
                     io::println("ENDRANDOM");
                 }
+
+                // #IF <int>
                 ("IF", _) |
+                // #ELSEIF <int>
                 ("ELSEIF", _) => {
                     io::println("IF|ELSEIF");
                 }
+
+                // #ELSE <int>
                 ("ELSE", _) => {
                     io::println("ELSE");
                 }
+
+                // #END(IF)
                 ("END", _) => {
                     io::println("END");
                 }
+
+                // #nnnmm:...
                 ("", Process) => {
-                    io::println("##### (possibly)");
+                    let mut measure = 0, chan = Key(0), data = ~"";
+                    if lex!(line; Measure -> measure, Key -> chan, ':',
+                            ws*, str -> data, ws*, !) {
+                        let data = str::chars(data);
+                        let max = data.len() / 2 * 2;
+                        let mut values = ~[];
+                        for uint::range_step(0, max, 2) |i| {
+                            let v = key2index(data.view(i, i+2));
+                            values.push(Key(v.get_or_default(-1)));
+                        }
+                        bmsline.push(BmsLine { measure: measure, chan: chan,
+                                               data: values })
+                    }
                 }
+
                 (_, _) => ()
             }
         }
 
-        ::core::repr::write_repr(io::stdout(), &bms);
-        bms
+        //::core::repr::write_repr(io::stdout(), &bmsline);
+        Ok(bms)
     }
 
+    /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
+    pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Result<Bms,~str> {
+        do io::file_reader(&Path(bmspath)).chain |f| {
+            parse_bms_from_reader(bmspath, f, r)
+        }
+    }
 }
 
-//==============================================================================
+//============================================================================
 // game play
 
 pub mod player {
 
     pub enum Mode { PlayMode, AutoPlayMode, ExclusiveMode }
-    pub enum Modf { NoModf, MirrorModf, ShuffleModf, ShuffleExModf, RandomModf, RandomExModf }
+    pub enum Modf { NoModf, MirrorModf, ShuffleModf, ShuffleExModf,
+                    RandomModf, RandomExModf }
     pub enum Bga { BgaAndMovie, BgaButNoMovie, NoBga }
 
     pub struct Options {
-        mut bmspath: Option<~str>,
-        mut mode: Mode,
-        mut modf: Modf,
-        mut bga: Bga,
-        mut showinfo: bool,
-        mut fullscreen: bool,
-        mut joystick: Option<int>,
-        mut preset: Option<~str>,
-        mut leftkeys: Option<~str>,
-        mut rightkeys: Option<~str>,
-        mut playspeed: float,
+        bmspath: Option<~str>,
+        mode: Mode,
+        modf: Modf,
+        bga: Bga,
+        showinfo: bool,
+        fullscreen: bool,
+        joystick: Option<int>,
+        preset: Option<~str>,
+        leftkeys: Option<~str>,
+        rightkeys: Option<~str>,
+        playspeed: float,
     }
 
-    pub impl Options {
-        static pure fn new() -> ~Options {
-            ~Options { bmspath: None, mode: PlayMode, modf: NoModf, bga: BgaAndMovie,
-                       showinfo: true, fullscreen: true, joystick: None,
-                       preset: None, leftkeys: None, rightkeys: None, playspeed: 1.0 }
-        }
+    pub pure fn Options() -> ~Options {
+        ~Options { bmspath: None, mode: PlayMode, modf: NoModf,
+                   bga: BgaAndMovie, showinfo: true, fullscreen: true,
+                   joystick: None, preset: None, leftkeys: None,
+                   rightkeys: None, playspeed: 1.0 }
     }
 
     use core::repr;
@@ -737,15 +1021,42 @@ pub mod player {
         io::println("");
 
         let r = rand::task_rng();
-        match opts.bmspath {
-            Some(copy path) => ::parser::parse_bms(path, r),
+        let bms = match opts.bmspath {
+            Some(copy path) =>
+                match ::parser::parse_bms(path, r) {
+                    Ok(bms) => bms,
+                    Err(err) => die!("Couldn't load BMS file: %s", err)
+                },
             None => fail!(~"TODO")
         };
+        //::core::repr::write_repr(io::stdout(), &bms);
+
+        let bmspath = Path(copy *opts.bmspath.get_ref()).dir_path();
+        do ::sdl::start {
+            ::sdl::init([::sdl::InitAudio]);
+            ::sdl::mixer::open(44100,
+                               ::sdl::audio::S16AudioFormat,
+                               ::sdl::audio::Stereo,
+                               2048);
+            for bms.sndpath.each |&path| {
+                do path.iter |&path| {
+                    let path = bmspath.push_rel(&Path(str::replace(path,~".wav",~".ogg")));
+                    match ::sdl::mixer::Chunk::from_wav(&path) {
+                        Ok(chunk) => {
+                            chunk.play(None, 0);
+                            while ::sdl::mixer::playing(None) { }
+                        },
+                        Err(err) => io::println(err)
+                    }
+                }
+            }
+            ::sdl::mixer::close();
+        }
     }
 
 }
 
-//==============================================================================
+//============================================================================
 // entry point
 
 /// Prints the usage. (C: `usage`)
@@ -807,17 +1118,17 @@ fn main() {
     let longargs = std::oldmap::hash_from_vec::<~str,char>([
         (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
         (~"--autoplay", 'v'), (~"--exclusive", 'x'), (~"--sound-only", 'X'),
-        (~"--windowed", 'w'), (~"--no-fullscreen", 'w'), (~"--fullscreen", ' '),
-        (~"--info", ' '), (~"--no-info", 'q'), (~"--mirror", 'm'),
-        (~"--shuffle", 's'), (~"--shuffle-ex", 'S'), (~"--random", 'r'),
-        (~"--random-ex", 'R'), (~"--preset", 'k'), (~"--key-spec", 'K'),
-        (~"--bga", ' '), (~"--no-bga", 'B'), (~"--movie", ' '),
-        (~"--no-movie", 'M'), (~"--joystick", 'j'),
+        (~"--windowed", 'w'), (~"--no-fullscreen", 'w'),
+        (~"--fullscreen", ' '), (~"--info", ' '), (~"--no-info", 'q'),
+        (~"--mirror", 'm'), (~"--shuffle", 's'), (~"--shuffle-ex", 'S'),
+        (~"--random", 'r'), (~"--random-ex", 'R'), (~"--preset", 'k'),
+        (~"--key-spec", 'K'), (~"--bga", ' '), (~"--no-bga", 'B'),
+        (~"--movie", ' '), (~"--no-movie", 'M'), (~"--joystick", 'j'),
     ]);
 
     let args = os::args();
     let nargs = args.len();
-    let opts = Options::new();
+    let mut opts = Options();
 
     let mut i = 1;
     while i < nargs {
