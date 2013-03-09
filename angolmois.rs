@@ -38,6 +38,7 @@
 // * (C: ...) - variable/function corresponds to given name in the C code.
 // * Rust: ... - suboptimal translation with a room for improvement in Rust.
 //   often contains a Rust issue number like #1234.
+// * XXX - should be fixed as soon as Rust issue is gone.
 
 #[link(name = "angolmois",
        vers = "2.0-alpha2",
@@ -82,6 +83,7 @@ macro_rules! die(
 )
 
 /// Utility functions.
+#[macro_escape]
 pub mod util {
 
     /// String utilities for Rust. Parallels to `core::str`.
@@ -117,7 +119,7 @@ pub mod util {
                     j += 1u;
                 }
                 if j == chend {
-                    assert i != chend;
+                    fail_unless!(i != chend);
                     result = vec::append(result, v.view(i, j));
                 } else {
                     result = vec::append(result, handler(v.view(i, j)));
@@ -149,7 +151,9 @@ pub mod util {
         /// `uint::from_str` accepts without a failure, if any.
         pub pure fn scan_uint(s: &str) -> Option<uint> {
             match str::find(s, |c| !('0' <= c && c <= '9')) {
-                Some(first) if first > 0u => Some(first), _ => None
+                Some(first) if first > 0u => Some(first),
+                None if s.len() > 0u => Some(s.len()),
+                _ => None
             }
         }
 
@@ -167,7 +171,7 @@ pub mod util {
         /// `float::from_str` accepts without a failure, if any.
         pub pure fn scan_float(s: &str) -> Option<uint> {
             do scan_int(s).chain_ref |&pos| {
-                if s.len() >= pos && s.char_at(pos) == '.' {
+                if s.len() > pos && s.char_at(pos) == '.' {
                     let pos2 = scan_uint(s.slice_to_end(pos + 1u));
                     pos2.map(|&pos2| pos + pos2 + 1u)
                 } else {
@@ -207,7 +211,7 @@ pub mod util {
             pure fn scan_float(self) -> Option<uint>;
         }
 
-        impl StrUtil for &str {
+        impl StrUtil for &'self str {
             pure fn slice_to_end(self, begin: uint) -> ~str {
                 self.slice(begin, self.len())
             }
@@ -242,7 +246,7 @@ pub mod util {
             }
         }
 
-        impl ShiftablePrefix for &str {
+        impl ShiftablePrefix for &'self str {
             pure fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if s.starts_with(*self) {
                     Some(s.slice_to_end(self.len()))
@@ -295,204 +299,202 @@ pub mod util {
         }
     }
 
-}
+    // A lexer barely powerful enough to parse BMS format. Comparable to
+    // C's `sscanf`.
+    //
+    // `lex!(e; fmt1, fmt2, ..., fmtN)` returns an expression that evaluates
+    // to true if and only if all format specification is consumed. The format
+    // specification (analogous to `sscanf`'s `%`-string) is as follows:
+    //
+    // - `ws`: Consumes one or more whitespace. (C: `%*[ \t\r\n]` or similar)
+    // - `ws*`: Consumes zero or more whitespace. (C: ` `)
+    // - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`.
+    //   (C: `%d` and `%*d`, but does not consume preceding whitespace)
+    //   The integer syntax is slightly limited compared to `sscanf`.
+    // - `float [-> e2]`: Consumes a real number and optionally saves it to
+    //   `e2`. (C: `%f` etc.) Again, the real number syntax is slightly
+    //   limited; especially an exponent support is missing.
+    // - `str [-> e2]`: Consumes a remaining input as a string and optionally
+    //   saves it to `e2`. The string is at least one character long.
+    //   (C: not really maps to `sscanf`, similar to `fgets`) Implies `!`.
+    //   It can be followed by `ws*` which makes the string right-trimmed.
+    // - `str* [-> e2]`: Same as above but the string can be empty.
+    // - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
+    //   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
+    //   followed by a call to `key2index`)
+    // - `!`: Ensures that the entire string has been consumed. Should be the
+    //   last format specification.
+    // - `"foo"` etc.: An ordinary expression is treated as a literal string
+    //   or literal character.
+    //
+    // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex
+    //         support will make this useless in the future, but not now.
+    //       - multiple statements do not expand correctly. (#4375)
+    //       - it is desirable to have a matcher only accepts an integer
+    //         literal or string literal, not a generic expression.
+    //       - no hygienic macro yet. possibly observable names from `$e`
+    //         should be escaped for now.
+    //       - it would be more useful to generate bindings for parsed result.
+    //         this is related to many issues in general.
+    macro_rules! lex(
+        ($e:expr; ) => (true);
+        ($e:expr; !) => ($e.is_empty());
 
-// A lexer barely powerful enough to parse BMS format. Comparable to
-// C's `sscanf`.
-//
-// `lex!(e; fmt1, fmt2, ..., fmtN)` returns an expression that evaluates
-// to true if and only if all format specification is consumed. The format
-// specification (analogous to `sscanf`'s `%`-string) is as follows:
-//
-// - `ws`: Consumes one or more whitespace. (C: `%*[ \t\r\n]` or similar)
-// - `ws*`: Consumes zero or more whitespace. (C: ` `)
-// - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`.
-//   (C: `%d` and `%*d`, but does not consume preceding whitespace)
-//   The integer syntax is slightly limited compared to `sscanf`.
-// - `float [-> e2]`: Consumes a real number and optionally saves it to
-//   `e2`. (C: `%f` etc.) Again, the real number syntax is slightly
-//   limited; especially an exponent support is missing.
-// - `str [-> e2]`: Consumes a remaining input as a string and optionally
-//   saves it to `e2`. The string is at least one character long.
-//   (C: not really maps to `sscanf`, similar to `fgets`) Implies `!`.
-//   It can be followed by `ws*` which makes the string right-trimmed.
-// - `str* [-> e2]`: Same as above but the string can be empty.
-// - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
-//   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
-//   followed by a call to `key2index`)
-// - `!`: Ensures that the entire string has been consumed. Should be the
-//   last format specification.
-// - `"foo"` etc.: An ordinary expression is treated as a literal string
-//   or literal character.
-//
-// Rust: - there is no `libc::sscanf` due to the varargs. maybe regex
-//         support will make this useless in the future, but not now.
-//       - we cannot put this to `util` module since there is no macro
-//         export. (#3114)
-//       - multiple statements do not expand correctly. (#4375)
-//       - it is desirable to have a matcher only accepts an integer
-//         literal or string literal, not a generic expression.
-//       - no hygienic macro yet. possibly observable names from `$e`
-//         should be escaped for now.
-//       - it would be more useful to generate bindings for parsed result.
-//         this is related to many issues in general.
-macro_rules! lex(
-    ($e:expr; ) => (true);
-    ($e:expr; !) => ($e.is_empty());
-
-    ($e:expr; int -> $dst:expr, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        // Rust: num::from_str_bytes_common does not recognize a number
-        // followed by garbage, so we need to parse it ourselves.
-        do _line.scan_int().map_default(false) |&_endpos| {
-            let _prefix = _line.slice(0, _endpos);
-            do int::from_str(_prefix).map_default(false) |&_value| {
-                $dst = _value;
-                lex!(_line.slice_to_end(_endpos); $($tail)*)
+        ($e:expr; int -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            // Rust: num::from_str_bytes_common does not recognize a number
+            // followed by garbage, so we need to parse it ourselves.
+            do _line.scan_int().map_default(false) |&_endpos| {
+                let _prefix = _line.slice(0, _endpos);
+                do int::from_str(_prefix).map_default(false) |&_value| {
+                    $dst = _value;
+                    lex!(_line.slice_to_end(_endpos); $($tail)*)
+                }
             }
-        }
-    });
-    ($e:expr; uint -> $dst:expr, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        do _line.scan_uint().map_default(false) |&_endpos| {
-            let _prefix = _line.slice(0, _endpos);
-            do uint::from_str(_prefix).map_default(false) |&_value| {
-                $dst = _value;
-                lex!(_line.slice_to_end(_endpos); $($tail)*)
+        });
+        ($e:expr; uint -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            do _line.scan_uint().map_default(false) |&_endpos| {
+                let _prefix = _line.slice(0, _endpos);
+                do uint::from_str(_prefix).map_default(false) |&_value| {
+                    $dst = _value;
+                    lex!(_line.slice_to_end(_endpos); $($tail)*)
+                }
             }
-        }
-    });
-    ($e:expr; float -> $dst:expr, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        do _line.scan_float().map_default(false) |&_endpos| {
-            let _prefix = _line.slice(0, _endpos);
-            do float::from_str(_prefix).map_default(false) |&_value| {
-                $dst = _value;
-                lex!(_line.slice_to_end(_endpos); $($tail)*)
+        });
+        ($e:expr; float -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            do _line.scan_float().map_default(false) |&_endpos| {
+                let _prefix = _line.slice(0, _endpos);
+                do float::from_str(_prefix).map_default(false) |&_value| {
+                    $dst = _value;
+                    lex!(_line.slice_to_end(_endpos); $($tail)*)
+                }
             }
-        }
-    });
-    ($e:expr; str -> $dst:expr, ws*, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        if !_line.is_empty() {
+        });
+        ($e:expr; str -> $dst:expr, ws*, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            if !_line.is_empty() {
+                $dst = _line.trim_right();
+                lex!(""; $($tail)*) // optimization!
+            } else {
+                false
+            }
+        });
+        ($e:expr; str -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            if !_line.is_empty() {
+                $dst = _line.to_owned();
+                lex!(""; $($tail)*) // optimization!
+            } else {
+                false
+            }
+        });
+        ($e:expr; str* -> $dst:expr, ws*, $($tail:tt)*) => ({
+            let _line: &str = $e;
             $dst = _line.trim_right();
             lex!(""; $($tail)*) // optimization!
-        } else {
-            false
-        }
-    });
-    ($e:expr; str -> $dst:expr, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        if !_line.is_empty() {
+        });
+        ($e:expr; str* -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
             $dst = _line.to_owned();
             lex!(""; $($tail)*) // optimization!
-        } else {
-            false
-        }
-    });
-    ($e:expr; str* -> $dst:expr, ws*, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        $dst = _line.trim_right();
-        lex!(""; $($tail)*) // optimization!
-    });
-    ($e:expr; str* -> $dst:expr, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        $dst = _line.to_owned();
-        lex!(""; $($tail)*) // optimization!
-    });
-    // start Angolmois-specific
-    ($e:expr; Key -> $dst:expr, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        do key2index_str(_line).map_default(false) |&_value| {
-            $dst = Key(_value);
-            lex!(_line.slice_to_end(2u); $($tail)*)
-        }
-    });
-    ($e:expr; Measure -> $dst:expr, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        let _isdigit = |c| { '0' <= c && c <= '9' };
-        // Rust: this is plain annoying.
-        if _line.len() >= 3 && _isdigit(_line.char_at(0)) &&
-           _isdigit(_line.char_at(1)) && _isdigit(_line.char_at(2)) {
-            $dst = int::from_str(_line.slice(0u, 3u)).unwrap();
-            lex!(_line.slice_to_end(3u); $($tail)*)
-        } else {
-            false
-        }
-    });
-    // end Angolmois-specific
+        });
+        // start Angolmois-specific
+        ($e:expr; Key -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            do key2index_str(_line).map_default(false) |&_value| {
+                $dst = Key(_value);
+                lex!(_line.slice_to_end(2u); $($tail)*)
+            }
+        });
+        ($e:expr; Measure -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            let _isdigit = |c| { '0' <= c && c <= '9' };
+            // Rust: this is plain annoying.
+            if _line.len() >= 3 && _isdigit(_line.char_at(0)) &&
+               _isdigit(_line.char_at(1)) && _isdigit(_line.char_at(2)) {
+                $dst = int::from_str(_line.slice(0u, 3u)).unwrap();
+                lex!(_line.slice_to_end(3u); $($tail)*)
+            } else {
+                false
+            }
+        });
+        // end Angolmois-specific
 
-    ($e:expr; ws, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        if !_line.is_empty() && char::is_whitespace(_line.char_at(0)) {
+        ($e:expr; ws, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            if !_line.is_empty() && char::is_whitespace(_line.char_at(0)) {
+                lex!(str::trim_left(_line); $($tail)*)
+            } else {
+                false
+            }
+        });
+        ($e:expr; ws*, $($tail:tt)*) => ({
+            let _line: &str = $e;
             lex!(str::trim_left(_line); $($tail)*)
-        } else {
-            false
-        }
-    });
-    ($e:expr; ws*, $($tail:tt)*) => ({
-        let _line: &str = $e;
-        lex!(str::trim_left(_line); $($tail)*)
-    });
-    ($e:expr; int, $($tail:tt)*) => ({
-        let mut _dummy: int = 0;
-        lex!($e; int -> _dummy, $($tail)*)
-    });
-    ($e:expr; uint, $($tail:tt)*) => ({
-        let mut _dummy: uint = 0;
-        lex!($e; uint -> _dummy, $($tail)*)
-    });
-    ($e:expr; float, $($tail:tt)*) => ({
-        let mut _dummy: float = 0.0;
-        lex!($e; float -> _dummy, $($tail)*)
-    });
-    ($e:expr; str, $($tail:tt)*) => ({
-        !$e.is_empty() && lex!(""; $($tail)*) // optimization!
-    });
-    ($e:expr; str*, $($tail:tt)*) => ({
-        lex!(""; $($tail)*) // optimization!
-    });
-    // start Angolmois-specific
-    ($e:expr; Key, $($tail:tt)*) => ({
-        let mut _dummy: Key = Key(0);
-        lex!($e; Key -> _dummy, $($tail)*)
-    });
-    ($e:expr; Measure, $($tail:tt)*) => ({
-        let mut _dummy: int = 0;
-        lex!($e; Measure -> _dummy, $($tail)*)
-    });
-    // end Angolmois-specific
-    ($e:expr; $lit:expr, $($tail:tt)*) => ({
-        do $lit.prefix_shifted($e).map_default(false) |&_line| {
-            lex!(_line; $($tail)*)
-        }
-    });
+        });
+        ($e:expr; int, $($tail:tt)*) => ({
+            let mut _dummy: int = 0;
+            lex!($e; int -> _dummy, $($tail)*)
+        });
+        ($e:expr; uint, $($tail:tt)*) => ({
+            let mut _dummy: uint = 0;
+            lex!($e; uint -> _dummy, $($tail)*)
+        });
+        ($e:expr; float, $($tail:tt)*) => ({
+            let mut _dummy: float = 0.0;
+            lex!($e; float -> _dummy, $($tail)*)
+        });
+        ($e:expr; str, $($tail:tt)*) => ({
+            !$e.is_empty() && lex!(""; $($tail)*) // optimization!
+        });
+        ($e:expr; str*, $($tail:tt)*) => ({
+            lex!(""; $($tail)*) // optimization!
+        });
+        // start Angolmois-specific
+        ($e:expr; Key, $($tail:tt)*) => ({
+            let mut _dummy: Key = Key(0);
+            lex!($e; Key -> _dummy, $($tail)*)
+        });
+        ($e:expr; Measure, $($tail:tt)*) => ({
+            let mut _dummy: int = 0;
+            lex!($e; Measure -> _dummy, $($tail)*)
+        });
+        // end Angolmois-specific
+        ($e:expr; $lit:expr, $($tail:tt)*) => ({
+            do $lit.prefix_shifted($e).map_default(false) |&_line| {
+                lex!(_line; $($tail)*)
+            }
+        });
 
-    ($e:expr; int -> $dst:expr) => (lex!($e; int -> $dst, ));
-    ($e:expr; uint -> $dst:expr) => (lex!($e; uint -> $dst, ));
-    ($e:expr; float -> $dst:expr) => (lex!($e; float -> $dst, ));
-    ($e:expr; str -> $dst:expr) => (lex!($e; str -> $dst, ));
-    ($e:expr; str -> $dst:expr, ws*) => (lex!($e; str -> $dst, ws*, ));
-    ($e:expr; str* -> $dst:expr) => (lex!($e; str* -> $dst, ));
-    ($e:expr; str* -> $dst:expr, ws*) => (lex!($e; str* -> $dst, ws*, ));
-    // start Angolmois-specific
-    ($e:expr; Key -> $dst:expr) => (lex!($e; Key -> $dst, ));
-    ($e:expr; Measure -> $dst:expr) => (lex!($e; Measure -> $dst, ));
-    // end Angolmois-specific
+        ($e:expr; int -> $dst:expr) => (lex!($e; int -> $dst, ));
+        ($e:expr; uint -> $dst:expr) => (lex!($e; uint -> $dst, ));
+        ($e:expr; float -> $dst:expr) => (lex!($e; float -> $dst, ));
+        ($e:expr; str -> $dst:expr) => (lex!($e; str -> $dst, ));
+        ($e:expr; str -> $dst:expr, ws*) => (lex!($e; str -> $dst, ws*, ));
+        ($e:expr; str* -> $dst:expr) => (lex!($e; str* -> $dst, ));
+        ($e:expr; str* -> $dst:expr, ws*) => (lex!($e; str* -> $dst, ws*, ));
+        // start Angolmois-specific
+        ($e:expr; Key -> $dst:expr) => (lex!($e; Key -> $dst, ));
+        ($e:expr; Measure -> $dst:expr) => (lex!($e; Measure -> $dst, ));
+        // end Angolmois-specific
 
-    ($e:expr; ws) => (lex!($e; ws, ));
-    ($e:expr; ws*) => (lex!($e; ws*, ));
-    ($e:expr; int) => (lex!($e; int, ));
-    ($e:expr; uint) => (lex!($e; uint, ));
-    ($e:expr; float) => (lex!($e; float, ));
-    ($e:expr; str) => (lex!($e; str, ));
-    ($e:expr; str*) => (lex!($e; str*, ));
-    // start Angolmois-specific
-    ($e:expr; Key) => (lex!($e; Key, ));
-    ($e:expr; Measure) => (lex!($e; Measure, ));
-    // end Angolmois-specific
-    ($e:expr; $lit:expr) => (lex!($e; $lit, ))
-)
+        ($e:expr; ws) => (lex!($e; ws, ));
+        ($e:expr; ws*) => (lex!($e; ws*, ));
+        ($e:expr; int) => (lex!($e; int, ));
+        ($e:expr; uint) => (lex!($e; uint, ));
+        ($e:expr; float) => (lex!($e; float, ));
+        ($e:expr; str) => (lex!($e; str, ));
+        ($e:expr; str*) => (lex!($e; str*, ));
+        // start Angolmois-specific
+        ($e:expr; Key) => (lex!($e; Key, ));
+        ($e:expr; Measure) => (lex!($e; Measure, ));
+        // end Angolmois-specific
+        ($e:expr; $lit:expr) => (lex!($e; $lit, ))
+    )
+
+}
 
 use core::io::{ReaderUtil, WriterUtil};
 
@@ -505,25 +507,25 @@ use util::io::*;
 /// BMS parser module.
 pub mod parser {
 
-    /// Two-letter alphanumeric identifier (henceforth "key") used for
-    /// virtually everything, including resource management, variable BPM and
-    /// chart specification.
+    /// Two-letter alphanumeric identifier (henceforth "alphanumeric key")
+    /// used for virtually everything, including resource management, variable
+    /// BPM and chart specification.
     #[deriving_eq]
     pub enum Key = int;
 
-    /// The number of all possible keys. (C: `MAXKEY`)
+    /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
     pub const MAXKEY: int = 36*36;
 
     pub impl Key {
-        /// Returns if the key is in the proper range. Angolmois supports
-        /// the full range of 00-ZZ (0-1295) for every case.
+        /// Returns if the alphanumeric key is in the proper range. Angolmois
+        /// supports the full range of 00-ZZ (0-1295) for every case.
         pure fn is_valid(self) -> bool {
             0 <= *self && *self < MAXKEY
         }
 
-        /// Re-reads the key as a hexadecimal number if possible. This is
-        /// required due to handling of channel #03 (BPM is expected to be
-        /// in hexadecimal).
+        /// Re-reads the alphanumeric key as a hexadecimal number if possible.
+        /// This is required due to handling of channel #03 (BPM is expected
+        /// to be in hexadecimal).
         pure fn to_hex(self) -> Option<int> {
             let sixteens = *self / 36, ones = *self % 36;
             if sixteens < 16 && ones < 16 { Some(sixteens * 16 + ones) }
@@ -532,6 +534,7 @@ pub mod parser {
     }
 
     impl Ord for Key {
+        // Rust: it is very easy to make an infinite recursion here.
         pure fn lt(&self, other: &Key) -> bool { **self < **other }
         pure fn le(&self, other: &Key) -> bool { **self <= **other }
         pure fn ge(&self, other: &Key) -> bool { **self >= **other }
@@ -539,23 +542,33 @@ pub mod parser {
     }
 
     impl ToStr for Key {
-        /// Returns a two-letter representation of key. (C: `TO_KEY`)
+        /// Returns a two-letter representation of alphanumeric key.
+        /// (C: `TO_KEY`)
         pure fn to_str(&self) -> ~str {
-            assert self.is_valid();
+            fail_unless!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
             fmt!("%c%c", map[*self / 36] as char, map[*self % 36] as char)
         }
     }
 
+    /// A game play element mapped to the single input element (for example,
+    /// button) and the screen area (henceforth "lane").
     #[deriving_eq]
-    pub struct Lane {
-        player: uint,
-        channel: uint
-    }
+    pub enum Lane = uint;
 
-    pub pure fn Lane(player: uint, channel: uint) -> Lane {
-        assert player < 2 && channel < 72;
-        Lane { player: player, channel: channel }
+    /// The maximum number of lanes. (C: `NNOTECHANS`)
+    pub const NLANES: uint = 72;
+
+    impl Lane {
+        /// Converts the channel number to the lane number.
+        static pub pure fn from_channel(chan: Key) -> Lane {
+            let player = match *chan / 36 {
+                1 | 3 | 5 | 0xD => 0,
+                2 | 4 | 6 | 0xE => 1,
+                _ => fail!(~"non-object channel")
+            };
+            Lane(player * 36 + *chan as uint % 36)
+        }
     }
 
     /// Sound reference.
@@ -585,10 +598,10 @@ pub mod parser {
     pub enum Damage { GaugeDamage(float), InstantDeath }
 
     pub enum ObjData {
-        /// Visible note. Sound is played when the key is input inside the
+        /// Visible object. Sound is played when the key is input inside the
         /// associated grading area. (C: `NOTE`)
         Visible(Lane, Option<SoundRef>),
-        /// Invisible note. Sound is played when the key is input inside the
+        /// Invisible object. Sound is played when the key is input inside the
         /// associated grading area. No render nor grading performed.
         /// (C: `INVNOTE`)
         Invisible(Lane, Option<SoundRef>),
@@ -622,7 +635,113 @@ pub mod parser {
         Stop(Duration)
     }
 
-    impl ObjData {
+    pub trait ObjOps {
+        pub pure fn is_visible(self) -> bool;
+        pub pure fn is_invisible(self) -> bool;
+        pub pure fn is_lnstart(self) -> bool;
+        pub pure fn is_lndone(self) -> bool;
+        pub pure fn is_ln(self) -> bool;
+        pub pure fn is_bomb(self) -> bool;
+        pub pure fn is_object(self) -> bool;
+        pub pure fn is_bgm(self) -> bool;
+        pub pure fn is_setbga(self) -> bool;
+        pub pure fn is_setbpm(self) -> bool;
+        pub pure fn is_stop(self) -> bool;
+
+        pub pure fn to_visible(self) -> Self;
+        pub pure fn to_invisible(self) -> Self;
+        pub pure fn to_lnstart(self) -> Self;
+        pub pure fn to_lndone(self) -> Self;
+
+        pub pure fn sounds(self) -> ~[SoundRef];
+        pub pure fn keydown_sound(self) -> Option<SoundRef>;
+        pub pure fn keyup_sound(self) -> Option<SoundRef>;
+        pub pure fn through_sound(self) -> Option<SoundRef>;
+        pub pure fn images(self) -> ~[ImageRef];
+        pub pure fn through_damage(self) -> Option<Damage>;
+    }
+
+    impl ObjOps for ObjData {
+        pub pure fn is_visible(self) -> bool {
+            match self { Visible(*) => true, _ => false }
+        }
+
+        pub pure fn is_invisible(self) -> bool {
+            match self { Invisible(*) => true, _ => false }
+        }
+
+        pub pure fn is_lnstart(self) -> bool {
+            match self { LNStart(*) => true, _ => false }
+        }
+
+        pub pure fn is_lndone(self) -> bool {
+            match self { LNDone(*) => true, _ => false }
+        }
+
+        pub pure fn is_ln(self) -> bool {
+            match self { LNStart(*)|LNDone(*) => true, _ => false }
+        }
+
+        pub pure fn is_bomb(self) -> bool {
+            match self { Bomb(*) => true, _ => false }
+        }
+
+        pub pure fn is_object(self) -> bool {
+            match self {
+                Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) | Bomb(*)
+                    => true,
+                _ => false
+            }
+        }
+
+        pub pure fn is_bgm(self) -> bool {
+            match self { BGM(*) => true, _ => false }
+        }
+
+        pub pure fn is_setbga(self) -> bool {
+            match self { SetBGA(*) => true, _ => false }
+        }
+
+        pub pure fn is_setbpm(self) -> bool {
+            match self { SetBPM(*) => true, _ => false }
+        }
+
+        pub pure fn is_stop(self) -> bool {
+            match self { Stop(*) => true, _ => false }
+        }
+
+        pub pure fn to_visible(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => Visible(lane,snd),
+                _ => fail!(~"to_visible for non-object")
+            }
+        }
+
+        pub pure fn to_invisible(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => Invisible(lane,snd),
+                _ => fail!(~"to_invisible for non-object")
+            }
+        }
+
+        pub pure fn to_lnstart(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => LNStart(lane,snd),
+                _ => fail!(~"to_lnstart for non-object")
+            }
+        }
+
+        pub pure fn to_lndone(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => LNDone(lane,snd),
+                _ => fail!(~"to_lndone for non-object")
+            }
+        }
+
         pub pure fn sounds(self) -> ~[SoundRef] {
             match self {
                 Visible(_,Some(sref)) => ~[sref],
@@ -671,6 +790,9 @@ pub mod parser {
         }
     }
 
+    /// Game play data associated to the time axis. Contrary to its name (I
+    /// don't like naming this to `Data`) it is not limited to the objects
+    /// (which are also associated to lanes) but also 
     pub struct Obj {
         time: float, data: ObjData
     }
@@ -734,6 +856,52 @@ pub mod parser {
         }
     }
 
+    impl ObjOps for Obj {
+        pub pure fn is_visible(self) -> bool { self.data.is_visible() }
+        pub pure fn is_invisible(self) -> bool { self.data.is_invisible() }
+        pub pure fn is_lnstart(self) -> bool { self.data.is_lnstart() }
+        pub pure fn is_lndone(self) -> bool { self.data.is_lndone() }
+        pub pure fn is_ln(self) -> bool { self.data.is_ln() }
+        pub pure fn is_bomb(self) -> bool { self.data.is_bomb() }
+        pub pure fn is_object(self) -> bool { self.data.is_object() }
+        pub pure fn is_bgm(self) -> bool { self.data.is_bgm() }
+        pub pure fn is_setbga(self) -> bool { self.data.is_setbga() }
+        pub pure fn is_setbpm(self) -> bool { self.data.is_setbpm() }
+        pub pure fn is_stop(self) -> bool { self.data.is_stop() }
+
+        pub pure fn to_visible(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_visible() }
+        }
+        pub pure fn to_invisible(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_invisible() }
+        }
+        pub pure fn to_lnstart(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_lnstart() }
+        }
+        pub pure fn to_lndone(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_lndone() }
+        }
+
+        pub pure fn sounds(self) -> ~[SoundRef] {
+            self.data.sounds()
+        }
+        pub pure fn keydown_sound(self) -> Option<SoundRef> {
+            self.data.keydown_sound()
+        }
+        pub pure fn keyup_sound(self) -> Option<SoundRef> {
+            self.data.keyup_sound()
+        }
+        pub pure fn through_sound(self) -> Option<SoundRef> {
+            self.data.through_sound()
+        }
+        pub pure fn images(self) -> ~[ImageRef] {
+            self.data.images()
+        }
+        pub pure fn through_damage(self) -> Option<Damage> {
+            self.data.through_damage()
+        }
+    }
+
     pub const DefaultBPM: float = 130.0;
 
     /// Blit commands, which manipulate the image after the image had been
@@ -776,14 +944,6 @@ pub mod parser {
         /// Gauge difficulty. Higher is easier. Maps to BMS #RANK command.
         /// (C: `value[V_RANK]`)
         rank: int,
-        /// Allows long notes to be specified as a consecutive row of same
-        /// or non-zero keys (MGQ type, #LNTYPE 2). The default is to specify
-        /// long notes as two endpoints (RDM type, #LNTYPE 1).
-        /// (C: `value[V_LNTYPE]`)
-        consecutiveln: bool,
-        /// An end-of-long-note marker used in long-note specification for
-        /// channels #1x/2x. Maps to BMS #LNOBJ command. (C: `value[V_LNOBJ]`)
-        lnobj: Option<Key>,
 
         /// Initial BPM. (C: `initbpm`)
         initbpm: float,
@@ -791,10 +951,10 @@ pub mod parser {
         /// (C: `sndpath`)
         ///
         /// Rust: constant expression in the array size is unsupported.
-        sndpath: ~[Option<~str> * 1296], // 1296=MAXKEY
+        sndpath: ~[Option<~str> * 1296], // XXX 1296=MAXKEY
         /// Paths to image/movie file relative to `basepath` or BMS file.
         /// (C: `imgpath`)
-        imgpath: ~[Option<~str> * 1296], // 1296=MAXKEY
+        imgpath: ~[Option<~str> * 1296], // XXX 1296=MAXKEY
         /// List of blit commands to be executed after `imgpath` is loaded.
         /// (C: `blitcmd`)
         blitcmd: ~[BlitCmd],
@@ -805,17 +965,17 @@ pub mod parser {
 
         keysplit: int,
         keyorder: ~[int],
-        keykind: ~[Option<int> * 72]
+        keykind: ~[Option<int> * 72] // XXX 72=NLANES
     }
 
     /// Creates a default value of BMS data.
     pub pure fn Bms() -> Bms {
         Bms { title: None, genre: None, artist: None, stagefile: None,
               basepath: None, player: SinglePlay, playlevel: 0, rank: 2,
-              consecutiveln: false, lnobj: None, initbpm: DefaultBPM,
-              sndpath: ~[None, ..1296], imgpath: ~[None, ..1296],
-              blitcmd: ~[], objs: ~[], shorten: ~[], originoffset: 0.0,
-              keysplit: 0, keyorder: ~[], keykind: ~[None, ..72] }
+              initbpm: DefaultBPM, sndpath: ~[None, ..1296],
+              imgpath: ~[None, ..1296], blitcmd: ~[], objs: ~[],
+              shorten: ~[], originoffset: 0.0, keysplit: 0, keyorder: ~[],
+              keykind: ~[None, ..72] } // XXX 1296=MAXKEY 72=NLANES
     }
 
     /// Converts a single alphanumeric (base-36) letter to an integer.
@@ -829,22 +989,22 @@ pub mod parser {
         }
     }
 
-    /// Converts the first two letters of `s` to a key. (C: `key2index`)
+    /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
     pub pure fn key2index(s: &[char]) -> Option<int> {
-        assert s.len() >= 2;
+        fail_unless!(s.len() >= 2);
         do getdigit(s[0]).chain_ref |&a| {
             do getdigit(s[1]).map |&b| { a * 36 + b }
         }
     }
 
-    /// Converts the first two letters of `s` to a key. (C: `key2index`)
+    /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
     pub pure fn key2index_str(s: &str) -> Option<int> {
-        assert s.len() >= 2;
+        fail_unless!(s.len() >= 2);
         let str::CharRange {ch:c1, next:p1} = str::char_range_at(s, 0);
         do getdigit(c1).chain_ref |&a| {
             let str::CharRange {ch:c2, next:p2} = str::char_range_at(s, p1);
             do getdigit(c2).map |&b| {
-                assert p2 == 2; // both characters should be in ASCII
+                fail_unless!(p2 == 2); // both characters should be in ASCII
                 a * 36 + b
             }
         }
@@ -910,18 +1070,35 @@ pub mod parser {
             pure fn gt(&self, other: &BmsLine) -> bool { !self.le(other) }
         }
 
-        let mut bmsline = ~[]; // (C: `bmsline`)
-        let mut bpmtab = ~[BPM(DefaultBPM), ..1296]; // (C: `bpmtab`)
-        let mut stoptab = ~[Seconds(0.0), ..1296]; // (C: `stoptab`)
+        // (C: `bmsline`)
+        let mut bmsline = ~[];
+        // (C: `bpmtab`)
+        let mut bpmtab = ~[BPM(DefaultBPM), ..1296]; // XXX 1296=MAXKEY
+        // (C: `stoptab`)
+        let mut stoptab = ~[Seconds(0.0), ..1296]; // XXX 1296=MAXKEY
+
+        // Allows long notes to be specified as a consecutive row of same
+        // or non-zero keys (MGQ type, #LNTYPE 2). The default is to specify
+        // long notes as two endpoints (RDM type, #LNTYPE 1).
+        // (C: `value[V_LNTYPE]`)
+        let mut consecutiveln = false;
+
+        // An end-of-long-note marker used in long-note specification for
+        // channels #1x/2x. Maps to BMS #LNOBJ command. (C: `value[V_LNOBJ]`)
+        let mut lnobj = None;
 
         let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
         for lines.each |&line| {
             let mut line =
                 ::util::str::from_fixed_utf8_bytes(line, |_| ~"\ufffd");
+
+            // skip non-command lines
             line = line.trim_left();
             if !line.starts_with(~"#") { loop; }
             line = line.slice_to_end(1);
 
+            // search for header prefix. the header list (`bmsheader`) is
+            // in the decreasing order of prefix length.
             let mut prefix = "";
             for bmsheader.each |&header| {
                 if line.len() >= header.len() &&
@@ -933,6 +1110,7 @@ pub mod parser {
                 }
             }
 
+            // Common readers.
             macro_rules! read(
                 (string $string:ident) => ({
                     let mut text = ~"";
@@ -952,9 +1130,11 @@ pub mod parser {
                 })
             )
 
-            assert !rnd.is_empty();
-            let state = if rnd.last().skip { Ignore }
-                        else { rnd.last().state };
+            // Rust: mutable loan and immutable loan cannot coexist
+            //       in the same block (although it's safe). (#4666)
+            fail_unless!(!rnd.is_empty());
+            let state = { if rnd.last().skip { Ignore }
+                          else { rnd.last().state } }; // XXX #4666
 
             match (prefix, state) {
                 // #TITLE|#GENRE|#ARTIST|#STAGEFILE|#PATH_WAV <string>
@@ -983,13 +1163,13 @@ pub mod parser {
                 ("LNTYPE", Process) => {
                     let mut lntype = 1;
                     if lex!(line; ws, int -> lntype) {
-                        bms.consecutiveln = (lntype == 2);
+                        consecutiveln = (lntype == 2);
                     }
                 }
                 // #LNOBJ <key>
                 ("LNOBJ", Process) => {
                     let mut key = Key(-1);
-                    if lex!(line; ws, Key -> key) { bms.lnobj = Some(key); }
+                    if lex!(line; ws, Key -> key) { lnobj = Some(key); }
                 }
 
                 // #WAVxx|#BMPxx <path>
@@ -1041,8 +1221,8 @@ pub mod parser {
 
                         // do not generate a random value if the entire block
                         // is skipped (but it still marks the start of block)
-                        let inactive =
-                            (rnd.last().state != Process || rnd.last().skip);
+                        let inactive = // XXX #4666
+                            {rnd.last().state != Process || rnd.last().skip};
                         let generated =
                             // Rust: there should be `Option<T>::chain` if
                             //       `T` is copyable.
@@ -1050,6 +1230,7 @@ pub mod parser {
                                 if prefix == "SETRANDOM" {
                                     Some(val)
                                 } else if !inactive {
+                                    // Rust: not an uniform distribution yet!
                                     Some(r.gen_int_range(1, val + 1))
                                 } else {
                                     None
@@ -1103,9 +1284,7 @@ pub mod parser {
                         None => ()
                     };
 
-                    // Rust: mutable loan and immutable loan cannot coexist
-                    //       in the same block (although it's safe). (#4666)
-                    {
+                    { // XXX #4666
                         let last = &mut rnd[rnd.len() - 1];
                         last.inside = false;
                         last.state = Process;
@@ -1127,53 +1306,154 @@ pub mod parser {
         }
 
         ::std::sort::tim_sort(bmsline);
+
+        // Poor BGA defined by #BMP00 wouldn't be played if it is a movie.
+        // We can't just let it played at the beginning of the chart as the
+        // "beginning" is not always 0.0 (actually, `originoffset`). Thus
+        // we add an artificial BGA object at time 0.0 only when the other
+        // poor BGA does not exist at this position. (C: `poorbgafix`)
+        let mut poorbgafix = true;
+
+        // Indices to last visible object per channels. A marker specified by
+        // #LNOBJ will turn this last object to the start of long note.
+        // (C: `prev12`)
+        let mut lastvis: [Option<uint>*72] = [None, ..72]; // XXX 72=NLANES
+
+        // Indices to last LN start or end inserted (and not finalized yet)
+        // per channels. If `consecutiveln` is on (#LNTYPE 2), the position
+        // of referenced object gets updated during parsing; if off (#LNTYPE
+        // 1), it is solely used for checking if we are inside the LN or not.
+        // (C: `prev56`)
+        let mut lastln: [Option<uint>*72] = [None, ..72]; // XXX 72=NLANES
+
+        let handle_key = |chan: Key, t: float, t2: float, v: Key| {
+            let add = |obj: Obj| { bms.objs.push(obj); };
+            let mark = |obj: Obj| -> Option<uint> {
+                let marked = bms.objs.len();
+                bms.objs.push(obj);
+                Some(marked)
+            };
+
+            let v = if *v == 0 { None } else { Some(v) };
+            match (*chan, v, consecutiveln) {
+                (1, Some(v), _) => add(Obj::BGM(t, v)),
+                (3, Some(v), _) =>
+                    for v.to_hex().each |&v| {
+                        add(Obj::SetBPM(t, BPM(v as float)))
+                    },
+                (4, Some(v), _) => add(Obj::SetBGA(t, Layer1, Some(v))),
+                (6, Some(v), _) => {
+                    add(Obj::SetBGA(t, PoorBGA, Some(v)));
+                    poorbgafix = false; // we don't add artificial BGA
+                },
+                (7, Some(v), _) => add(Obj::SetBGA(t, Layer2, Some(v))),
+                (8, Some(v), _) => add(Obj::SetBPM(t, bpmtab[*v])),
+                (9, Some(v), _) => add(Obj::Stop(t, stoptab[*v])),
+                (10, Some(v), _) => add(Obj::SetBGA(t, Layer3, Some(v))),
+                (1*36..3*36-1, Some(v), _) => {
+                    let lane = Lane::from_channel(chan);
+                    if lnobj.is_some() && lnobj == Some(v) {
+                        for {lastvis[*lane]}.each |&pos| { // XXX #4666
+                            fail_unless!(bms.objs[pos].is_visible());
+                            bms.objs[pos] = bms.objs[pos].to_lnstart();
+                            add(Obj::LNDone(t, lane, Some(v)));
+                            lastvis[*lane] = None;
+                        }
+                    } else {
+                        lastvis[*lane] = mark(Obj::Visible(t, lane, Some(v)));
+                    }
+                },
+                (3*36..5*36-1, Some(v), _) => {
+                    let lane = Lane::from_channel(chan);
+                    add(Obj::Invisible(t, lane, Some(v)));
+                },
+                (5*36..7*36-1, Some(v), false) => { // #LNTYPE 1
+                    let lane = Lane::from_channel(chan);
+                    if lastln[*lane].is_some() {
+                        lastln[*lane] = None;
+                        add(Obj::LNDone(t, lane, Some(v)));
+                    } else {
+                        lastln[*lane] = mark(Obj::LNStart(t, lane, Some(v)));
+                    }
+                },
+                (5*36..7*36-1, Some(v), true) => { // #LNTYPE 2
+                    let lane = Lane::from_channel(chan);
+                    let pos =
+                        do lastln[*lane].chain_ref |&pos| {
+                            if bms.objs[pos].time == t { Some(pos) }
+                            else { None }
+                        };
+                    match pos {
+                        Some(pos) => {
+                            fail_unless!(bms.objs[pos].is_lndone());
+                            bms.objs[pos].time = t2;
+                        }
+                        None => {
+                            add(Obj::LNStart(t, lane, Some(v)));
+                            lastln[*lane] =
+                                mark(Obj::LNDone(t, lane, Some(v)));
+                        }
+                    }
+                },
+                (5*36..7*36-1, None, true) => { // #LNTYPE 2
+                    let lane = Lane::from_channel(chan);
+                    lastln[*lane] = None;
+                },
+                (0xD*36..0xE*36-1, Some(v), _) => {
+                    let lane = Lane::from_channel(chan);
+                    let damage = match *v {
+                        1..200 => Some(GaugeDamage(*v as float / 200.0)),
+                        1295 => Some(InstantDeath), // XXX 1295=MAXKEY-1
+                        _ => None
+                    };
+                    for damage.each |&damage| {
+                        add(Obj::Bomb(t, lane, Some(Key(0)), damage));
+                    }
+                },
+                (_, _, _) => ()
+            }
+        };
+
         for bmsline.each |line| {
-            if line.chan == Key(2) {
+            if *line.chan == 2 {
                 let mut shorten = 0.0;
                 if lex!(line.data; ws*, float -> shorten) {
+                    while bms.shorten.len() <= line.measure as uint {
+                        bms.shorten.push(1.0);
+                    }
                     bms.shorten[line.measure] = shorten;
                 }
             } else {
                 let measure = line.measure as float;
-                let chan = *line.chan;
                 let data = str::chars(line.data);
                 let max = data.len() / 2 * 2;
                 let count = (data.len() / 2) as float;
                 for uint::range_step(0, max, 2) |i| {
                     let v = key2index(data.view(i, i+2));
-                    if v.is_none() { loop; }
-
-                    let v = match v.unwrap() { 0 => None, v => Some(Key(v)) };
-                    let t = measure + i as float / count;
-                    match (chan, v) {
-                        (1, Some(v)) =>
-                            bms.objs.push(Obj::BGM(t, v)),
-                        (3, Some(v)) =>
-                            do v.to_hex().iter |&v| {
-                                bms.objs.push(Obj::SetBPM(t, BPM(v as float)))
-                            },
-                        (4, Some(v)) =>
-                            bms.objs.push(Obj::SetBGA(t, Layer1, Some(v))),
-                        (6, Some(v)) => {
-                            bms.objs.push(Obj::SetBGA(t, PoorBGA, Some(v)))
-                            // TODO poorbgafix
-                        }
-                        (7, Some(v)) =>
-                            bms.objs.push(Obj::SetBGA(t, Layer2, Some(v))),
-                        (8, Some(v)) =>
-                            bms.objs.push(Obj::SetBPM(t, bpmtab[*v])),
-                        (9, Some(v)) =>
-                            bms.objs.push(Obj::Stop(t, stoptab[*v])),
-                        (10, Some(v)) =>
-                            bms.objs.push(Obj::SetBGA(t, Layer3, Some(v))),
-                        (_, _) => ()
+                    for v.each |&v| {
+                        let t = measure + i as float / count;
+                        let t2 = measure + (i + 1) as float / count;
+                        handle_key(line.chan, t, t2, Key(v));
                     }
                 }
             }
         }
 
-        ::core::repr::write_repr(io::stdout(), &bmsline);
-        io::println("");
+        if poorbgafix {
+            bms.objs.push(Obj::SetBGA(0.0, PoorBGA, Some(Key(0))));
+        }
+
+        // fix the unterminated longnote
+        let maxmeasure = if bmsline.is_empty() { 0 }
+                         else { bmsline.last().measure };
+        let endt = (maxmeasure + 1) as float;
+        for uint::range(0, NLANES) |i| {
+            if lastvis[i].is_some() ||
+                    (!consecutiveln && lastln[i].is_some()) {
+                bms.objs.push(Obj::LNDone(endt, Lane(i), None));
+            }
+        }
+
         ::core::repr::write_repr(io::stdout(), &bms);
         io::println("");
         Ok(bms)
@@ -1241,8 +1521,9 @@ pub mod player {
                                ::sdl::audio::Stereo,
                                2048);
             for bms.sndpath.each |&path| {
-                do path.iter |&path| {
-                    let path = bmspath.push_rel(&Path(str::replace(path,~".wav",~".ogg")));
+                for path.each |&path| {
+                    //let path = str::replace(path,~".wav",~".ogg");
+                    let path = bmspath.push_rel(&Path(path));
                     match ::sdl::mixer::Chunk::from_wav(&path) {
                         Ok(chunk) => {
                             chunk.play(None, 0);
