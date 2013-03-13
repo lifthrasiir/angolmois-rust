@@ -161,7 +161,7 @@ pub mod util {
         /// `int::from_str` accepts without a failure, if any.
         pub pure fn scan_int(s: &str) -> Option<uint> {
             if s.starts_with(~"-") || s.starts_with(~"+") {
-                scan_uint(s.slice_to_end(1u)).map(|pos| pos + 1u)
+                scan_uint(s.slice_to_end(1u)).map(|&pos| pos + 1u)
             } else {
                 scan_uint(s)
             }
@@ -170,7 +170,7 @@ pub mod util {
         /// Returns a length of the longest prefix of given string, which
         /// `float::from_str` accepts without a failure, if any.
         pub pure fn scan_float(s: &str) -> Option<uint> {
-            do scan_int(s).chain_ref |&pos| {
+            do scan_int(s).chain |pos| {
                 if s.len() > pos && s.char_at(pos) == '.' {
                     let pos2 = scan_uint(s.slice_to_end(pos + 1u));
                     pos2.map(|&pos2| pos + pos2 + 1u)
@@ -258,6 +258,45 @@ pub mod util {
 
     }
 
+    /// Option utilities for Rust. Parallels to `core::option`.
+    ///
+    /// NOTE: Some of these additions will be eventually sent to
+    /// libcore/option.rs and are not subject to the above copyright notice.
+    pub mod option {
+
+        #[inline(always)]
+        pub pure fn filter<T:Copy>(opt: Option<T>, f: fn(t: T) -> bool)
+                                        -> Option<T> {
+            match opt {
+                Some(t) => if f(t) { Some(t) } else { None },
+                None => None
+            }
+        }
+
+        pub trait OptionUtil<T> {
+            pure fn chain<U>(self, f: fn(x: T) -> Option<U>) -> Option<U>;
+        }
+
+        pub trait CopyableOptionUtil<T:Copy> {
+            pure fn filter(self, f: fn(x: T) -> bool) -> Option<T>;
+        }
+
+        impl<T> OptionUtil<T> for Option<T> {
+            #[inline(always)]
+            pure fn chain<U>(self, f: fn(x: T) -> Option<U>) -> Option<U> {
+                option::chain(self, f)
+            }
+        }
+
+        impl<T:Copy> CopyableOptionUtil<T> for Option<T> {
+            #[inline(always)]
+            pure fn filter(self, f: fn(x: T) -> bool) -> Option<T> {
+                filter(self, f)
+            }
+        }
+
+    }
+
     /// I/O utilities for Rust. Parallels to `core::io`.
     ///
     /// NOTE: Some of these additions will be eventually sent to
@@ -297,6 +336,7 @@ pub mod util {
                 }
             }
         }
+
     }
 
     // A lexer barely powerful enough to parse BMS format. Comparable to
@@ -414,7 +454,7 @@ pub mod util {
             // Rust: this is plain annoying.
             if _line.len() >= 3 && _isdigit(_line.char_at(0)) &&
                _isdigit(_line.char_at(1)) && _isdigit(_line.char_at(2)) {
-                $dst = int::from_str(_line.slice(0u, 3u)).unwrap();
+                $dst = uint::from_str(_line.slice(0u, 3u)).unwrap();
                 lex!(_line.slice_to_end(3u); $($tail)*)
             } else {
                 false
@@ -458,7 +498,7 @@ pub mod util {
             lex!($e; Key -> _dummy, $($tail)*)
         });
         ($e:expr; Measure, $($tail:tt)*) => ({
-            let mut _dummy: int = 0;
+            let mut _dummy: uint = 0;
             lex!($e; Measure -> _dummy, $($tail)*)
         });
         // end Angolmois-specific
@@ -499,6 +539,7 @@ pub mod util {
 use core::io::{ReaderUtil, WriterUtil};
 
 use util::str::*;
+use util::option::*;
 use util::io::*;
 
 //============================================================================
@@ -511,7 +552,7 @@ pub mod parser {
     /// used for virtually everything, including resource management, variable
     /// BPM and chart specification.
     #[deriving_eq]
-    pub enum Key = int;
+    pub struct Key(int);
 
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
     pub const MAXKEY: int = 36*36;
@@ -554,7 +595,7 @@ pub mod parser {
     /// A game play element mapped to the single input element (for example,
     /// button) and the screen area (henceforth "lane").
     #[deriving_eq]
-    pub enum Lane = uint;
+    pub struct Lane(uint);
 
     /// The maximum number of lanes. (C: `NNOTECHANS`)
     pub const NLANES: uint = 72;
@@ -573,11 +614,11 @@ pub mod parser {
 
     /// Sound reference.
     #[deriving_eq]
-    pub enum SoundRef = Key;
+    pub struct SoundRef(Key);
 
     /// Image reference.
     #[deriving_eq]
-    pub enum ImageRef = Key;
+    pub struct ImageRef(Key);
 
     /// BGA layers. (C: `enum BGA_type`)
     #[deriving_eq]
@@ -593,11 +634,19 @@ pub mod parser {
         PoorBGA
     }
 
-    pub enum BPM = float;
+    #[deriving_eq]
+    pub struct BPM(float);
+
+    #[deriving_eq]
     pub enum Duration { Seconds(float), Measures(float) }
+
+    #[deriving_eq]
     pub enum Damage { GaugeDamage(float), InstantDeath }
 
+    #[deriving_eq]
     pub enum ObjData {
+        /// Deleted object. Only used during various processing.
+        Deleted,
         /// Visible object. Sound is played when the key is input inside the
         /// associated grading area. (C: `NOTE`)
         Visible(Lane, Option<SoundRef>),
@@ -605,12 +654,12 @@ pub mod parser {
         /// associated grading area. No render nor grading performed.
         /// (C: `INVNOTE`)
         Invisible(Lane, Option<SoundRef>),
-        /// Start of long note. Sound is played when the key is down inside
-        /// the associated grading area. (C: `LNSTART`)
+        /// Start of long note (LN). Sound is played when the key is down
+        // inside the associated grading area. (C: `LNSTART`)
         LNStart(Lane, Option<SoundRef>),
-        /// End of long note. Sound is played when the start of long note is
-        /// graded, the key was down and now up inside the associated grading
-        /// area. (C: `LNDONE`)
+        /// End of LN. Sound is played when the start of LN is graded, the key
+        /// was down and now up inside the associated grading area.
+        /// (C: `LNDONE`)
         LNDone(Lane, Option<SoundRef>),
         /// Bomb. Pressing the key down at the moment that the object is
         /// on time causes the specified damage; sound is played in this case.
@@ -653,6 +702,7 @@ pub mod parser {
         pub pure fn to_lnstart(self) -> Self;
         pub pure fn to_lndone(self) -> Self;
 
+        pub pure fn object_lane(self) -> Option<Lane>;
         pub pure fn sounds(self) -> ~[SoundRef];
         pub pure fn keydown_sound(self) -> Option<SoundRef>;
         pub pure fn keyup_sound(self) -> Option<SoundRef>;
@@ -742,6 +792,14 @@ pub mod parser {
             }
         }
 
+        pub pure fn object_lane(self) -> Option<Lane> {
+            match self {
+                Visible(lane,_) | Invisible(lane,_) | LNStart(lane,_) |
+                LNDone(lane,_) | Bomb(lane,_,_) => Some(lane),
+                _ => None
+            }
+        }
+
         pub pure fn sounds(self) -> ~[SoundRef] {
             match self {
                 Visible(_,Some(sref)) => ~[sref],
@@ -793,43 +851,48 @@ pub mod parser {
     /// Game play data associated to the time axis. Contrary to its name (I
     /// don't like naming this to `Data`) it is not limited to the objects
     /// (which are also associated to lanes) but also 
+    #[deriving_eq]
     pub struct Obj {
-        time: float, data: ObjData
+        /// Time position in measures.
+        time: float,
+        /// Actual data.
+        data: ObjData
     }
 
     impl Obj {
         /// Creates a `Visible` object.
         static pub pure fn Visible(time: float, lane: Lane,
                                    sref: Option<Key>) -> Obj {
-            let sref = sref.map_consume(SoundRef);
+            // Rust: `SoundRef` itself cannot be used as a function (#5315)
+            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Visible(lane, sref) }
         }
 
         /// Creates an `Invisible` object.
         static pub pure fn Invisible(time: float, lane: Lane,
                                      sref: Option<Key>) -> Obj {
-            let sref = sref.map_consume(SoundRef);
+            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Invisible(lane, sref) }
         }
 
         /// Creates a `LNStart` object.
         static pub pure fn LNStart(time: float, lane: Lane,
                                    sref: Option<Key>) -> Obj {
-            let sref = sref.map_consume(SoundRef);
+            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNStart(lane, sref) }
         }
 
         /// Creates a `LNDone` object.
         static pub pure fn LNDone(time: float, lane: Lane,
                                    sref: Option<Key>) -> Obj {
-            let sref = sref.map_consume(SoundRef);
+            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNDone(lane, sref) }
         }
 
         /// Creates a `Bomb` object.
         static pub pure fn Bomb(time: float, lane: Lane, sref: Option<Key>,
                                 damage: Damage) -> Obj {
-            let sref = sref.map_consume(SoundRef);
+            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Bomb(lane, sref, damage) }
         }
 
@@ -841,7 +904,7 @@ pub mod parser {
         /// Creates a `SetBGA` object.
         static pub pure fn SetBGA(time: float, layer: BGALayer,
                                   iref: Option<Key>) -> Obj {
-            let iref = iref.map_consume(ImageRef);
+            let iref = iref.map_consume(|i| ImageRef(i)); // XXX #5315
             Obj { time: time, data: SetBGA(layer, iref) }
         }
 
@@ -854,6 +917,13 @@ pub mod parser {
         static pub pure fn Stop(time: float, duration: Duration) -> Obj {
             Obj { time: time, data: Stop(duration) }
         }
+    }
+
+    impl Ord for Obj {
+        pure fn lt(&self, other: &Obj) -> bool { self.time < other.time }
+        pure fn le(&self, other: &Obj) -> bool { self.time <= other.time }
+        pure fn ge(&self, other: &Obj) -> bool { self.time >= other.time }
+        pure fn gt(&self, other: &Obj) -> bool { self.time > other.time }
     }
 
     impl ObjOps for Obj {
@@ -882,6 +952,9 @@ pub mod parser {
             Obj { time: self.time, data: self.data.to_lndone() }
         }
 
+        pub pure fn object_lane(self) -> Option<Lane> {
+            self.data.object_lane()
+        }
         pub pure fn sounds(self) -> ~[SoundRef] {
             self.data.sounds()
         }
@@ -960,22 +1033,40 @@ pub mod parser {
         blitcmd: ~[BlitCmd],
 
         objs: ~[Obj],
-        shorten: ~[float],
-        originoffset: float,
-
-        keysplit: int,
-        keyorder: ~[int],
-        keykind: ~[Option<int> * 72] // XXX 72=NLANES
+        shorten: ~[float]
     }
 
     /// Creates a default value of BMS data.
     pub pure fn Bms() -> Bms {
         Bms { title: None, genre: None, artist: None, stagefile: None,
               basepath: None, player: SinglePlay, playlevel: 0, rank: 2,
-              initbpm: DefaultBPM, sndpath: ~[None, ..1296],
-              imgpath: ~[None, ..1296], blitcmd: ~[], objs: ~[],
-              shorten: ~[], originoffset: 0.0, keysplit: 0, keyorder: ~[],
-              keykind: ~[None, ..72] } // XXX 1296=MAXKEY 72=NLANES
+              initbpm: DefaultBPM, sndpath: ~[None, ..MAXKEY],
+              imgpath: ~[None, ..MAXKEY], blitcmd: ~[], objs: ~[],
+              shorten: ~[] }
+    }
+
+    impl Bms {
+        pure fn shorten_factor(&self, measure: int) -> float {
+            if measure < 0 || measure as uint >= self.shorten.len() {
+                1.0
+            } else {
+                self.shorten[measure as uint]
+            }
+        }
+    }
+
+    /// Derived BMS information. Again, this is not a global state.
+    pub struct BmsInfo {
+        /// (C: `originoffset`)
+        originoffset: float,
+        /// (C: `hasbpmchange`)
+        hasbpmchange: bool,
+        /// (C: `haslongnote`)
+        haslongnote: bool,
+        /// (C: `nnotes`)
+        nnotes: int,
+        /// (C: `maxscore`)
+        maxscore: int
     }
 
     /// Converts a single alphanumeric (base-36) letter to an integer.
@@ -992,7 +1083,7 @@ pub mod parser {
     /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
     pub pure fn key2index(s: &[char]) -> Option<int> {
         fail_unless!(s.len() >= 2);
-        do getdigit(s[0]).chain_ref |&a| {
+        do getdigit(s[0]).chain |a| {
             do getdigit(s[1]).map |&b| { a * 36 + b }
         }
     }
@@ -1001,7 +1092,7 @@ pub mod parser {
     pub pure fn key2index_str(s: &str) -> Option<int> {
         fail_unless!(s.len() >= 2);
         let str::CharRange {ch:c1, next:p1} = str::char_range_at(s, 0);
-        do getdigit(c1).chain_ref |&a| {
+        do getdigit(c1).chain |a| {
             let str::CharRange {ch:c2, next:p2} = str::char_range_at(s, p1);
             do getdigit(c2).map |&b| {
                 fail_unless!(p2 == 2); // both characters should be in ASCII
@@ -1056,7 +1147,7 @@ pub mod parser {
         let mut rnd = ~[Rnd { val: None, inside: false,
                               state: Process, skip: false }];
 
-        struct BmsLine { measure: int, chan: Key, data: ~str }
+        struct BmsLine { measure: uint, chan: Key, data: ~str }
         impl Ord for BmsLine {
             pure fn lt(&self, other: &BmsLine) -> bool {
                 self.measure < other.measure ||
@@ -1073,18 +1164,17 @@ pub mod parser {
         // (C: `bmsline`)
         let mut bmsline = ~[];
         // (C: `bpmtab`)
-        let mut bpmtab = ~[BPM(DefaultBPM), ..1296]; // XXX 1296=MAXKEY
+        let mut bpmtab = ~[BPM(DefaultBPM), ..MAXKEY];
         // (C: `stoptab`)
-        let mut stoptab = ~[Seconds(0.0), ..1296]; // XXX 1296=MAXKEY
+        let mut stoptab = ~[Seconds(0.0), ..MAXKEY];
 
-        // Allows long notes to be specified as a consecutive row of same
-        // or non-zero keys (MGQ type, #LNTYPE 2). The default is to specify
-        // long notes as two endpoints (RDM type, #LNTYPE 1).
-        // (C: `value[V_LNTYPE]`)
+        // Allows LNs to be specified as a consecutive row of same or non-00
+        // alphanumeric keys (MGQ type, #LNTYPE 2). The default is to specify
+        // LNs as two endpoints (RDM type, #LNTYPE 1). (C: `value[V_LNTYPE]`)
         let mut consecutiveln = false;
 
-        // An end-of-long-note marker used in long-note specification for
-        // channels #1x/2x. Maps to BMS #LNOBJ command. (C: `value[V_LNOBJ]`)
+        // An end-of-LN marker used in LN specification for channels #1x/2x.
+        // Maps to BMS #LNOBJ command. (C: `value[V_LNOBJ]`)
         let mut lnobj = None;
 
         let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
@@ -1226,7 +1316,7 @@ pub mod parser {
                         let generated =
                             // Rust: there should be `Option<T>::chain` if
                             //       `T` is copyable.
-                            val.chain_ref(|&val| {
+                            do val.chain |val| {
                                 if prefix == "SETRANDOM" {
                                     Some(val)
                                 } else if !inactive {
@@ -1235,7 +1325,7 @@ pub mod parser {
                                 } else {
                                     None
                                 }
-                            });
+                            };
                         rnd.push(Rnd { val: generated, inside: false,
                                        state: Process, skip: inactive });
                     }
@@ -1279,10 +1369,9 @@ pub mod parser {
 
                 // #END(IF)
                 ("END", _) => {
-                    match rnd.rposition(|&i| i.inside) {
-                        Some(idx) => { rnd.truncate(idx + 1); }
-                        None => ()
-                    };
+                    for rnd.rposition(|&i| i.inside).each |idx| {
+                        rnd.truncate(idx + 1);
+                    }
 
                     { // XXX #4666
                         let last = &mut rnd[rnd.len() - 1];
@@ -1315,44 +1404,70 @@ pub mod parser {
         let mut poorbgafix = true;
 
         // Indices to last visible object per channels. A marker specified by
-        // #LNOBJ will turn this last object to the start of long note.
+        // #LNOBJ will turn this last object to the start of LN.
         // (C: `prev12`)
-        let mut lastvis: [Option<uint>*72] = [None, ..72]; // XXX 72=NLANES
+        let mut lastvis: [Option<uint>*72] = [None, ..NLANES];
 
         // Indices to last LN start or end inserted (and not finalized yet)
         // per channels. If `consecutiveln` is on (#LNTYPE 2), the position
         // of referenced object gets updated during parsing; if off (#LNTYPE
         // 1), it is solely used for checking if we are inside the LN or not.
         // (C: `prev56`)
-        let mut lastln: [Option<uint>*72] = [None, ..72]; // XXX 72=NLANES
+        let mut lastln: [Option<uint>*72] = [None, ..NLANES];
 
+        // Handles a non-00 alphanumeric key `v` positioned at the particular
+        // channel `chan` and particular position `t`. The position `t2`
+        // next to `t` is used for some cases that an alphanumeric key
+        // designates an area rather than a point.
         let handle_key = |chan: Key, t: float, t2: float, v: Key| {
+            // Adds an object. Objects are sorted by its position later.
             let add = |obj: Obj| { bms.objs.push(obj); };
+            // Adds an object and returns its position. LN parsing generally
+            // mutates the existing object for simplicity.
             let mark = |obj: Obj| -> Option<uint> {
                 let marked = bms.objs.len();
                 bms.objs.push(obj);
                 Some(marked)
             };
 
-            let v = if *v == 0 { None } else { Some(v) };
-            match (*chan, v, consecutiveln) {
-                (1, Some(v), _) => add(Obj::BGM(t, v)),
-                (3, Some(v), _) =>
+            match *chan {
+                // channel #01: BGM
+                1 => add(Obj::BGM(t, v)),
+
+                // channel #03: BPM as an hexadecimal key
+                3 =>
                     for v.to_hex().each |&v| {
                         add(Obj::SetBPM(t, BPM(v as float)))
                     },
-                (4, Some(v), _) => add(Obj::SetBGA(t, Layer1, Some(v))),
-                (6, Some(v), _) => {
+
+                // channel #04: BGA layer 1
+                4 => add(Obj::SetBGA(t, Layer1, Some(v))),
+
+                // channel #06: POOR BGA
+                6 => {
                     add(Obj::SetBGA(t, PoorBGA, Some(v)));
                     poorbgafix = false; // we don't add artificial BGA
                 },
-                (7, Some(v), _) => add(Obj::SetBGA(t, Layer2, Some(v))),
-                (8, Some(v), _) => add(Obj::SetBPM(t, bpmtab[*v])),
-                (9, Some(v), _) => add(Obj::Stop(t, stoptab[*v])),
-                (10, Some(v), _) => add(Obj::SetBGA(t, Layer3, Some(v))),
-                (1*36..3*36-1, Some(v), _) => {
+
+                // channel #07: BGA layer 2
+                7 => add(Obj::SetBGA(t, Layer2, Some(v))),
+
+                // channel #08: BPM defined by #BPMxx
+                8 => add(Obj::SetBPM(t, bpmtab[*v])),
+
+                // channel #09: chart stopper defined by #STOPxx
+                9 => add(Obj::Stop(t, stoptab[*v])),
+
+                // channel #0A: BGA layer 3
+                10 => add(Obj::SetBGA(t, Layer3, Some(v))),
+
+                // channels #1x/2x: visible object, possibly LNs when #LNOBJ
+                // is in active
+                1*36..3*36-1 => {
                     let lane = Lane::from_channel(chan);
                     if lnobj.is_some() && lnobj == Some(v) {
+                        // change the last inserted visible object to the
+                        // start of LN if any.
                         for {lastvis[*lane]}.each |&pos| { // XXX #4666
                             fail_unless!(bms.objs[pos].is_visible());
                             bms.objs[pos] = bms.objs[pos].to_lnstart();
@@ -1363,12 +1478,20 @@ pub mod parser {
                         lastvis[*lane] = mark(Obj::Visible(t, lane, Some(v)));
                     }
                 },
-                (3*36..5*36-1, Some(v), _) => {
+
+                // channels #3x/4x: invisible object
+                3*36..5*36-1 => {
                     let lane = Lane::from_channel(chan);
                     add(Obj::Invisible(t, lane, Some(v)));
                 },
-                (5*36..7*36-1, Some(v), false) => { // #LNTYPE 1
+
+                // channels #5x/6x, #LNTYPE 1: LN endpoints
+                5*36..7*36-1 if !consecutiveln => {
                     let lane = Lane::from_channel(chan);
+
+                    // a pair of non-00 alphanumeric keys designate one LN.
+                    // if there are an odd number of them, the last LN is
+                    // implicitly closed later.
                     if lastln[*lane].is_some() {
                         lastln[*lane] = None;
                         add(Obj::LNDone(t, lane, Some(v)));
@@ -1376,30 +1499,33 @@ pub mod parser {
                         lastln[*lane] = mark(Obj::LNStart(t, lane, Some(v)));
                     }
                 },
-                (5*36..7*36-1, Some(v), true) => { // #LNTYPE 2
+
+                // channels #5x/6x, #LNTYPE 2: LN areas
+                5*36..7*36-1 if consecutiveln => {
                     let lane = Lane::from_channel(chan);
-                    let pos =
-                        do lastln[*lane].chain_ref |&pos| {
-                            if bms.objs[pos].time == t { Some(pos) }
-                            else { None }
-                        };
-                    match pos {
-                        Some(pos) => {
+
+                    // one non-00 alphanumeric key, in the absence of other
+                    // information, inserts one complete LN starting at `t`
+                    // and ending at `t2`.
+                    //
+                    // the next non-00 alphanumeric key first checks for...
+                    // doc TODO
+                    match lastln[*lane] {
+                        Some(pos) if bms.objs[pos].time == t => {
                             fail_unless!(bms.objs[pos].is_lndone());
                             bms.objs[pos].time = t2;
                         }
-                        None => {
+                        _ => {
                             add(Obj::LNStart(t, lane, Some(v)));
                             lastln[*lane] =
-                                mark(Obj::LNDone(t, lane, Some(v)));
+                                mark(Obj::LNDone(t2, lane, Some(v)));
                         }
                     }
                 },
-                (5*36..7*36-1, None, true) => { // #LNTYPE 2
-                    let lane = Lane::from_channel(chan);
-                    lastln[*lane] = None;
-                },
-                (0xD*36..0xE*36-1, Some(v), _) => {
+
+                // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5%
+                // of the full gauge) or instant death (ZZ)
+                0xD*36..0xE*36-1 => {
                     let lane = Lane::from_channel(chan);
                     let damage = match *v {
                         1..200 => Some(GaugeDamage(*v as float / 200.0)),
@@ -1410,7 +1536,12 @@ pub mod parser {
                         add(Obj::Bomb(t, lane, Some(Key(0)), damage));
                     }
                 },
-                (_, _, _) => ()
+
+                // unsupported: channels #0B/0C/0D/0E (BGA opacity),
+                // #97/98 (sound volume), #99 (text), #A0 (dynamic #RANK),
+                // #A1/A2/A3/A4 (BGA color key update), #A5 (BGA on keypress),
+                // #A6 (player-specific option)
+                _ => ()
             }
         };
 
@@ -1418,22 +1549,23 @@ pub mod parser {
             if *line.chan == 2 {
                 let mut shorten = 0.0;
                 if lex!(line.data; ws*, float -> shorten) {
-                    while bms.shorten.len() <= line.measure as uint {
-                        bms.shorten.push(1.0);
+                    if shorten > 0.001 {
+                        bms.shorten.grow_set(line.measure, &1.0, shorten);
                     }
-                    bms.shorten[line.measure] = shorten;
                 }
             } else {
                 let measure = line.measure as float;
                 let data = str::chars(line.data);
                 let max = data.len() / 2 * 2;
-                let count = (data.len() / 2) as float;
+                let count = max as float;
                 for uint::range_step(0, max, 2) |i| {
                     let v = key2index(data.view(i, i+2));
                     for v.each |&v| {
-                        let t = measure + i as float / count;
-                        let t2 = measure + (i + 1) as float / count;
-                        handle_key(line.chan, t, t2, Key(v));
+                        if v != 0 { // ignores 00
+                            let t = measure + i as float / count;
+                            let t2 = measure + (i + 2) as float / count;
+                            handle_key(line.chan, t, t2, Key(v));
+                        }
                     }
                 }
             }
@@ -1454,8 +1586,6 @@ pub mod parser {
             }
         }
 
-        ::core::repr::write_repr(io::stdout(), &bms);
-        io::println("");
         Ok(bms)
     }
 
@@ -1465,6 +1595,220 @@ pub mod parser {
             parse_bms_from_reader(bmspath, f, r)
         }
     }
+
+    /// Updates the object in place to BGM or placeholder.
+    /// (C: `remove_or_replace_note`)
+    fn remove_or_replace_note(obj: &mut Obj) {
+        obj.data = match obj.data {
+            Visible(_,Some(sref)) | Invisible(_,Some(sref)) |
+            LNStart(_,Some(sref)) | LNDone(_,Some(sref)) => BGM(sref),
+            _ => Deleted
+        };
+    }
+
+    /// Fixes a problematic data. (C: `sanitize_bms`)
+    pub fn sanitize_bms(bms: &mut Bms) {
+        ::std::sort::tim_sort(bms.objs);
+
+        fn sanitize(objs: &mut [Obj], to_type: fn(&Obj) -> Option<uint>,
+                    merge_types: fn(uint) -> uint) {
+            let len = objs.len();
+            let mut i = 0;
+            while i < len {
+                let cur = objs[i].time;
+                let mut types = 0;
+                let mut j = 0;
+                while j < len && objs[j].time <= cur {
+                    let obj = &mut objs[j];
+                    for to_type(obj).each |&t| {
+                        if (types & (1 << t)) != 0 {
+                            // duplicate type
+                            remove_or_replace_note(obj);
+                        } else {
+                            types |= 1 << t;
+                        }
+                    }
+                    j += 1;
+                }
+
+                types = merge_types(types);
+
+                while i < j {
+                    let obj = &mut objs[i];
+                    for to_type(obj).each |&t| {
+                        if (types & (1 << t)) == 0 {
+                            remove_or_replace_note(obj);
+                        }
+                    }
+                    i += 1;
+                }
+            }
+        }
+
+        for uint::range(0, NLANES) |lane| {
+            let lane0 = Lane(lane);
+
+            const LNDONE: uint = 0;
+            const LNSTART: uint = 1;
+            const VISIBLE: uint = 2;
+            const INVISIBLE: uint = 3;
+            const BOMB: uint = 4;
+            let to_type = |obj: &Obj| -> Option<uint> {
+                match obj.data {
+                    Visible(lane,_) if lane == lane0 => Some(VISIBLE),
+                    Invisible(lane,_) if lane == lane0 => Some(INVISIBLE),
+                    LNStart(lane,_) if lane == lane0 => Some(LNSTART),
+                    LNDone(lane,_) if lane == lane0 => Some(LNDONE),
+                    Bomb(lane,_,_) if lane == lane0 => Some(BOMB),
+                    _ => None,
+                }
+            };
+
+            let mut inside = false;
+            do sanitize(bms.objs, to_type) |mut types| {
+                const LNMASK: uint = (1 << LNSTART) | (1 << LNDONE);
+
+                // remove overlapping LN endpoints altogether
+                if (types & LNMASK) == LNMASK { types &= !LNMASK; }
+
+                // remove prohibited types according to inside
+                if inside {
+                    types &= !((1 << LNSTART) | (1 << VISIBLE) | (1 << BOMB));
+                } else {
+                    types &= !(1 << LNDONE);
+                }
+
+                // invisible note cannot overlap with long note endpoints
+                if (types & LNMASK) != 0 { types &= !(1 << INVISIBLE); }
+
+                // keep the most important (lowest) type, except for
+                // BOMB/INVISIBLE combination
+                let lowest = types & -types;
+                if lowest == (1 << INVISIBLE) {
+                    types = lowest | (types & (1 << BOMB));
+                } else {
+                    types = lowest;
+                }
+
+                if (types & (1 << LNSTART)) != 0 {
+                    inside = true;
+                } else if (types & (1 << LNDONE)) != 0 {
+                    inside = false;
+                }
+
+                types
+            }
+
+            if inside {
+                // remove last starting longnote which is unfinished
+                match bms.objs.rposition(|obj| to_type(obj).is_some()) {
+                    Some(pos) if bms.objs[pos].is_lnstart() =>
+                        remove_or_replace_note(&mut bms.objs[pos]),
+                    _ => ()
+                }
+            }
+        }
+
+        sanitize(bms.objs,
+                 |&obj| match obj.data {
+                            SetBGA(Layer1,_) => Some(0),
+                            SetBGA(Layer2,_) => Some(1),
+                            SetBGA(Layer3,_) => Some(2),
+                            SetBGA(PoorBGA,_) => Some(3),
+                            SetBPM(*) => Some(4),
+                            Stop(*) => Some(5),
+                            _ => None,
+                        },
+                 |types| types);
+    }
+
+    pub struct KeySpec {
+        /// The number of lanes on the left side. (C: `nleftkeys`) This number
+        /// is significant only when Couple Play is used.
+        keysplit: int,
+        /// The order of significant lanes. The first `nleftkeys` lanes go to
+        /// the left side and the remaining lanes (C: `nrightkeys`) go to
+        /// the right side. (C: `keyorder`)
+        keyorder: ~[Lane],
+        /// The type of lanes. (C: `keykind`)
+        keykind: ~[Option<int> * 72] // XXX 72=NLANES
+    }
+
+    /// Removes insignificant objects (i.e. not in visible lanes) and ensures
+    /// that there is no `Deleted` object. (C: `analyze_and_compact_bms`)
+    pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
+        for vec::each_mut(bms.objs) |obj| {
+            match obj.object_lane() {
+                Some(lane) =>
+                    if keyspec.keykind[*lane].is_none() {
+                        remove_or_replace_note(obj)
+                    },
+                None => ()
+            }
+        }
+
+        do bms.objs.retain |&obj| { obj.data == Deleted }
+    }
+
+    /// Analyzes the loaded BMS file. (C: `analyze_and_compact_bms`)
+    pub fn analyze_bms(bms: &Bms) -> BmsInfo {
+        let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false,
+                                  haslongnote: false, nnotes: 0, maxscore: 0 };
+
+        for bms.objs.each |&obj| {
+            infos.haslongnote |= obj.is_lnstart();
+            infos.hasbpmchange |= obj.is_setbpm();
+
+            if obj.is_lnstart() || obj.is_visible() {
+                infos.nnotes += 1;
+                if obj.time < 1.0 { infos.originoffset = -1.0; }
+            }
+        }
+
+        for int::range(0, infos.nnotes) |i| {
+            let ratio = (i as float) / (infos.nnotes as float);
+            infos.maxscore += (300.0 * (1.0 + ratio)) as int;
+        }
+
+        infos
+    }
+
+    pub fn adjust_object_time(bms: &Bms, base: float, offset: float) -> float {
+        use core::num::Round;
+        let basemeasure = base.floor() as int;
+        let baseshorten = bms.shorten_factor(basemeasure);
+        let tonextmeasure = (basemeasure as float + 1.0 - base) * baseshorten;
+        if tonextmeasure > offset {
+            base + offset / baseshorten
+        } else {
+            let mut offset = offset - tonextmeasure;
+            let mut i = basemeasure + 1;
+            let mut curmeasure = bms.shorten_factor(i);
+            while curmeasure <= offset {
+                offset -= curmeasure;
+                i += 1;
+                curmeasure = bms.shorten_factor(i);
+            }
+            i as float + offset / baseshorten
+        }
+    }
+
+    pub fn adjust_object_position(bms: &Bms, base: float, time: float)
+                                    -> float {
+        use core::num::Round;
+        let basemeasure = base.floor() as int;
+        let timemeasure = time.floor() as int;
+        let mut pos =
+            (time - timemeasure as float) * bms.shorten_factor(timemeasure) -
+            (base - basemeasure as float) * bms.shorten_factor(basemeasure);
+        let mut i = basemeasure;
+        while i < timemeasure {
+            pos += bms.shorten_factor(i);
+            i += 1;
+        }
+        pos
+    }
+
 }
 
 //============================================================================
@@ -1478,16 +1822,27 @@ pub mod player {
     pub enum Bga { BgaAndMovie, BgaButNoMovie, NoBga }
 
     pub struct Options {
+        /// (C: `bmspath`)
         bmspath: Option<~str>,
+        /// (C: `opt_mode`)
         mode: Mode,
+        /// (C: `opt_modf`)
         modf: Modf,
+        /// (C: `opt_bga`)
         bga: Bga,
+        /// (C: `opt_showinfo`)
         showinfo: bool,
+        /// (C: `opt_fullscreen`)
         fullscreen: bool,
+        /// (C: `opt_joystick`)
         joystick: Option<int>,
+        /// (C: `preset`)
         preset: Option<~str>,
+        /// (C: `leftkeys`)
         leftkeys: Option<~str>,
+        /// (C: `rightkeys`)
         rightkeys: Option<~str>,
+        /// (C: `playspeed`)
         playspeed: float,
     }
 
@@ -1504,15 +1859,24 @@ pub mod player {
         io::println("");
 
         let r = rand::task_rng();
-        let bms = match opts.bmspath {
+        let mut bms = match opts.bmspath {
             Some(copy path) =>
                 match ::parser::parse_bms(path, r) {
-                    Ok(bms) => bms,
+                    Ok(bms) => ~bms,
                     Err(err) => die!("Couldn't load BMS file: %s", err)
                 },
             None => fail!(~"TODO")
         };
 
+        ::core::repr::write_repr(io::stdout(), &bms.objs);
+        io::println("");
+
+        ::parser::sanitize_bms(bms);
+
+        ::core::repr::write_repr(io::stdout(), &bms.objs);
+        io::println("");
+
+        /*
         let bmspath = Path(copy *opts.bmspath.get_ref()).dir_path();
         do ::sdl::start {
             ::sdl::init([::sdl::InitAudio]);
@@ -1535,6 +1899,7 @@ pub mod player {
             }
             ::sdl::mixer::close();
         }
+        */
     }
 
 }
