@@ -600,9 +600,9 @@ pub mod parser {
     /// The maximum number of lanes. (C: `NNOTECHANS`)
     pub const NLANES: uint = 72;
 
-    impl Lane {
+    pub impl Lane {
         /// Converts the channel number to the lane number.
-        static pub pure fn from_channel(chan: Key) -> Lane {
+        static pure fn from_channel(chan: Key) -> Lane {
             let player = match *chan / 36 {
                 1 | 3 | 5 | 0xD => 0,
                 2 | 4 | 6 | 0xE => 1,
@@ -636,6 +636,16 @@ pub mod parser {
 
     #[deriving_eq]
     pub struct BPM(float);
+
+    /// (C: `MEASURE_TO_MSEC`)
+    pub pure fn measure_to_msec(measure: float, bpm: float) -> float {
+        measure * 240000.0 / bpm
+    }
+
+    /// (C: `MSEC_TO_MEASURE`)
+    pub pure fn msec_to_measure(msec: float, bpm: float) -> float {
+        msec * bpm / 240000.0
+    }
 
     #[deriving_eq]
     pub enum Duration { Seconds(float), Measures(float) }
@@ -859,62 +869,62 @@ pub mod parser {
         data: ObjData
     }
 
-    impl Obj {
+    pub impl Obj {
         /// Creates a `Visible` object.
-        static pub pure fn Visible(time: float, lane: Lane,
-                                   sref: Option<Key>) -> Obj {
+        static pure fn Visible(time: float, lane: Lane,
+                               sref: Option<Key>) -> Obj {
             // Rust: `SoundRef` itself cannot be used as a function (#5315)
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Visible(lane, sref) }
         }
 
         /// Creates an `Invisible` object.
-        static pub pure fn Invisible(time: float, lane: Lane,
-                                     sref: Option<Key>) -> Obj {
+        static pure fn Invisible(time: float, lane: Lane,
+                                 sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Invisible(lane, sref) }
         }
 
         /// Creates a `LNStart` object.
-        static pub pure fn LNStart(time: float, lane: Lane,
-                                   sref: Option<Key>) -> Obj {
+        static pure fn LNStart(time: float, lane: Lane,
+                               sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNStart(lane, sref) }
         }
 
         /// Creates a `LNDone` object.
-        static pub pure fn LNDone(time: float, lane: Lane,
-                                   sref: Option<Key>) -> Obj {
+        static pure fn LNDone(time: float, lane: Lane,
+                              sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNDone(lane, sref) }
         }
 
         /// Creates a `Bomb` object.
-        static pub pure fn Bomb(time: float, lane: Lane, sref: Option<Key>,
-                                damage: Damage) -> Obj {
+        static pure fn Bomb(time: float, lane: Lane, sref: Option<Key>,
+                            damage: Damage) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Bomb(lane, sref, damage) }
         }
 
         /// Creates a `BGM` object.
-        static pub pure fn BGM(time: float, sref: Key) -> Obj {
+        static pure fn BGM(time: float, sref: Key) -> Obj {
             Obj { time: time, data: BGM(SoundRef(sref)) }
         }
 
         /// Creates a `SetBGA` object.
-        static pub pure fn SetBGA(time: float, layer: BGALayer,
-                                  iref: Option<Key>) -> Obj {
+        static pure fn SetBGA(time: float, layer: BGALayer,
+                              iref: Option<Key>) -> Obj {
             let iref = iref.map_consume(|i| ImageRef(i)); // XXX #5315
             Obj { time: time, data: SetBGA(layer, iref) }
         }
 
         /// Creates a `SetBPM` object.
-        static pub pure fn SetBPM(time: float, bpm: BPM) -> Obj {
+        static pure fn SetBPM(time: float, bpm: BPM) -> Obj {
             Obj { time: time, data: SetBPM(bpm) }
         }
 
         /// Creates a `Stop` object.
-        static pub pure fn Stop(time: float, duration: Duration) -> Obj {
+        static pure fn Stop(time: float, duration: Duration) -> Obj {
             Obj { time: time, data: Stop(duration) }
         }
     }
@@ -1045,7 +1055,7 @@ pub mod parser {
               shorten: ~[] }
     }
 
-    impl Bms {
+    pub impl Bms {
         pure fn shorten_factor(&self, measure: int) -> float {
             if measure < 0 || measure as uint >= self.shorten.len() {
                 1.0
@@ -1053,6 +1063,87 @@ pub mod parser {
                 self.shorten[measure as uint]
             }
         }
+
+        /// (C: `adjust_object_time`)
+        pure fn adjust_object_time(&self, base: float, offset: float)
+                                        -> float {
+            use core::num::Round;
+            let basemeasure = base.floor() as int;
+            let baseshorten = self.shorten_factor(basemeasure);
+            let basefrac = base - basemeasure as float;
+            let tonextmeasure = (1.0 - basefrac) * baseshorten;
+            if tonextmeasure > offset {
+                base + offset / baseshorten
+            } else {
+                let mut offset = offset - tonextmeasure;
+                let mut i = basemeasure + 1;
+                let mut curmeasure = self.shorten_factor(i);
+                while curmeasure <= offset {
+                    offset -= curmeasure;
+                    i += 1;
+                    curmeasure = self.shorten_factor(i);
+                }
+                i as float + offset / baseshorten
+            }
+        }
+
+        /// (C: `adjust_object_position`)
+        pub fn adjust_object_position(&self, base: float, time: float)
+                                        -> float {
+            use core::num::Round;
+            let basemeasure = base.floor() as int;
+            let timemeasure = time.floor() as int;
+            let basefrac = base - basemeasure as float;
+            let timefrac = time - timemeasure as float;
+            let mut pos = timefrac * self.shorten_factor(timemeasure) -
+                          basefrac * self.shorten_factor(basemeasure);
+            let mut i = basemeasure;
+            while i < timemeasure {
+                pos += self.shorten_factor(i);
+                i += 1;
+            }
+            pos
+        }
+
+        /// (C: `get_bms_duration`)
+        pub fn duration(&self, originoffset: float, length: float,
+                        sound_length: fn(SoundRef) -> float) -> float {
+            let mut pos = originoffset;
+            let mut bpm = self.initbpm;
+            let mut time = 0.0, sndtime = 0.0;
+
+            for self.objs.each |&obj| {
+                let delta = self.adjust_object_position(pos, obj.time);
+                time += measure_to_msec(delta, bpm);
+                match obj.data {
+                    Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) =>
+                        sndtime = cmp::max(sndtime, time + sound_length(sref)),
+                    SetBPM(BPM(newbpm)) =>
+                        if newbpm > 0.0 {
+                            bpm = newbpm;
+                        } else if newbpm < 0.0 {
+                            bpm = newbpm;
+                            let delta =
+                                self.adjust_object_position(originoffset, pos);
+                            time += measure_to_msec(delta, -newbpm);
+                            break;
+                        },
+                    Stop(Seconds(secs)) =>
+                        time += secs * 1000.0,
+                    Stop(Measures(measures)) =>
+                        time += measure_to_msec(measures, bpm),
+                    _ => (),
+                }
+                pos = obj.time;
+            }
+
+            if bpm > 0.0 {
+                let delta = self.adjust_object_position(pos, length);
+                time += measure_to_msec(delta, bpm);
+            }
+            cmp::max(time, sndtime)
+         }
+
     }
 
     /// Derived BMS information. Again, this is not a global state.
@@ -1508,8 +1599,11 @@ pub mod parser {
                     // information, inserts one complete LN starting at `t`
                     // and ending at `t2`.
                     //
-                    // the next non-00 alphanumeric key first checks for...
-                    // doc TODO
+                    // the next non-00 alphanumeric key also inserts one
+       	    // complete LN from `t` to `t2`, unless there is already
+		    // an end of LN at `t` in which case the end of LN is
+		    // simply moved from `t` to `t2` (effectively increasing
+		    // the length of previous LN).
                     match lastln[*lane] {
                         Some(pos) if bms.objs[pos].time == t => {
                             fail_unless!(bms.objs[pos].is_lndone());
@@ -1773,42 +1867,222 @@ pub mod parser {
         infos
     }
 
-    pub fn adjust_object_time(bms: &Bms, base: float, offset: float) -> float {
-        use core::num::Round;
-        let basemeasure = base.floor() as int;
-        let baseshorten = bms.shorten_factor(basemeasure);
-        let tonextmeasure = (basemeasure as float + 1.0 - base) * baseshorten;
-        if tonextmeasure > offset {
-            base + offset / baseshorten
-        } else {
-            let mut offset = offset - tonextmeasure;
-            let mut i = basemeasure + 1;
-            let mut curmeasure = bms.shorten_factor(i);
-            while curmeasure <= offset {
-                offset -= curmeasure;
-                i += 1;
-                curmeasure = bms.shorten_factor(i);
+}
+
+//============================================================================
+// user interface
+
+pub mod ui {
+    use sdl::video::*;
+
+    /// (C: `putpixel`)
+    pub fn put_pixel(surface: &Surface, x: uint, y: uint, c: Color) {
+        // TODO Angolmois doesn't really lock the surface since it assumes
+        // SW surface or double-buffered HW surface...
+        unsafe {
+            let ll_surface = *surface.raw;
+            let mapped = c.to_mapped(ll_surface.format);
+            let pitch = ll_surface.pitch as uint;
+            let len = ll_surface.h as uint * pitch / 4;
+            let pixels: &mut [u32] =
+                cast::transmute((ll_surface.pixels, len));
+            pixels[x + y * pitch / 4] = mapped;
+        }
+    }
+
+    /// 8x16 resizable bitmap font.
+    pub struct Font {
+        /// Font data used for zoomed font reconstruction. (C: `fontdata`)
+        ///
+        /// This array has ..
+        glyphs: ~[u16],
+        /// Precalculated zoomed font per zoom factor. (C: `zoomfont`)
+        pixels: ~[~[~[u32]]]
+    }
+
+    pub fn Font() -> Font {
+        // Delta-coded code words. (C: `words`)
+        let dwords = [0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15, 1521, 15, 1537,
+            16, 48, 176, 1, 3, 1, 3, 7, 1, 4080, 4096, 3, 1, 8, 3, 4097, 4080,
+            16, 16128, 240, 1, 2, 9, 3, 8177, 15, 16385, 240, 15, 1, 47, 721,
+            143, 2673, 2, 6, 7, 1, 31, 17, 16, 63, 64, 33, 0, 1, 2, 1, 8, 3];
+
+        // LZ77-compressed indices to code words:
+        // - Byte 33..97 encodes a literal code word 0..64;
+        // - Byte 98..126 encodes an LZ77 length distance pair with length
+        //   3..31; the following byte 33..126 encodes a distance 1..94.
+        let indices = ~"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB["
+            + ~"Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*T2GWc8icM2U2D!.8(M$UQCQ-jab!'U"
+            + ~"*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfejcNl!&J"
+            + ~"TLTLG_&J>]c*&Jm@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>"
+            + ~"UQ2U2]2a9Y[S[QCQ2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!"
+            + ~"c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u`>Uc4d@b(q@abXU!D!.8(J&J&d$q"
+            + ~"`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5"
+            + ~"ghCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4I"
+            + ~"f(Q2G[l@MSUQC!2!2c$Q:RWGOk@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>"
+            + ~"MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi$d^GWk@U2D2.9("
+            + ~"[$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWC"
+            + ~"gZU:EW.Ok@>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7["
+            + ~"&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a[CW2Qk@M+U:^[GbX,M>U`[WCO-l@'"
+            + ~"U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'O,?4!1"
+            + ~"n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!"
+            + ~"2>[e<c$G[p`dZcHd@l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!"
+            + ~"c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2U2D2.9(['[,@<2W2k`*J*"
+            + ~"?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`f"
+            + ~"VlZf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[F"
+            + ~"p`M+eZ,M=UWCO-u`Q:RWGO.A(M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g"
+            + ~"*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
+
+        /// (C: `fontdecompress`)
+        fn decompress(dwords: &[u16], indices: &str) -> ~[u16] {
+            let mut words = ~[0];
+            for dwords.each |&delta| {
+                let last = {*words.last()}; // XXX #4666
+                words.push(last + delta);
             }
-            i as float + offset / baseshorten
+
+            let nindices = indices.len();
+            let mut i = 0;
+            let mut glyphs = ~[];
+            while i < nindices {
+                let code = indices[i] as uint;
+                i += 1;
+                match code {
+                    33..97 => glyphs.push(words[code - 33]),
+                    98..126 => {
+                        let length = code - 95; // code=98 -> length=3
+                        let distance = indices[i] as uint - 32;
+                        i += 1;
+                        let start = glyphs.len() - distance;
+                        for uint::range(start, start + length) |i| {
+                            glyphs.push(glyphs[i]);
+                        }
+                    },
+                    _ => fail!(~"unexpected codeword")
+                }
+            }
+            glyphs
+        }
+
+        let glyphs = decompress(dwords, indices);
+        fail_unless!(glyphs.len() == 3072);
+        Font { glyphs: glyphs, pixels: ~[] }
+    }
+
+    pub impl Font {
+        /// (C: `fontprocess`)
+        fn create_zoomed_font(&mut self, zoom: uint) {
+            fail_unless!(zoom > 0);
+            if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() {
+                return;
+            }
+
+            let nrows = 16;
+            let nglyphs = self.glyphs.len() / nrows / 2;
+            let mut pixels = vec::from_elem(nglyphs,
+                                            vec::from_elem(zoom*nrows, 0));
+
+            let put_zoomed_pixel = |glyph: uint, row: uint, col: uint,
+                                    v: u32| {
+                let zoomrow = row * zoom;
+                let zoomcol = col * zoom;
+                for uint::range(0, zoom) |r| {
+                    for uint::range(0, zoom) |c| {
+                        let mut mask = 0;
+                        if r + c >= zoom    { mask |= 1; } // lower right
+                        if r > c            { mask |= 2; } // lower left
+                        if r < c            { mask |= 4; } // upper right
+                        if r + c < zoom - 1 { mask |= 8; } // upper left
+
+                        // if `zoom` is odd, drawing four corner triangles
+                        // leaves one center pixel intact since we don't draw
+                        // diagonals for aesthetic reason. such case must be
+                        // specially handled.
+                        if (v & mask) != 0 || v == 15 {
+                            pixels[glyph][zoomrow+r] |= 1 << (zoomcol+c);
+                        }
+                    }
+                }
+            };
+
+            let mut i = 0;
+            for uint::range(0, nglyphs) |glyph| {
+                for uint::range(0, nrows) |row| {
+                    let data = (self.glyphs[i] as u32 << 16) |
+                               (self.glyphs[i+1] as u32);
+                    i += 2;
+                    for uint::range(0, 8) |col| {
+                        let v = (data >> (4 * col)) & 15;
+                        put_zoomed_pixel(glyph, row, col, v);
+                    }
+                }
+            }
+            self.pixels.grow_set(zoom, &~[], pixels);
+		}
+
+        /// Prints a glyph with given position and top/bottom color. This
+        /// method is distinct from `print_glyph` since the glyph #95 is used
+        /// for the tick marker (character code -1 in C).
+        pub fn print_glyph(&self, surface: &Surface, x: uint, y: uint,
+                           zoom: uint, glyph: uint, topcolor: Color,
+                           bottomcolor: Color) {
+            fail_unless!(!self.pixels[zoom].is_empty());
+            for uint::range(0, 16 * zoom) |iy| {
+                let row = self.pixels[zoom][glyph][iy];
+                for uint::range(0, 8 * zoom) |ix| {
+                    if ((row >> ix) & 1) != 0 {
+                        // TODO blend
+                        put_pixel(surface, x + ix, y + iy, topcolor);
+                    }
+                }
+            }
+        }
+
+        /// (C: `printchar`)
+        pub fn print_char(&self, surface: &Surface, x: uint, y: uint,
+                          zoom: uint, c: char, topcolor: Color,
+                          bottomcolor: Color) {
+            if !char::is_whitespace(c) {
+                let c = c as uint;
+                let glyph = if 32 <= c && c < 126 { c - 32 } else { 0 };
+                self.print_glyph(surface, x, y, zoom, glyph,
+                                 topcolor, bottomcolor);
+            }
+        }
+
+        /// (C: `printstr`)
+        pub fn print_string(&self, surface: &Surface, x: uint, y: uint,
+                            zoom: uint, s: &str, topcolor: Color,
+                            bottomcolor: Color) {
+            let mut x = x;
+            for str::each_char(s) |c| { // Rust: `s.each_char` is ambiguous
+                self.print_char(surface, x, y, zoom, c,
+                                topcolor, bottomcolor);
+                x += 8 * zoom;
+            }
         }
     }
 
-    pub fn adjust_object_position(bms: &Bms, base: float, time: float)
-                                    -> float {
-        use core::num::Round;
-        let basemeasure = base.floor() as int;
-        let timemeasure = time.floor() as int;
-        let mut pos =
-            (time - timemeasure as float) * bms.shorten_factor(timemeasure) -
-            (base - basemeasure as float) * bms.shorten_factor(basemeasure);
-        let mut i = basemeasure;
-        while i < timemeasure {
-            pos += bms.shorten_factor(i);
-            i += 1;
+    pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
+        let result =
+            if exclusive {
+                set_video_mode(256, 256, 32, [SWSurface], [DoubleBuf])
+            } else if !fullscreen {
+                set_video_mode(800, 600, 32, [SWSurface], [DoubleBuf])
+            } else {
+                set_video_mode(800, 600, 32, [], [Fullscreen])
+            };
+        let screen =
+            match result {
+                Ok(screen) => screen,
+                Err(err) => die!("SDL Video Initialization Failure: %s", err)
+            };
+        if !exclusive {
+            // TODO: SDL_ShowCursor(SDL_DISABLE);
         }
-        pos
+        // TODO: SDL_WM_SetCaption(VERSION, 0);
+        screen
     }
-
 }
 
 //============================================================================
@@ -1855,6 +2129,32 @@ pub mod player {
 
     use core::repr;
     pub fn play(opts: &Options) {
+        use sdl::video::{Color, RGB};
+        use sdl::event::{KeyEvent, EscapeKey, wait_event};
+
+        do ::sdl::start {
+            let screen = ::ui::init_video(false, false);
+            let mut font = ::ui::Font();
+            font.create_zoomed_font(1);
+            font.create_zoomed_font(2);
+            font.create_zoomed_font(3);
+
+            screen.fill(RGB(0, 0, 0));
+            let white = RGB(255, 255, 255);
+            font.print_string(screen, 20, 20, 1, "Angolmois Rust Edition", white, white);
+            font.print_string(screen, 20, 40, 2, "Hello world!", white, white);
+            font.print_string(screen, 20, 80, 3, "GREAT", white, white);
+            screen.flip();
+
+            loop {
+                match ::sdl::event::wait_event() {
+                    KeyEvent(EscapeKey, _, _, _) => break,
+                    _ => ()
+                }
+            }
+        }
+
+        /*
         repr::write_repr(io::stdout(), opts);
         io::println("");
 
@@ -1875,6 +2175,7 @@ pub mod player {
 
         ::core::repr::write_repr(io::stdout(), &bms.objs);
         io::println("");
+        */
 
         /*
         let bmspath = Path(copy *opts.bmspath.get_ref()).dir_path();
