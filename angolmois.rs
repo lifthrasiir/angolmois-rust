@@ -359,13 +359,21 @@ pub mod util {
     //   (C: not really maps to `sscanf`, similar to `fgets`) Implies `!`.
     //   It can be followed by `ws*` which makes the string right-trimmed.
     // - `str* [-> e2]`: Same as above but the string can be empty.
-    // - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
-    //   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
-    //   followed by a call to `key2index`)
+    // - `char [-> e2]`: Consumes exactly one character and optionally saves
+    //   it to `e2`. Resulting character can be whitespace. (C: `%1c`)
     // - `!`: Ensures that the entire string has been consumed. Should be the
     //   last format specification.
     // - `"foo"` etc.: An ordinary expression is treated as a literal string
     //   or literal character.
+    //
+    // For the use in Angolmois, the following specifications have been added:
+    //
+    // - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
+    //   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
+    //   followed by a call to `key2index`)
+    // - `Measure [-> e2]`: Consumes exactly three digits and optionally saves
+    //   it to `e2`. (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed
+    //   by a call to `atoi`)
     //
     // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex
     //         support will make this useless in the future, but not now.
@@ -440,6 +448,17 @@ pub mod util {
             $dst = _line.to_owned();
             lex!(""; $($tail)*) // optimization!
         });
+        ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
+            let _line: &str = $e;
+            if !_line.is_empty() {
+                let str::CharRange {ch:_ch, next:_pos} =
+                    str::char_range_at(_line, 0);
+                $dst = _ch;
+                lex!(_line.slice_to_end(_pos); $($tail)*)
+            } else {
+                false
+            }
+        });
         // start Angolmois-specific
         ($e:expr; Key -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
@@ -492,6 +511,10 @@ pub mod util {
         ($e:expr; str*, $($tail:tt)*) => ({
             lex!(""; $($tail)*) // optimization!
         });
+        ($e:expr; char, $($tail:tt)*) => ({
+            let mut _dummy: char = '\x00';
+            lex!($e; char -> _dummy, $($tail)*)
+        });
         // start Angolmois-specific
         ($e:expr; Key, $($tail:tt)*) => ({
             let mut _dummy: Key = Key(0);
@@ -515,6 +538,7 @@ pub mod util {
         ($e:expr; str -> $dst:expr, ws*) => (lex!($e; str -> $dst, ws*, ));
         ($e:expr; str* -> $dst:expr) => (lex!($e; str* -> $dst, ));
         ($e:expr; str* -> $dst:expr, ws*) => (lex!($e; str* -> $dst, ws*, ));
+        ($e:expr; char -> $dst:expr) => (lex!($e; char -> $dst, ));
         // start Angolmois-specific
         ($e:expr; Key -> $dst:expr) => (lex!($e; Key -> $dst, ));
         ($e:expr; Measure -> $dst:expr) => (lex!($e; Measure -> $dst, ));
@@ -527,6 +551,7 @@ pub mod util {
         ($e:expr; float) => (lex!($e; float, ));
         ($e:expr; str) => (lex!($e; str, ));
         ($e:expr; str*) => (lex!($e; str*, ));
+        ($e:expr; char) => (lex!($e; char, ));
         // start Angolmois-specific
         ($e:expr; Key) => (lex!($e; Key, ));
         ($e:expr; Measure) => (lex!($e; Measure, ));
@@ -547,6 +572,9 @@ use util::io::*;
 
 /// BMS parser module.
 pub mod parser {
+
+    //------------------------------------------------------------------------
+    // alphanumeric key
 
     /// Two-letter alphanumeric identifier (henceforth "alphanumeric key")
     /// used for virtually everything, including resource management, variable
@@ -592,6 +620,9 @@ pub mod parser {
         }
     }
 
+    //------------------------------------------------------------------------
+    // lane
+
     /// A game play element mapped to the single input element (for example,
     /// button) and the screen area (henceforth "lane").
     #[deriving_eq]
@@ -611,6 +642,9 @@ pub mod parser {
             Lane(player * 36 + *chan as uint % 36)
         }
     }
+
+    //------------------------------------------------------------------------
+    // object parameters
 
     /// Sound reference.
     #[deriving_eq]
@@ -652,6 +686,9 @@ pub mod parser {
 
     #[deriving_eq]
     pub enum Damage { GaugeDamage(float), InstantDeath }
+
+    //------------------------------------------------------------------------
+    // object
 
     #[deriving_eq]
     pub enum ObjData {
@@ -985,6 +1022,9 @@ pub mod parser {
         }
     }
 
+    //------------------------------------------------------------------------
+    // BMS data
+
     pub const DefaultBPM: float = 130.0;
 
     /// Blit commands, which manipulate the image after the image had been
@@ -1146,19 +1186,8 @@ pub mod parser {
 
     }
 
-    /// Derived BMS information. Again, this is not a global state.
-    pub struct BmsInfo {
-        /// (C: `originoffset`)
-        originoffset: float,
-        /// (C: `hasbpmchange`)
-        hasbpmchange: bool,
-        /// (C: `haslongnote`)
-        haslongnote: bool,
-        /// (C: `nnotes`)
-        nnotes: int,
-        /// (C: `maxscore`)
-        maxscore: int
-    }
+    //------------------------------------------------------------------------
+    // parsing
 
     /// Converts a single alphanumeric (base-36) letter to an integer.
     /// (C: `getdigit`)
@@ -1193,8 +1222,8 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
-    pub fn parse_bms_from_reader(bmspath: &str, f: @io::Reader,
-                                 r: @rand::Rng) -> Result<Bms,~str> {
+    pub fn parse_bms_from_reader(f: @io::Reader, r: @rand::Rng)
+                                    -> Result<~Bms,~str> {
         // (C: `bmsheader`)
         let bmsheader = [
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
@@ -1202,7 +1231,7 @@ pub mod parser {
             "BGA", "STOP", "STP", "RANDOM", "SETRANDOM", "ENDRANDOM", "IF",
             "ELSEIF", "ELSE", "ENDSW", "END"];
 
-        let mut bms = Bms();
+        let mut bms = ~Bms();
 
         enum RndState { Process = 0, Ignore = 1, NoFurther = -1 }
         struct Rnd {
@@ -1600,10 +1629,10 @@ pub mod parser {
                     // and ending at `t2`.
                     //
                     // the next non-00 alphanumeric key also inserts one
-       	    // complete LN from `t` to `t2`, unless there is already
-		    // an end of LN at `t` in which case the end of LN is
-		    // simply moved from `t` to `t2` (effectively increasing
-		    // the length of previous LN).
+                    // complete LN from `t` to `t2`, unless there is already
+                    // an end of LN at `t` in which case the end of LN is
+                    // simply moved from `t` to `t2` (effectively increasing
+                    // the length of previous LN).
                     match lastln[*lane] {
                         Some(pos) if bms.objs[pos].time == t => {
                             fail_unless!(bms.objs[pos].is_lndone());
@@ -1684,11 +1713,165 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
-    pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Result<Bms,~str> {
+    pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Result<~Bms,~str> {
         do io::file_reader(&Path(bmspath)).chain |f| {
-            parse_bms_from_reader(bmspath, f, r)
+            parse_bms_from_reader(f, r)
         }
     }
+
+    //------------------------------------------------------------------------
+    // key specification
+
+    /// (C: `KEYKIND_MNEMONICS`)
+    #[deriving_eq]
+    pub enum KeyKind {
+        WhiteKey, WhiteKeyAlt, BlackKey, Scratch, FootPedal,
+        Button1, Button2, Button3, Button4, Button5
+    }
+
+    pub impl KeyKind {
+        static pure fn from_char(c: char) -> Option<KeyKind> {
+            match c {
+                'a' => Some(WhiteKey),
+                'y' => Some(WhiteKeyAlt),
+                'b' => Some(BlackKey),
+                's' => Some(Scratch),
+                'p' => Some(FootPedal),
+                'q' => Some(Button1),
+                'w' => Some(Button2),
+                'e' => Some(Button3),
+                'r' => Some(Button4),
+                't' => Some(Button5),
+                _   => None
+            }
+        }
+
+        pure fn to_char(self) -> char {
+            match self {
+                WhiteKey    => 'a',
+                WhiteKeyAlt => 'y',
+                BlackKey    => 'b',
+                Scratch     => 's',
+                FootPedal   => 'p',
+                Button1     => 'w',
+                Button2     => 'e',
+                Button3     => 'r',
+                Button4     => 't',
+                Button5     => 's'
+            }
+        }
+
+        /// (C: `KEYKIND_IS_KEY`)
+        pure fn counts_as_key(self) -> bool {
+            self != Scratch && self != FootPedal
+        }
+    }
+
+    pub struct KeySpec {
+        /// The number of lanes on the left side. This number is significant
+        /// only when Couple Play is used. (C: `nleftkeys`)
+        keysplit: uint,
+        /// The order of significant lanes. The first `nleftkeys` lanes go to
+        /// the left side and the remaining lanes (C: `nrightkeys`) go to
+        /// the right side. (C: `keyorder`)
+        keyorder: ~[Lane],
+        /// The type of lanes. (C: `keykind`)
+        keykind: ~[Option<KeyKind> * 72] // XXX 72=NLANES
+    }
+
+    pub impl KeySpec {
+        /// Returns a number of lanes that count towards "keys". Notably
+        /// scratches and pedals do not count as keys. (C: `nkeys`)
+        pure fn nkeys(&self) -> uint {
+            let mut nkeys = 0;
+            for self.keykind.each |&kind| {
+                for kind.each |kind| {
+                    if kind.counts_as_key() { nkeys += 1; }
+                }
+            }
+            nkeys
+        }
+    }
+
+    /// (C: `parse_key_spec`)
+    pub fn parse_key_spec(s: &str) -> Option<~[(Lane, KeyKind)]> {
+        let mut specs = ~[];
+        let mut s = str::trim_left(s);
+        while !s.is_empty() {
+            let mut chan = Key(0), kind = '\x00', s2 = ~"";
+            if !lex!(s; Key -> chan, char -> kind, ws*, str* -> s2, !) {
+                return None;
+            }
+            s = s2;
+            match (chan, KeyKind::from_char(kind)) {
+                (Key(1*36..3*36-1), Some(kind)) =>
+                    specs.push((Lane(*chan as uint - 1*36), kind)),
+                (_, _) => return None
+            }
+        }
+        Some(specs)
+    }
+
+    /// (C: `presets`)
+    const PRESETS: &'static [(&'static str, &'static str, &'static str)] = &[
+        ("5",     "16s 11a 12b 13a 14b 15a", ""),
+        ("10",    "16s 11a 12b 13a 14b 15a",
+                  "21a 22b 23a 24b 25a 26s"),
+        ("5/fp",  "16s 11a 12b 13a 14b 15a 17p", ""),
+        ("10/fp", "16s 11a 12b 13a 14b 15a 17p",
+                  "27p 21a 22b 23a 24b 25a 26s"),
+        ("7",     "16s 11a 12b 13a 14b 15a 18b 19a", ""),
+        ("14",    "16s 11a 12b 13a 14b 15a 18b 19a",
+                  "21a 22b 23a 24b 25a 28b 29a 26s"),
+        ("7/fp",  "16s 11a 12b 13a 14b 15a 18b 19a 17p", ""),
+        ("14/fp", "16s 11a 12b 13a 14b 15a 18b 19a 17p",
+                  "27p 21a 22b 23a 24b 25a 28b 29a 26s"),
+        ("9",     "11q 12w 13e 14r 15t 22r 23e 24w 25q", ""),
+        ("9-bme", "11q 12w 13e 14r 15t 18r 19e 16w 17q", ""),
+    ];
+
+    /// (C: `detect_preset`)
+    pub fn preset_to_key_spec(bms: &Bms, preset: Option<~str>)
+                                    -> Option<(~str, ~str)> {
+        let mut present = [false, ..NLANES];
+        for bms.objs.each |&obj| {
+            for obj.object_lane().each |&lane| {
+                present[*lane] = true;
+            }
+        }
+
+        let preset =
+            match preset.map(|s| s.to_lower()) {
+                None | Some(~"bms") | Some(~"bme") | Some(~"bml") => {
+                    let isbme = (present[8] || present[9] ||
+                                 present[36+8] || present[36+9]);
+                    let haspedal = (present[7] || present[36+7]);
+                    let nkeys =
+                        if bms.player == 2 || bms.player == 3 {
+                            if isbme { ~"14" } else { ~"10" }
+                        } else {
+                            if isbme { ~"7" } else { ~"5" }
+                        };
+                    if haspedal { nkeys + ~"/fp" } else { nkeys }
+                },
+                Some(~"pms") => {
+                    let isbme = (present[6] || present[7] ||
+                                 present[8] || present[9]);
+                    if isbme { ~"9-bme" } else { ~"9" }
+                },
+                Some(preset) => preset
+            };
+
+        for PRESETS.each |&(name, leftkeys, rightkeys)| {
+            if name == preset {
+                return Some((leftkeys.to_owned(), rightkeys.to_owned()));
+            }
+        }
+        None
+    }
+
+    //------------------------------------------------------------------------
+    // post-processing
 
     /// Updates the object in place to BGM or placeholder.
     /// (C: `remove_or_replace_note`)
@@ -1711,7 +1894,7 @@ pub mod parser {
             while i < len {
                 let cur = objs[i].time;
                 let mut types = 0;
-                let mut j = 0;
+                let mut j = i;
                 while j < len && objs[j].time <= cur {
                     let obj = &mut objs[j];
                     for to_type(obj).each |&t| {
@@ -1816,32 +1999,35 @@ pub mod parser {
                  |types| types);
     }
 
-    pub struct KeySpec {
-        /// The number of lanes on the left side. (C: `nleftkeys`) This number
-        /// is significant only when Couple Play is used.
-        keysplit: int,
-        /// The order of significant lanes. The first `nleftkeys` lanes go to
-        /// the left side and the remaining lanes (C: `nrightkeys`) go to
-        /// the right side. (C: `keyorder`)
-        keyorder: ~[Lane],
-        /// The type of lanes. (C: `keykind`)
-        keykind: ~[Option<int> * 72] // XXX 72=NLANES
-    }
-
     /// Removes insignificant objects (i.e. not in visible lanes) and ensures
     /// that there is no `Deleted` object. (C: `analyze_and_compact_bms`)
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
         for vec::each_mut(bms.objs) |obj| {
-            match obj.object_lane() {
-                Some(lane) =>
-                    if keyspec.keykind[*lane].is_none() {
-                        remove_or_replace_note(obj)
-                    },
-                None => ()
+            for obj.object_lane().each |&lane| {
+                if keyspec.keykind[*lane].is_none() {
+                    remove_or_replace_note(obj)
+                }
             }
         }
 
-        do bms.objs.retain |&obj| { obj.data == Deleted }
+        do bms.objs.retain |&obj| { obj.data != Deleted }
+    }
+
+    //------------------------------------------------------------------------
+    // analysis
+
+    /// Derived BMS information. Again, this is not a global state.
+    pub struct BmsInfo {
+        /// (C: `originoffset`)
+        originoffset: float,
+        /// (C: `hasbpmchange`)
+        hasbpmchange: bool,
+        /// (C: `haslongnote`)
+        haslongnote: bool,
+        /// (C: `nnotes`)
+        nnotes: int,
+        /// (C: `maxscore`)
+        maxscore: int
     }
 
     /// Analyzes the loaded BMS file. (C: `analyze_and_compact_bms`)
@@ -1867,38 +2053,118 @@ pub mod parser {
         infos
     }
 
+    //------------------------------------------------------------------------
+
 }
 
 //============================================================================
 // user interface
 
 pub mod ui {
-    use sdl::video::*;
+    pub use sdl::video::*;
+
+    //------------------------------------------------------------------------
+    // color
+
+    pure fn to_rgb(c: Color) -> (u8, u8, u8) {
+        match c { RGB(r, g, b) | RGBA(r, g, b, _) => (r, g, b) }
+    }
+
+    pub struct Gradient {
+        top: Color, bottom: Color
+    }
+
+    pub pure fn Gradient(top: Color, bottom: Color) -> Gradient {
+        fail_unless!({
+            // this condition is required due to `blend` implementation
+            let (r1, g1, b1) = to_rgb(top), (r2, g2, b2) = to_rgb(bottom);
+            r1 >= r2 && g1 >= g2 && b1 >= b2
+        });
+        Gradient { top: top, bottom: bottom }
+    }
+
+    pub trait Blendable {
+        /// (C: `blend`)
+        pure fn blend(self, num: uint, denom: uint) -> Color;
+    }
+
+    impl Blendable for Color {
+        pure fn blend(self, num: uint, denom: uint) -> Color { self }
+    }
+
+    impl Blendable for Gradient {
+        pure fn blend(self, num: uint, denom: uint) -> Color {
+            pure fn mix(x: u8, y: u8, num: uint, denom: uint) -> u8 {
+                y + ((x - y) as uint * num / denom) as u8
+            }
+
+            let (r1, g1, b1) = to_rgb(self.top);
+            let (r2, g2, b2) = to_rgb(self.bottom);
+            RGB(mix(r1, r2, num, denom), mix(g1, g2, num, denom),
+                mix(b1, b2, num, denom))
+        }
+    }
+
+    //------------------------------------------------------------------------
 
     /// (C: `putpixel`)
     pub fn put_pixel(surface: &Surface, x: uint, y: uint, c: Color) {
         // TODO Angolmois doesn't really lock the surface since it assumes
         // SW surface or double-buffered HW surface...
         unsafe {
-            let ll_surface = *surface.raw;
-            let mapped = c.to_mapped(ll_surface.format);
-            let pitch = ll_surface.pitch as uint;
-            let len = ll_surface.h as uint * pitch / 4;
+            let mapped = c.to_mapped((*surface.raw).format);
+            let pitch = (*surface.raw).pitch as uint;
+            let len = (*surface.raw).h as uint * pitch / 4;
             let pixels: &mut [u32] =
-                cast::transmute((ll_surface.pixels, len));
+                cast::transmute(((*surface.raw).pixels, len));
             pixels[x + y * pitch / 4] = mapped;
         }
     }
 
+    //------------------------------------------------------------------------
+    // bitmap font
+
+    /// Bit vector which represents one row of zoomed font.
+    type ZoomedFontRow = u32;
+
     /// 8x16 resizable bitmap font.
     pub struct Font {
-        /// Font data used for zoomed font reconstruction. (C: `fontdata`)
+        /// Font data used for zoomed font reconstruction. This is actually
+        /// an array of `u32` elements, where the first `u16` element forms
+        /// upper 16 bits and the second forms lower 16 bits. It is
+        /// reinterpreted for better compression. (C: `fontdata`)
         ///
-        /// This array has ..
+        /// One glyph has 16 `u32` elements for each row from the top to
+        /// the bottom. One `u32` element contains eight four-bit groups for
+        /// each column from the left (lowermost group) to the right
+        /// (uppermost group). Each group is a bitwise OR of following bits:
+        ///
+        /// - 1: the lower right triangle of the zoomed pixel should be drawn.
+        /// - 2: the lower left triangle of the zoomed pixel should be drawn.
+        /// - 4: the upper left triangle of the zoomed pixel should be drawn.
+        /// - 8: the upper right triangle of the zoomed pixel should be drawn.
+        ///
+        /// So for example, if the group bits read 3 (1+2), the zoomed pixel
+        /// would be drawn as follows (in the zoom factor 5):
+        ///
+        ///     .....
+        ///     #...#
+        ///     ##.##
+        ///     #####
+        ///     #####
+        ///
+        /// The group bits 15 (1+2+4+8) always draw the whole square, so in
+        /// the zoom factor 1 only pixels with group bits 15 will be drawn.
         glyphs: ~[u16],
-        /// Precalculated zoomed font per zoom factor. (C: `zoomfont`)
-        pixels: ~[~[~[u32]]]
+
+        /// Precalculated zoomed font per zoom factor. It is three-dimensional
+        /// array which indices are zoom factor, glyph number and row
+        /// respectively. Assumes that each element has at least zoom factor
+        /// times 8 (columns per row) bits. (C: `zoomfont`)
+        pixels: ~[~[~[ZoomedFontRow]]]
     }
+
+    pub enum Alignment { LeftAligned, Centered, RightAligned }
 
     pub fn Font() -> Font {
         // Delta-coded code words. (C: `words`)
@@ -1973,6 +2239,7 @@ pub mod ui {
         /// (C: `fontprocess`)
         fn create_zoomed_font(&mut self, zoom: uint) {
             fail_unless!(zoom > 0);
+            fail_unless!(zoom <= (8 * sys::size_of::<ZoomedFontRow>()) / 8);
             if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() {
                 return;
             }
@@ -2023,45 +2290,49 @@ pub mod ui {
         /// Prints a glyph with given position and top/bottom color. This
         /// method is distinct from `print_glyph` since the glyph #95 is used
         /// for the tick marker (character code -1 in C).
-        pub fn print_glyph(&self, surface: &Surface, x: uint, y: uint,
-                           zoom: uint, glyph: uint, topcolor: Color,
-                           bottomcolor: Color) {
+        pub fn print_glyph<ColorT:Blendable+Copy>(&self, surface: &Surface,
+                x: uint, y: uint, zoom: uint, glyph: uint, color: ColorT) {
             fail_unless!(!self.pixels[zoom].is_empty());
             for uint::range(0, 16 * zoom) |iy| {
                 let row = self.pixels[zoom][glyph][iy];
+                let rowcolor = color.blend(iy, 16 * zoom);
                 for uint::range(0, 8 * zoom) |ix| {
                     if ((row >> ix) & 1) != 0 {
-                        // TODO blend
-                        put_pixel(surface, x + ix, y + iy, topcolor);
+                        put_pixel(surface, x + ix, y + iy, rowcolor);
                     }
                 }
             }
         }
 
         /// (C: `printchar`)
-        pub fn print_char(&self, surface: &Surface, x: uint, y: uint,
-                          zoom: uint, c: char, topcolor: Color,
-                          bottomcolor: Color) {
+        pub fn print_char<ColorT:Blendable+Copy>(&self, surface: &Surface,
+                x: uint, y: uint, zoom: uint, c: char, color: ColorT) {
             if !char::is_whitespace(c) {
                 let c = c as uint;
                 let glyph = if 32 <= c && c < 126 { c - 32 } else { 0 };
-                self.print_glyph(surface, x, y, zoom, glyph,
-                                 topcolor, bottomcolor);
+                self.print_glyph(surface, x, y, zoom, glyph, color);
             }
         }
 
         /// (C: `printstr`)
-        pub fn print_string(&self, surface: &Surface, x: uint, y: uint,
-                            zoom: uint, s: &str, topcolor: Color,
-                            bottomcolor: Color) {
-            let mut x = x;
-            for str::each_char(s) |c| { // Rust: `s.each_char` is ambiguous
-                self.print_char(surface, x, y, zoom, c,
-                                topcolor, bottomcolor);
+        pub fn print_string<ColorT:Blendable+Copy>(&self, surface: &Surface,
+                x: uint, y: uint, zoom: uint, s: &str,
+                align: Alignment, color: ColorT) {
+            let mut x = match align {
+                LeftAligned  => x,
+                Centered     => x - s.len() * (8 * zoom) / 2,
+                RightAligned => x - s.len() * (8 * zoom),
+            };
+            // Rust: `s.each_char` is ambiguous here.
+            for str::each_char(s) |c| {
+                self.print_char(surface, x, y, zoom, c, color);
                 x += 8 * zoom;
             }
         }
     }
+
+    //------------------------------------------------------------------------
+    // initialization
 
     pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
         let result =
@@ -2089,6 +2360,7 @@ pub mod ui {
 // game play
 
 pub mod player {
+    use parser::*;
 
     pub enum Mode { PlayMode, AutoPlayMode, ExclusiveMode }
     pub enum Modf { NoModf, MirrorModf, ShuffleModf, ShuffleExModf,
@@ -2097,7 +2369,7 @@ pub mod player {
 
     pub struct Options {
         /// (C: `bmspath`)
-        bmspath: Option<~str>,
+        bmspath: ~str,
         /// (C: `opt_mode`)
         mode: Mode,
         /// (C: `opt_modf`)
@@ -2120,62 +2392,86 @@ pub mod player {
         playspeed: float,
     }
 
-    pub pure fn Options() -> ~Options {
-        ~Options { bmspath: None, mode: PlayMode, modf: NoModf,
-                   bga: BgaAndMovie, showinfo: true, fullscreen: true,
-                   joystick: None, preset: None, leftkeys: None,
-                   rightkeys: None, playspeed: 1.0 }
-    }
+    fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
+        let (leftkeys, rightkeys) =
+            if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
+                let preset =
+                    if opts.preset.is_none() && 
+                           opts.bmspath.to_lower().ends_with(~".pms") {
+                        Some(~"pms")
+                    } else {
+                        copy opts.preset
+                    };
+                match preset_to_key_spec(bms, preset) {
+                    Some(leftright) => leftright,
+                    None => return Err(fmt!("Invalid preset name: %s",
+                                            opts.preset.map_default(~"",
+                                                |&v| copy v)))
+                }
+            } else {
+                // Rust: Option<T>::clone_default maybe?
+                (opts.leftkeys.map_default(~"", |&v| copy v),
+                 opts.rightkeys.map_default(~"", |&v| copy v))
+            };
 
-    use core::repr;
-    pub fn play(opts: &Options) {
-        use sdl::video::{Color, RGB};
-        use sdl::event::{KeyEvent, EscapeKey, wait_event};
-
-        do ::sdl::start {
-            let screen = ::ui::init_video(false, false);
-            let mut font = ::ui::Font();
-            font.create_zoomed_font(1);
-            font.create_zoomed_font(2);
-            font.create_zoomed_font(3);
-
-            screen.fill(RGB(0, 0, 0));
-            let white = RGB(255, 255, 255);
-            font.print_string(screen, 20, 20, 1, "Angolmois Rust Edition", white, white);
-            font.print_string(screen, 20, 40, 2, "Hello world!", white, white);
-            font.print_string(screen, 20, 80, 3, "GREAT", white, white);
-            screen.flip();
-
-            loop {
-                match ::sdl::event::wait_event() {
-                    KeyEvent(EscapeKey, _, _, _) => break,
-                    _ => ()
+        let mut keyspec = ~KeySpec { keysplit: 0, keyorder: ~[],
+                                     keykind: ~[None, ..NLANES] };
+        let parse_and_add = |keys: &str| -> Option<uint> {
+            match parse_key_spec(keys) {
+                None | Some([]) => None,
+                Some(left) => {
+                    for left.each |&(lane,kind)| {
+                        if keyspec.keykind[*lane].is_some() { return None; }
+                        keyspec.keyorder.push(lane);
+                        keyspec.keykind[*lane] = Some(kind);
+                    }
+                    Some(left.len())
                 }
             }
-        }
-
-        /*
-        repr::write_repr(io::stdout(), opts);
-        io::println("");
-
-        let r = rand::task_rng();
-        let mut bms = match opts.bmspath {
-            Some(copy path) =>
-                match ::parser::parse_bms(path, r) {
-                    Ok(bms) => ~bms,
-                    Err(err) => die!("Couldn't load BMS file: %s", err)
-                },
-            None => fail!(~"TODO")
         };
 
-        ::core::repr::write_repr(io::stdout(), &bms.objs);
-        io::println("");
+        if !leftkeys.is_empty() {
+            match parse_and_add(leftkeys) {
+                None =>
+                    return Err(fmt!("Invalid key spec for left \
+                                     hand side: %s", leftkeys)),
+                Some(nkeys) => keyspec.keysplit += nkeys
+            }
+        } else {
+            return Err(fmt!("No key model is specified using -k or -K"));
+        }
+        if !rightkeys.is_empty() {
+            match parse_and_add(rightkeys) {
+                None =>
+                    return Err(fmt!("Invalid key spec for right \
+                                     hand side: %s", rightkeys)),
+                Some(nkeys) => // no split panes except for #PLAYER 2
+                    if bms.player != 2 { keyspec.keysplit += nkeys; }
+            }
+        }
+        Ok(keyspec)
+   }
 
-        ::parser::sanitize_bms(bms);
+    pub fn play(opts: &Options) {
+        let r = rand::task_rng();
+        let mut bms =
+            match parse_bms(opts.bmspath, r) {
+                Ok(bms) => bms,
+                Err(err) => die!("Couldn't load BMS file: %s", err)
+            };
+        sanitize_bms(bms);
 
-        ::core::repr::write_repr(io::stdout(), &bms.objs);
+        let keyspec =
+            match key_spec(bms, opts) {
+                Ok(keyspec) => keyspec,
+                Err(err) => die!("%s", err)
+            };
+        compact_bms(bms, keyspec);
+        let infos = analyze_bms(bms);
+
+        //::core::repr::write_repr(io::stdout(), &bms.objs);
+        ::core::repr::write_repr(io::stdout(), &infos);
         io::println("");
-        */
 
         /*
         let bmspath = Path(copy *opts.bmspath.get_ref()).dir_path();
@@ -2277,16 +2573,27 @@ fn main() {
 
     let args = os::args();
     let nargs = args.len();
-    let mut opts = Options();
+
+    let mut bmspath = None;
+    let mut mode = PlayMode;
+    let mut modf = NoModf;
+    let mut bga = BgaAndMovie;
+    let mut showinfo = true;
+    let mut fullscreen = true;
+    let mut joystick = None;
+    let mut preset = None;
+    let mut leftkeys = None;
+    let mut rightkeys = None;
+    let mut playspeed = 1.0;
 
     let mut i = 1;
     while i < nargs {
         if !args[i].starts_with("-") {
-            if opts.bmspath.is_none() { opts.bmspath = Some(copy args[i]); }
+            if bmspath.is_none() { bmspath = Some(copy args[i]); }
         } else if args[i] == ~"--" {
             i += 1;
-            if opts.bmspath.is_none() && i < nargs {
-                opts.bmspath = Some(copy args[i]);
+            if bmspath.is_none() && i < nargs {
+                bmspath = Some(copy args[i]);
             }
             break;
         } else {
@@ -2323,39 +2630,39 @@ fn main() {
                 match c {
                     'h' => { usage(); },
                     'V' => { io::println(version()); return; },
-                    'v' => { opts.mode = AutoPlayMode; },
-                    'x' => { opts.mode = ExclusiveMode; },
-                    'X' => { opts.mode = ExclusiveMode; opts.bga = NoBga; },
-                    'w' => { opts.fullscreen = false; },
-                    'q' => { opts.showinfo = false; },
-                    'm' => { opts.modf = MirrorModf; },
-                    's' => { opts.modf = ShuffleModf; },
-                    'S' => { opts.modf = ShuffleExModf; },
-                    'r' => { opts.modf = RandomModf; },
-                    'R' => { opts.modf = RandomExModf; },
-                    'k' => { opts.preset = Some(fetch_arg('k')); },
+                    'v' => { mode = AutoPlayMode; },
+                    'x' => { mode = ExclusiveMode; },
+                    'X' => { mode = ExclusiveMode; bga = NoBga; },
+                    'w' => { fullscreen = false; },
+                    'q' => { showinfo = false; },
+                    'm' => { modf = MirrorModf; },
+                    's' => { modf = ShuffleModf; },
+                    'S' => { modf = ShuffleExModf; },
+                    'r' => { modf = RandomModf; },
+                    'R' => { modf = RandomExModf; },
+                    'k' => { preset = Some(fetch_arg('k')); },
                     'K' => {
-                        opts.leftkeys = Some(fetch_arg('K'));
-                        opts.rightkeys = Some(fetch_arg('K'));
+                        leftkeys = Some(fetch_arg('K'));
+                        rightkeys = Some(fetch_arg('K'));
                     },
                     'a' => match float::from_str(fetch_arg('a')) {
                         Some(speed) if speed > 0.0 => {
-                            opts.playspeed =
+                            playspeed =
                                 if speed < 0.1 { 0.1 }
                                 else if speed > 99.0 { 99.0 }
                                 else { speed };
                         },
                         _ => die!("Invalid argument to option -a")
                     },
-                    'B' => { opts.bga = NoBga; },
-                    'M' => { opts.bga = BgaButNoMovie; },
+                    'B' => { bga = NoBga; },
+                    'M' => { bga = BgaButNoMovie; },
                     'j' => match int::from_str(fetch_arg('j')) {
-                        Some(n) if n >= 0 => { opts.joystick = Some(n); },
+                        Some(n) if n >= 0 => { joystick = Some(n); },
                         _ => die!("Invalid argument to option -j")
                     },
                     ' ' => {}, // for ignored long options
                     '1'..'9' => {
-                        opts.playspeed = char::to_digit(c, 10).get() as float;
+                        playspeed = char::to_digit(c, 10).get() as float;
                     },
                     _ => die!("Invalid option: -%c", c),
                 }
@@ -2365,6 +2672,17 @@ fn main() {
         i += 1;
     }
 
-    //if opts.bmspath.is_none() { opts.bmspath = filedialog(); }
-    if opts.bmspath.is_none() { usage(); } else { play(opts); }
+    //if bmspath.is_none() { bmspath = filedialog(); }
+    match bmspath {
+        None => usage(),
+        Some(bmspath) => {
+            let opts = Options {
+                bmspath: bmspath, mode: mode, modf: modf, bga: bga,
+                showinfo: showinfo, fullscreen: fullscreen,
+                joystick: joystick, preset: preset, leftkeys: leftkeys,
+                rightkeys: rightkeys, playspeed: playspeed
+            };
+            play(&opts);
+        }
+    }
 }
