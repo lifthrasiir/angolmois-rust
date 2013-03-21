@@ -95,7 +95,7 @@ pub mod util {
         const tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
 
         /// Iterates over the chars in a string, with byte indices.
-        pub pure fn each_chari_byte(s: &str, it: fn(uint, char) -> bool) {
+        pub pure fn each_chari_byte(s: &str, it: &fn(uint, char) -> bool) {
             let mut pos = 0u;
             let len = s.len();
             while pos < len {
@@ -107,8 +107,8 @@ pub mod util {
 
         /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid
         /// UTF-8 sequence with given error handler.
-        pub pure fn fix_utf8(v: &[const u8], handler: pure fn(&[const u8])
-                                        -> ~[u8]) -> ~[u8] {
+        pub pure fn fix_utf8(v: &[u8],
+                             handler: &pure fn(&[u8]) -> ~[u8]) -> ~[u8] {
             let mut i = 0u;
             let total = vec::len::<u8>(v);
             let mut result = ~[];
@@ -131,18 +131,18 @@ pub mod util {
 
         /// Given a potentially invalid UTF-8 string, fixes an invalid
         /// UTF-8 string with given error handler.
-        pub pure fn fix_utf8_str(s: &str, handler: pure fn(&[const u8])
-                                        -> ~str) -> ~str {
+        pub pure fn fix_utf8_str(s: &str,
+                                 handler: &pure fn(&[u8]) -> ~str) -> ~str {
             from_fixed_utf8_bytes(str::to_bytes(s), handler)
         }
 
         /// Converts a vector of bytes to a UTF-8 string. Any invalid UTF-8
         /// sequences are fixed with given error handler.
-        pub pure fn from_fixed_utf8_bytes(v: &[const u8],
-                                          handler: pure fn(&[const u8])
-                                                   -> ~str) -> ~str {
-            let newhandler: pure fn(&[const u8]) -> ~[u8] =
-                |v: &[const u8]| -> ~[u8] { str::to_bytes(handler(v)) };
+        pub pure fn from_fixed_utf8_bytes(v: &[u8],
+                                          handler: &pure fn(&[u8]) -> ~str)
+                                                        -> ~str {
+            let newhandler: &pure fn(&[u8]) -> ~[u8] =
+                |v: &[u8]| -> ~[u8] { str::to_bytes(handler(v)) };
             let bytes = fix_utf8(v, newhandler);
             unsafe { str::raw::from_bytes(bytes) }
         }
@@ -191,12 +191,11 @@ pub mod util {
             pure fn slice_to_end(self, begin: uint) -> ~str;
 
             /// Iterates over the chars in a string, with byte indices.
-            pure fn each_chari_byte(self, it: fn(uint, char) -> bool);
+            pure fn each_chari_byte(self, it: &fn(uint, char) -> bool);
 
             /// Given a potentially invalid UTF-8 string, fixes an invalid
             /// UTF-8 string with given error handler.
-            pure fn fix_utf8(self, handler: pure fn(&[const u8]) -> ~str)
-                                        -> ~str;
+            pure fn fix_utf8(self, handler: &pure fn(&[u8]) -> ~str) -> ~str;
 
             /// Returns a length of the longest prefix of given string, which
             /// `uint::from_str` accepts without a failure, if any.
@@ -215,11 +214,10 @@ pub mod util {
             pure fn slice_to_end(self, begin: uint) -> ~str {
                 self.slice(begin, self.len())
             }
-            pure fn each_chari_byte(self, it: fn(uint, char) -> bool) {
+            pure fn each_chari_byte(self, it: &fn(uint, char) -> bool) {
                 each_chari_byte(self, it)
             }
-            pure fn fix_utf8(self, handler: pure fn(&[const u8]) -> ~str)
-                                        -> ~str {
+            pure fn fix_utf8(self, handler: &pure fn(&[u8]) -> ~str) -> ~str {
                 fix_utf8_str(self, handler)
             }
             pure fn scan_uint(self) -> Option<uint> { scan_uint(self) }
@@ -265,7 +263,7 @@ pub mod util {
     pub mod option {
 
         #[inline(always)]
-        pub pure fn filter<T:Copy>(opt: Option<T>, f: fn(t: T) -> bool)
+        pub pure fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool)
                                         -> Option<T> {
             match opt {
                 Some(t) => if f(t) { Some(t) } else { None },
@@ -274,23 +272,23 @@ pub mod util {
         }
 
         pub trait OptionUtil<T> {
-            pure fn chain<U>(self, f: fn(x: T) -> Option<U>) -> Option<U>;
+            pure fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U>;
         }
 
         pub trait CopyableOptionUtil<T:Copy> {
-            pure fn filter(self, f: fn(x: T) -> bool) -> Option<T>;
+            pure fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
         }
 
         impl<T> OptionUtil<T> for Option<T> {
             #[inline(always)]
-            pure fn chain<U>(self, f: fn(x: T) -> Option<U>) -> Option<U> {
+            pure fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U> {
                 option::chain(self, f)
             }
         }
 
         impl<T:Copy> CopyableOptionUtil<T> for Option<T> {
             #[inline(always)]
-            pure fn filter(self, f: fn(x: T) -> bool) -> Option<T> {
+            pure fn filter(self, f: &fn(x: T) -> bool) -> Option<T> {
                 filter(self, f)
             }
         }
@@ -308,18 +306,18 @@ pub mod util {
             /// Reads up until the first '\n' char (which is not returned),
             /// or EOF. Any invalid UTF-8 sequences are fixed with given
             /// error handler.
-            fn read_and_fix_utf8_line(&self, handler: pure fn(&[const u8])
-                                        -> ~str) -> ~str;
+            fn read_and_fix_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str)
+                                        -> ~str;
 
             /// Iterates over every line until the iterator breaks or EOF. Any
             /// invalid UTF-8 sequences are fixed with given error handler.
-            fn each_fixed_utf8_line(&self, handler: pure fn(&[const u8])
-                                        -> ~str, it: fn(&str) -> bool);
+            fn each_fixed_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str,
+                                    it: &fn(&str) -> bool);
         }
 
         impl<T: io::Reader> ReaderUtilEx for T {
-            fn read_and_fix_utf8_line(&self, handler: pure fn(&[const u8])
-                                        -> ~str) -> ~str {
+            fn read_and_fix_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str)
+                                        -> ~str {
                 let mut bytes = ~[];
                 loop {
                     let ch = self.read_byte();
@@ -329,8 +327,8 @@ pub mod util {
                 ::util::str::from_fixed_utf8_bytes(bytes, handler)
             }
 
-            fn each_fixed_utf8_line(&self, handler: pure fn(&[const u8])
-                                        -> ~str, it: fn(&str) -> bool) {
+            fn each_fixed_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str,
+                                    it: &fn(&str) -> bool) {
                 while !self.eof() {
                     if !it(self.read_and_fix_utf8_line(handler)) { break; }
                 }
@@ -572,6 +570,7 @@ use util::io::*;
 
 /// BMS parser module.
 pub mod parser {
+    use core::rand::*;
 
     //------------------------------------------------------------------------
     // alphanumeric key
@@ -616,7 +615,7 @@ pub mod parser {
         pure fn to_str(&self) -> ~str {
             fail_unless!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            fmt!("%c%c", map[*self / 36] as char, map[*self % 36] as char)
+            fmt!("%c%c", map[**self / 36] as char, map[**self % 36] as char)
         }
     }
 
@@ -1147,7 +1146,7 @@ pub mod parser {
 
         /// (C: `get_bms_duration`)
         pub fn duration(&self, originoffset: float, length: float,
-                        sound_length: fn(SoundRef) -> float) -> float {
+                        sound_length: &fn(SoundRef) -> float) -> float {
             let mut pos = originoffset;
             let mut bpm = self.initbpm;
             let mut time = 0.0, sndtime = 0.0;
@@ -1202,7 +1201,7 @@ pub mod parser {
 
     /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
     pub pure fn key2index(s: &[char]) -> Option<int> {
-        fail_unless!(s.len() >= 2);
+        if s.len() < 2 { return None; }
         do getdigit(s[0]).chain |a| {
             do getdigit(s[1]).map |&b| { a * 36 + b }
         }
@@ -1210,7 +1209,7 @@ pub mod parser {
 
     /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
     pub pure fn key2index_str(s: &str) -> Option<int> {
-        fail_unless!(s.len() >= 2);
+        if s.len() < 2 { return None; }
         let str::CharRange {ch:c1, next:p1} = str::char_range_at(s, 0);
         do getdigit(c1).chain |a| {
             let str::CharRange {ch:c2, next:p2} = str::char_range_at(s, p1);
@@ -1846,12 +1845,10 @@ pub mod parser {
                     let isbme = (present[8] || present[9] ||
                                  present[36+8] || present[36+9]);
                     let haspedal = (present[7] || present[36+7]);
-                    let nkeys =
-                        if bms.player == 2 || bms.player == 3 {
-                            if isbme { ~"14" } else { ~"10" }
-                        } else {
-                            if isbme { ~"7" } else { ~"5" }
-                        };
+                    let nkeys = match bms.player {
+                        2 | 3 => if isbme { ~"14" } else { ~"10" },
+                        _     => if isbme { ~"7"  } else { ~"5"  }
+                    };
                     if haspedal { nkeys + ~"/fp" } else { nkeys }
                 },
                 Some(~"pms") => {
@@ -1887,8 +1884,8 @@ pub mod parser {
     pub fn sanitize_bms(bms: &mut Bms) {
         ::std::sort::tim_sort(bms.objs);
 
-        fn sanitize(objs: &mut [Obj], to_type: fn(&Obj) -> Option<uint>,
-                    merge_types: fn(uint) -> uint) {
+        fn sanitize(objs: &mut [Obj], to_type: &fn(&Obj) -> Option<uint>,
+                    merge_types: &fn(uint) -> uint) {
             let len = objs.len();
             let mut i = 0;
             while i < len {
@@ -2083,17 +2080,17 @@ pub mod ui {
         Gradient { top: top, bottom: bottom }
     }
 
-    pub trait Blendable {
+    pub trait Blendable: Copy {
         /// (C: `blend`)
-        pure fn blend(self, num: uint, denom: uint) -> Color;
+        pure fn blend(&self, num: uint, denom: uint) -> Color;
     }
 
     impl Blendable for Color {
-        pure fn blend(self, num: uint, denom: uint) -> Color { self }
+        pure fn blend(&self, num: uint, denom: uint) -> Color { *self }
     }
 
     impl Blendable for Gradient {
-        pure fn blend(self, num: uint, denom: uint) -> Color {
+        pure fn blend(&self, num: uint, denom: uint) -> Color {
             pure fn mix(x: u8, y: u8, num: uint, denom: uint) -> u8 {
                 y + ((x - y) as uint * num / denom) as u8
             }
@@ -2285,7 +2282,7 @@ pub mod ui {
                 }
             }
             self.pixels.grow_set(zoom, &~[], pixels);
-		}
+        }
 
         /// Prints a glyph with given position and top/bottom color. This
         /// method is distinct from `print_glyph` since the glyph #95 is used
