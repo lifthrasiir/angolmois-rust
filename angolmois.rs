@@ -75,11 +75,20 @@ pub fn die(s: ~str) -> ! {
     exit(1)
 }
 
+pub fn warn(s: ~str) {
+    io::stderr().write_line(fmt!("*** Warning: %s", s));
+}
+
 // Exits with a formatted error message. (C: `die`)
 //
 // Rust: this comment cannot be a doc comment (yet).
 macro_rules! die(
     ($($e:expr),+) => (::die(fmt!($($e),+)))
+)
+
+// (C: `warn`)
+macro_rules! warn(
+    ($($e:expr),+) => (::warn(fmt!($($e),+)))
 )
 
 /// Utility functions.
@@ -335,6 +344,35 @@ pub mod util {
             }
         }
 
+    }
+
+    /// Comparison routines for Rust. Parallels to `core::cmp`.
+    ///
+    /// NOTE: Some of these additions will be eventually sent to
+    /// libcore/cmp.rs and are not subject to the above copyright notice.
+    pub mod cmp {
+
+        #[inline(always)]
+        pub pure fn clamp<T:Ord>(low: T, v: T, high: T) -> T {
+            if v < low { low } else if v > high { high } else { v }
+        }
+
+    }
+
+    pub mod sdl {
+
+        pub extern {
+            fn SDL_Delay(ms: u32);
+            fn SDL_GetTicks() -> u32;
+        }
+
+        pub fn delay(msec: uint) {
+            unsafe { SDL_Delay(msec as u32); }
+        }
+
+        pub fn ticks() -> uint {
+            unsafe { SDL_GetTicks() as uint }
+        }
     }
 
     // A lexer barely powerful enough to parse BMS format. Comparable to
@@ -1073,10 +1111,10 @@ pub mod parser {
         /// (C: `sndpath`)
         ///
         /// Rust: constant expression in the array size is unsupported.
-        sndpath: ~[Option<~str> * 1296], // XXX 1296=MAXKEY
+        sndpath: [Option<~str> * 1296], // XXX 1296=MAXKEY
         /// Paths to image/movie file relative to `basepath` or BMS file.
         /// (C: `imgpath`)
-        imgpath: ~[Option<~str> * 1296], // XXX 1296=MAXKEY
+        imgpath: [Option<~str> * 1296], // XXX 1296=MAXKEY
         /// List of blit commands to be executed after `imgpath` is loaded.
         /// (C: `blitcmd`)
         blitcmd: ~[BlitCmd],
@@ -1089,8 +1127,8 @@ pub mod parser {
     pub pure fn Bms() -> Bms {
         Bms { title: None, genre: None, artist: None, stagefile: None,
               basepath: None, player: SinglePlay, playlevel: 0, rank: 2,
-              initbpm: DefaultBPM, sndpath: ~[None, ..MAXKEY],
-              imgpath: ~[None, ..MAXKEY], blitcmd: ~[], objs: ~[],
+              initbpm: DefaultBPM, sndpath: [None, ..MAXKEY],
+              imgpath: [None, ..MAXKEY], blitcmd: ~[], objs: ~[],
               shorten: ~[] }
     }
 
@@ -1769,13 +1807,13 @@ pub mod parser {
     pub struct KeySpec {
         /// The number of lanes on the left side. This number is significant
         /// only when Couple Play is used. (C: `nleftkeys`)
-        keysplit: uint,
+        split: uint,
         /// The order of significant lanes. The first `nleftkeys` lanes go to
         /// the left side and the remaining lanes (C: `nrightkeys`) go to
         /// the right side. (C: `keyorder`)
-        keyorder: ~[Lane],
+        order: ~[Lane],
         /// The type of lanes. (C: `keykind`)
-        keykind: ~[Option<KeyKind> * 72] // XXX 72=NLANES
+        kinds: ~[Option<KeyKind> * 72] // XXX 72=NLANES
     }
 
     pub impl KeySpec {
@@ -1783,7 +1821,7 @@ pub mod parser {
         /// scratches and pedals do not count as keys. (C: `nkeys`)
         pure fn nkeys(&self) -> uint {
             let mut nkeys = 0;
-            for self.keykind.each |&kind| {
+            for self.kinds.each |&kind| {
                 for kind.each |kind| {
                     if kind.counts_as_key() { nkeys += 1; }
                 }
@@ -2001,7 +2039,7 @@ pub mod parser {
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
         for vec::each_mut(bms.objs) |obj| {
             for obj.object_lane().each |&lane| {
-                if keyspec.keykind[*lane].is_none() {
+                if keyspec.kinds[*lane].is_none() {
                     remove_or_replace_note(obj)
                 }
             }
@@ -2051,13 +2089,81 @@ pub mod parser {
     }
 
     //------------------------------------------------------------------------
+    // modifiers
+
+    fn update_object_lane(obj: &mut Obj, f: &fn(Lane) -> Lane) {
+        obj.data = match obj.data {
+            Visible(lane,sref) => Visible(f(lane),sref),
+            Invisible(lane,sref) => Invisible(f(lane),sref),
+            LNStart(lane,sref) => LNStart(f(lane),sref),
+            LNDone(lane,sref) => LNDone(f(lane),sref),
+            Bomb(lane,sref,damage) => Bomb(f(lane),sref,damage),
+            objdata => objdata
+        };
+    }
+
+    /// (C: `shuffle_bms` with `MIRROR_MODF`)
+    pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
+        let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
+        for vec::zip_slice(lanes, vec::reversed(lanes)).each |&(from, to)| {
+            map[*from] = to;
+        }
+
+        for vec::each_mut(bms.objs) |obj| {
+            update_object_lane(obj, |lane| map[*lane]);
+        }
+    }
+
+    /// (C: `shuffle_bms` with `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
+    pub fn apply_shuffle_modf(bms: &mut Bms, r: @rand::Rng, lanes: &[Lane]) {
+        let shuffled = r.shuffle(lanes);
+        let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
+        for vec::zip_slice(lanes, shuffled).each |&(from, to)| {
+            map[*from] = to;
+        }
+
+        for vec::each_mut(bms.objs) |obj| {
+            update_object_lane(obj, |lane| map[*lane]);
+        }
+    }
+
+    /// (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
+    pub fn apply_random_modf(bms: &mut Bms, r: @rand::Rng, lanes: &[Lane]) {
+        let mut movable = vec::from_slice(lanes);
+        let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
+
+        let mut lasttime = float::neg_infinity;
+        for vec::each_mut(bms.objs) |obj| {
+            if obj.is_lnstart() {
+                let lane = obj.object_lane().get();
+                match movable.position_elem(&lane) {
+                    Some(i) => { movable.swap_remove(i); }
+                    None => fail!(~"non-sanitized BMS detected")
+                }
+            }
+            if lasttime < obj.time { // reshuffle required
+                lasttime = obj.time + 1e-4;
+                let shuffled = r.shuffle(movable);
+                for vec::zip_slice(movable, shuffled).each |&(from, to)| {
+                    map[*from] = to;
+                }
+            }
+            if obj.is_lnstart() {
+                let lane = obj.object_lane().get();
+                movable.push(lane);
+            }
+            update_object_lane(obj, |lane| map[*lane]);
+        }
+    }
+
+    //------------------------------------------------------------------------
 
 }
 
 //============================================================================
-// user interface
+// graphics
 
-pub mod ui {
+pub mod gfx {
     pub use sdl::video::*;
 
     //------------------------------------------------------------------------
@@ -2072,27 +2178,24 @@ pub mod ui {
     }
 
     pub pure fn Gradient(top: Color, bottom: Color) -> Gradient {
-        fail_unless!({
-            // this condition is required due to `blend` implementation
-            let (r1, g1, b1) = to_rgb(top), (r2, g2, b2) = to_rgb(bottom);
-            r1 >= r2 && g1 >= g2 && b1 >= b2
-        });
         Gradient { top: top, bottom: bottom }
     }
 
-    pub trait Blendable: Copy {
+    // Rust: `Copy` can't be inherited even when it's specified. (#3984)
+    pub trait Blendable {
         /// (C: `blend`)
-        pure fn blend(&self, num: uint, denom: uint) -> Color;
+        pure fn blend(&self, num: int, denom: int) -> Color;
     }
 
     impl Blendable for Color {
-        pure fn blend(&self, num: uint, denom: uint) -> Color { *self }
+        pure fn blend(&self, _: int, _: int) -> Color { *self }
     }
 
     impl Blendable for Gradient {
-        pure fn blend(&self, num: uint, denom: uint) -> Color {
-            pure fn mix(x: u8, y: u8, num: uint, denom: uint) -> u8 {
-                y + ((x - y) as uint * num / denom) as u8
+        pure fn blend(&self, num: int, denom: int) -> Color {
+            pure fn mix(x: u8, y: u8, num: int, denom: int) -> u8 {
+                let x = x as int, y = y as int;
+                (y + ((x - y) * num / denom)) as u8
             }
 
             let (r1, g1, b1) = to_rgb(self.top);
@@ -2102,19 +2205,131 @@ pub mod ui {
         }
     }
 
+    pub pure fn gray(c: u8) -> Color { RGB(c, c, c) }
+    pub pure fn gray_gradient(top: u8, bottom: u8) -> Gradient {
+        Gradient(gray(top), gray(bottom))
+    }
+
     //------------------------------------------------------------------------
+    // surface utilities
+
+    /// (C: `newsurface`)
+    pub fn new_surface(w: uint, h: uint) -> ~Surface {
+        match Surface::new([SWSurface], w as int, h as int, 32,
+                           0xff0000, 0xff00, 0xff, 0) {
+            Ok(surface) => surface,
+            Err(err) => die!("new_surface failed: %s", err)
+        }
+    }
+
+    /// (C: `getpixel`)
+    pub fn get_pixel(surface: &Surface, x: uint, y: uint) -> Color {
+        // TODO Angolmois doesn't really lock the surface since it assumes
+        // SW surface or double-buffered HW surface...
+        unsafe {
+            let fmt = (*surface.raw).format;
+            let pitch = (*surface.raw).pitch as uint;
+            let len = (*surface.raw).h as uint * pitch;
+            let pixels: &mut [u32] =
+                cast::transmute(((*surface.raw).pixels, len));
+            Color::from_mapped(pixels[x + y * pitch / 4], fmt)
+        }
+    }
 
     /// (C: `putpixel`)
     pub fn put_pixel(surface: &Surface, x: uint, y: uint, c: Color) {
         // TODO Angolmois doesn't really lock the surface since it assumes
         // SW surface or double-buffered HW surface...
         unsafe {
-            let mapped = c.to_mapped((*surface.raw).format);
+            let fmt = (*surface.raw).format;
             let pitch = (*surface.raw).pitch as uint;
-            let len = (*surface.raw).h as uint * pitch / 4;
+            let len = (*surface.raw).h as uint * pitch;
             let pixels: &mut [u32] =
                 cast::transmute(((*surface.raw).pixels, len));
-            pixels[x + y * pitch / 4] = mapped;
+            pixels[x + y * pitch / 4] = c.to_mapped(fmt);
+        }
+    }
+
+    /// (C: `putblendedpixel`)
+    pub fn put_blended_pixel(surface: &Surface, x: uint, y: uint, c: Color) {
+        match c {
+            RGB(*) => put_pixel(surface, x, y, c),
+            RGBA(r,g,b,a) => match get_pixel(surface, x, y) {
+                RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
+                    let grad = Gradient(RGB(r2,g2,b2), RGB(r,g,b));
+                    put_pixel(surface, x, y, grad.blend(a as int, 255));
+                }
+            }
+        }
+    }
+
+    const FP_SHIFT1: int = 11;
+    const FP_SHIFT2: int = 16;
+
+    /// (C: `bicubic_kernel`)
+    fn bicubic_kernel(x: int, y: int) -> int {
+        let x = num::abs(x);
+        if x < y {
+            ((y*y - 2*x*x + x*x/y*x) << FP_SHIFT1) / (y*y)
+        } else if x < y * 2 {
+            ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << FP_SHIFT1) / (y*y)
+        } else {
+            0
+        }
+    }
+
+    /// (C: `bicubic_interpolation`)
+    pub fn bicubic_interpolation(src: &Surface, dest: &Surface) {
+        let w = dest.get_width() as int - 1;
+        let h = dest.get_height() as int - 1;
+        let ww = src.get_width() as int - 1;
+        let hh = src.get_height() as int - 1;
+
+        let mut dx = 0, x = 0;
+        for int::range(0, w + 1) |i| {
+            let mut dy = 0, y = 0;
+            for int::range(0, h + 1) |j| {
+                let mut r = 0, g = 0, b = 0;
+                let mut a0 = [bicubic_kernel((x-1) * w - i * ww, w),
+                              bicubic_kernel( x    * w - i * ww, w),
+                              bicubic_kernel((x+1) * w - i * ww, w),
+                              bicubic_kernel((x+2) * w - i * ww, w)];
+                let mut a1 = [bicubic_kernel((y-1) * h - j * hh, h),
+                              bicubic_kernel( y    * h - j * hh, h),
+                              bicubic_kernel((y+1) * h - j * hh, h),
+                              bicubic_kernel((y+2) * h - j * hh, h)];
+                for int::range(0, 4) |k0| {
+                    for int::range(0, 4) |k1| {
+                        let xx = x + k0 - 1, yy = y + k1 - 1;
+                        if 0 <= xx && xx <= ww && 0 <= yy && yy <= hh {
+                            let (r2,g2,b2) = to_rgb(get_pixel(src, xx as uint,
+                                                              yy as uint));
+                            let d = (a0[k0] * a1[k1]) >> (FP_SHIFT1*2 -
+                                                          FP_SHIFT2);
+                            r += r2 as int * d;
+                            g += g2 as int * d;
+                            b += b2 as int * d;
+                        }
+                    }
+                }
+
+                let r = ::util::cmp::clamp(0, r >> FP_SHIFT2, 255) as u8;
+                let g = ::util::cmp::clamp(0, g >> FP_SHIFT2, 255) as u8;
+                let b = ::util::cmp::clamp(0, b >> FP_SHIFT2, 255) as u8;
+                put_pixel(dest, i as uint, j as uint, RGB(r, g, b));
+
+                dy += hh;
+                if dy > h {
+                    y += 1;
+                    dy -= h;
+                }
+            }
+
+            dx += ww;
+            if dx > w {
+                x += 1;
+                dx -= w;
+            }
         }
     }
 
@@ -2287,12 +2502,13 @@ pub mod ui {
         /// Prints a glyph with given position and top/bottom color. This
         /// method is distinct from `print_glyph` since the glyph #95 is used
         /// for the tick marker (character code -1 in C).
-        pub fn print_glyph<ColorT:Blendable+Copy>(&self, surface: &Surface,
-                x: uint, y: uint, zoom: uint, glyph: uint, color: ColorT) {
+        pub fn print_glyph<ColorT:Blendable+Copy>(&self, // XXX #3984
+                surface: &Surface, x: uint, y: uint, zoom: uint,
+                glyph: uint, color: ColorT) {
             fail_unless!(!self.pixels[zoom].is_empty());
             for uint::range(0, 16 * zoom) |iy| {
                 let row = self.pixels[zoom][glyph][iy];
-                let rowcolor = color.blend(iy, 16 * zoom);
+                let rowcolor = color.blend(iy as int, 16 * zoom as int);
                 for uint::range(0, 8 * zoom) |ix| {
                     if ((row >> ix) & 1) != 0 {
                         put_pixel(surface, x + ix, y + iy, rowcolor);
@@ -2302,8 +2518,9 @@ pub mod ui {
         }
 
         /// (C: `printchar`)
-        pub fn print_char<ColorT:Blendable+Copy>(&self, surface: &Surface,
-                x: uint, y: uint, zoom: uint, c: char, color: ColorT) {
+        pub fn print_char<ColorT:Blendable+Copy>(&self, // XXX #3984
+                surface: &Surface, x: uint, y: uint, zoom: uint,
+                c: char, color: ColorT) {
             if !char::is_whitespace(c) {
                 let c = c as uint;
                 let glyph = if 32 <= c && c < 126 { c - 32 } else { 0 };
@@ -2312,56 +2529,50 @@ pub mod ui {
         }
 
         /// (C: `printstr`)
-        pub fn print_string<ColorT:Blendable+Copy>(&self, surface: &Surface,
-                x: uint, y: uint, zoom: uint, s: &str,
-                align: Alignment, color: ColorT) {
+        pub fn print_string<ColorT:Blendable+Copy>(&self, // XXX #3984
+                surface: &Surface, x: uint, y: uint, zoom: uint,
+                align: Alignment, s: &str, color: ColorT) {
             let mut x = match align {
                 LeftAligned  => x,
-                Centered     => x - s.len() * (8 * zoom) / 2,
-                RightAligned => x - s.len() * (8 * zoom),
+                Centered     => x - s.char_len() * (8 * zoom) / 2,
+                RightAligned => x - s.char_len() * (8 * zoom),
             };
             // Rust: `s.each_char` is ambiguous here.
             for str::each_char(s) |c| {
+                let nextx = x + 8 * zoom;
+                if nextx >= surface.get_width() as uint { break; }
                 self.print_char(surface, x, y, zoom, c, color);
-                x += 8 * zoom;
+                x = nextx;
             }
         }
     }
 
     //------------------------------------------------------------------------
-    // initialization
 
-    pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
-        let result =
-            if exclusive {
-                set_video_mode(256, 256, 32, [SWSurface], [DoubleBuf])
-            } else if !fullscreen {
-                set_video_mode(800, 600, 32, [SWSurface], [DoubleBuf])
-            } else {
-                set_video_mode(800, 600, 32, [], [Fullscreen])
-            };
-        let screen =
-            match result {
-                Ok(screen) => screen,
-                Err(err) => die!("SDL Video Initialization Failure: %s", err)
-            };
-        if !exclusive {
-            // TODO: SDL_ShowCursor(SDL_DISABLE);
-        }
-        // TODO: SDL_WM_SetCaption(VERSION, 0);
-        screen
-    }
 }
 
 //============================================================================
 // game play
 
 pub mod player {
+    use sdl::*;
+    use sdl::audio::*;
+    use sdl::video::*;
+    use util::sdl::*;
     use parser::*;
+    use gfx::*;
 
+    //------------------------------------------------------------------------
+    // options
+
+    #[deriving_eq]
     pub enum Mode { PlayMode, AutoPlayMode, ExclusiveMode }
-    pub enum Modf { NoModf, MirrorModf, ShuffleModf, ShuffleExModf,
+
+    #[deriving_eq]
+    pub enum Modf { MirrorModf, ShuffleModf, ShuffleExModf,
                     RandomModf, RandomExModf }
+
+    #[deriving_eq]
     pub enum Bga { BgaAndMovie, BgaButNoMovie, NoBga }
 
     pub struct Options {
@@ -2370,7 +2581,7 @@ pub mod player {
         /// (C: `opt_mode`)
         mode: Mode,
         /// (C: `opt_modf`)
-        modf: Modf,
+        modf: Option<Modf>,
         /// (C: `opt_bga`)
         bga: Bga,
         /// (C: `opt_showinfo`)
@@ -2378,7 +2589,7 @@ pub mod player {
         /// (C: `opt_fullscreen`)
         fullscreen: bool,
         /// (C: `opt_joystick`)
-        joystick: Option<int>,
+        joystick: Option<uint>,
         /// (C: `preset`)
         preset: Option<~str>,
         /// (C: `leftkeys`)
@@ -2388,6 +2599,26 @@ pub mod player {
         /// (C: `playspeed`)
         playspeed: float,
     }
+
+    pub impl Options {
+        pure fn rel_path(&self, path: &str) -> Path {
+            Path(self.bmspath).dir_path().push_rel(&Path(path))
+        }
+
+        /// (C: `opt_mode >= EXCLUSIVE_MODE`)
+        pure fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
+        /// (C: `!!opt_mode`)
+        pure fn is_autoplay(&self) -> bool { self.mode != PlayMode }
+        /// (C: `opt_bga < NO_BGA`)
+        pure fn has_bga(&self) -> bool { self.bga != NoBga }
+        /// (C: `opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA`)
+        pure fn has_screen(&self) -> bool {
+            !self.is_exclusive() || self.has_bga()
+        }
+    }
+
+    //------------------------------------------------------------------------
+    // bms utilities
 
     fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
         let (leftkeys, rightkeys) =
@@ -2411,16 +2642,16 @@ pub mod player {
                  opts.rightkeys.map_default(~"", |&v| copy v))
             };
 
-        let mut keyspec = ~KeySpec { keysplit: 0, keyorder: ~[],
-                                     keykind: ~[None, ..NLANES] };
+        let mut keyspec = ~KeySpec { split: 0, order: ~[],
+                                     kinds: ~[None, ..NLANES] };
         let parse_and_add = |keys: &str| -> Option<uint> {
             match parse_key_spec(keys) {
                 None | Some([]) => None,
                 Some(left) => {
                     for left.each |&(lane,kind)| {
-                        if keyspec.keykind[*lane].is_some() { return None; }
-                        keyspec.keyorder.push(lane);
-                        keyspec.keykind[*lane] = Some(kind);
+                        if keyspec.kinds[*lane].is_some() { return None; }
+                        keyspec.order.push(lane);
+                        keyspec.kinds[*lane] = Some(kind);
                     }
                     Some(left.len())
                 }
@@ -2432,7 +2663,7 @@ pub mod player {
                 None =>
                     return Err(fmt!("Invalid key spec for left \
                                      hand side: %s", leftkeys)),
-                Some(nkeys) => keyspec.keysplit += nkeys
+                Some(nkeys) => keyspec.split += nkeys
             }
         } else {
             return Err(fmt!("No key model is specified using -k or -K"));
@@ -2443,13 +2674,202 @@ pub mod player {
                     return Err(fmt!("Invalid key spec for right \
                                      hand side: %s", rightkeys)),
                 Some(nkeys) => // no split panes except for #PLAYER 2
-                    if bms.player != 2 { keyspec.keysplit += nkeys; }
+                    if bms.player != 2 { keyspec.split += nkeys; }
             }
         }
         Ok(keyspec)
-   }
+    }
 
-    pub fn play(opts: &Options) {
+    /// (C: `shuffle_bms`)
+    fn apply_modf(bms: &mut Bms, modf: Modf, r: @rand::Rng,
+                   keyspec: &KeySpec, begin: uint, end: uint) {
+        let mut lanes = ~[];
+        for uint::range(begin, end) |i| {
+            let lane = keyspec.order[i];
+            let kind = keyspec.kinds[*lane];
+            if modf == ShuffleExModf || modf == RandomExModf ||
+                    kind.map_default(false, |&kind| kind.counts_as_key()) {
+                lanes.push(lane);
+            }
+        }
+
+        match modf {
+            MirrorModf => apply_mirror_modf(bms, lanes),
+            ShuffleModf | ShuffleExModf => apply_shuffle_modf(bms, r, lanes),
+            RandomModf | RandomExModf => apply_random_modf(bms, r, lanes)
+        }
+    }
+
+    //------------------------------------------------------------------------
+    // utilities
+
+    fn check_exit(atexit: &fn()) {
+        loop {
+            match event::poll_event() {
+                event::KeyEvent(event::EscapeKey,_,_,_) |
+                event::QuitEvent => {
+                    atexit();
+                    ::exit(0);
+                },
+                event::NoEvent => break,
+                _ => ()
+            }
+        }
+    }
+
+    fn update_line(s: &str) {
+        io::stderr().write_str(fmt!("\r%s\r%s", str::repeat(~" ", 72), s));
+    }
+
+    //------------------------------------------------------------------------
+    // initialization
+
+    /// (C: `init_video`)
+    fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
+        let result =
+            if exclusive {
+                set_video_mode(256, 256, 32, [SWSurface], [DoubleBuf])
+            } else if !fullscreen {
+                set_video_mode(800, 600, 32, [SWSurface], [DoubleBuf])
+            } else {
+                set_video_mode(800, 600, 32, [], [Fullscreen])
+            };
+        let screen =
+            match result {
+                Ok(screen) => screen,
+                Err(err) => die!("SDL Video Initialization Failure: %s", err)
+            };
+        if !exclusive {
+            ::sdl::mouse::set_cursor_visible(false);
+        }
+        ::sdl::wm::set_caption(::version(), ~"");
+        screen
+    }
+
+    /// (C: `init_ui`)
+    fn init_sdl() {
+        if !init([InitVideo, InitAudio, InitJoystick]) {
+            die!("SDL Initialization Failure: %s", get_error());
+        }
+        // TODO opt_joystick
+        img::init([img::InitJPG, img::InitPNG]);
+        //mixer::init([mixer::InitOGG, mixer::InitMP3]); // TODO
+        if mixer::open(44100, audio::S16AudioFormat,
+                       audio::Stereo, 2048).is_err() {
+            die!("SDL Mixer Initialization Failure");
+        }
+    }
+
+    fn init_joystick(joyidx: uint) -> ~joy::Joystick {
+        // TODO rust-sdl patch
+        unsafe { joy::ll::SDL_JoystickEventState(1); }
+        match joy::Joystick::open(joyidx as int) {
+            Ok(joy) => joy,
+            Err(err) => die!("SDL Joystick Initialization Failure: %s", err)
+        }
+    }
+
+    //------------------------------------------------------------------------
+    // loading
+
+    fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec)
+                                    -> (~str, ~str, ~str, ~str) {
+        let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
+                        bms.playlevel, bms.initbpm,
+                        if infos.hasbpmchange { ~"?" } else { ~"" },
+                        infos.nnotes,
+                        if infos.nnotes == 1 { ~"" } else { ~"s" },
+                        keyspec.nkeys(),
+                        if infos.haslongnote { ~"-LN" } else { ~"" });
+        let title = (copy bms.title).get_or_default(~"");
+        let genre = (copy bms.genre).get_or_default(~"");
+        let artist = (copy bms.artist).get_or_default(~"");
+        (meta, title, genre, artist)
+    }
+
+    /// (C: `play_show_stagefile` when `opt_mode < EXCLUSIVE_MODE`)
+    fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec,
+                             opts: &Options, screen: &Surface, font: &Font) {
+        let (meta, title, genre, artist) =
+            displayed_info(bms, infos, keyspec);
+
+        font.print_string(screen, 400, 284, 2, Centered,
+                          ~"loading bms file...",
+                          ::gfx::gray_gradient(0x20,0x80));
+        screen.flip();
+
+        for bms.stagefile.each |&path| {
+            let path = opts.rel_path(path);
+            match img::load(&path).chain(|s| s.display_format()) {
+                Ok(surface) => bicubic_interpolation(surface, screen),
+                Err(_) => ()
+            }
+        }
+
+        if opts.showinfo {
+            let bg = RGBA(0x10,0x10,0x10,0x40);
+            let fg = ::gfx::gray_gradient(0x80,0xff);
+            for uint::range(0, 800) |i| {
+                for uint::range(0, 42) |j| {
+                    put_blended_pixel(screen, i, j, bg);
+                }
+                for uint::range(580, 600) |j| {
+                    put_blended_pixel(screen, i, j, bg);
+                }
+            }
+            font.print_string(screen, 6, 4, 2, LeftAligned, title, fg);
+            font.print_string(screen, 792, 4, 1, RightAligned, genre, fg);
+            font.print_string(screen, 792, 20, 1, RightAligned, artist, fg);
+            font.print_string(screen, 3, 582, 1, LeftAligned, meta, fg);
+        }
+
+        screen.flip();
+    }
+
+    /// (C: `play_show_stagefile` when `opt_mode >= EXCLUSIVE_MODE`)
+    fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo,
+                               keyspec: &KeySpec, opts: &Options) {
+        if opts.showinfo {
+            let (meta, title, genre, artist) =
+                displayed_info(bms, infos, keyspec);
+            io::stderr().write_line(fmt!("\
+------------------------------------------------------------------------
+Title:    %s\nGenre:    %s\nArtist:   %s\n%s
+------------------------------------------------------------------------",
+                title, genre, artist, meta));
+        }
+    }
+
+    struct SoundResource {
+        res: ~mixer::Chunk,
+        ch: Option<uint>
+    }
+
+    /// (C: `load_resource`)
+    fn load_sound(sndpath: &[Option<~str>], opts: &Options,
+                  callback: &fn(Option<~str>)) -> ~[Option<SoundResource>] {
+        let mut result = ~[];
+        for sndpath.eachi |i, &path| {
+            for path.each |&path| {
+                let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
+                let res = match mixer::Chunk::from_wav(&fullpath) {
+                    Ok(res) => Some(SoundResource { res: res, ch: None }),
+                    Err(err) => {
+                        warn!("failed to load sound #WAV%s (%s): %s",
+                              Key(i as int).to_str(), path, err);
+                        None
+                    }
+                };
+                result.push(res);
+            }
+        }
+        result
+    }
+
+    //------------------------------------------------------------------------
+    // driver
+
+    pub fn play(opts: ~Options) {
         let r = rand::task_rng();
         let mut bms =
             match parse_bms(opts.bmspath, r) {
@@ -2465,6 +2885,100 @@ pub mod player {
             };
         compact_bms(bms, keyspec);
         let infos = analyze_bms(bms);
+
+        for opts.modf.each |&modf| {
+            apply_modf(bms, modf, r, keyspec, 0, keyspec.split);
+            if keyspec.split < keyspec.order.len() {
+                apply_modf(bms, modf, r, keyspec,
+                           keyspec.split, keyspec.order.len());
+            }
+        }
+
+        let bms = bms;
+        do start {
+            init_sdl();
+            for opts.joystick.each |&joyidx| { init_joystick(joyidx); }
+
+            let mut font = Font();
+            font.create_zoomed_font(1);
+            font.create_zoomed_font(2);
+            let font = font;
+
+            let mut screen = None;
+            if opts.has_screen() {
+                screen = Some(init_video(opts.is_exclusive(),
+                                         opts.fullscreen));
+            }
+
+            // show stagefile
+            let mut saved_screen = None;
+            if !opts.is_exclusive() {
+                let screen: &Surface = *screen.get_ref();
+                show_stagefile_screen(bms, &infos, keyspec, opts,
+                                      screen, &font);
+                let surface = new_surface(800, 20);
+                surface.blit_rect(screen, Some(Rect{x:0,y:580,w:800,h:20}),
+                                          Some(Rect{x:0,y:0,w:800,h:20}));
+                saved_screen = Some(surface);
+            } else if opts.showinfo {
+                show_stagefile_noscreen(bms, &infos, keyspec, opts);
+            }
+
+            // wait for resources
+            let atexit = || {
+                if opts.is_exclusive() { update_line(~""); }
+            };
+            let mut lastinfo = -1;
+            // (C: `resource_loaded`)
+            let update_status = |path: Option<~str>| {
+                let now = ticks();
+                const INFO_INTERVAL: uint = 47;
+                if opts.showinfo && now - lastinfo >= INFO_INTERVAL {
+                    lastinfo = now;
+                    match saved_screen {
+                        Some(ref saved) => {
+                            let screen: &Surface = *screen.get_ref();
+                            let msg = path.get_or_default(~"loading...");
+                            screen.blit_at(*saved, 0, 580);
+                            font.print_string(screen, 797, 582, 1,
+                                              RightAligned, msg,
+                                              gray_gradient(0x80,0xc0));
+                            screen.flip();
+                        }
+                        None => {
+                            match path {
+                                Some(path) => {
+                                    let mut path = path;
+                                    if path.len() > 63 {
+                                        path = path.slice(0, 63);
+                                    }
+                                    update_line(~"Loading: " + path);
+                                }
+                                None => update_line(~"Loading done.")
+                            }
+                        }
+                    }
+                }
+                check_exit(atexit);
+            };
+
+            let start = ticks() + 3000;
+            //load_resource(opts.bga, update_status);
+            /*
+            for int::range(0, 10) |i| {
+                update_status(Some(fmt!("%d", i)));
+                delay(100);
+            }
+            */
+            load_sound(bms.sndpath, opts, update_status);
+            if opts.showinfo {
+                lastinfo = -1;
+                update_status(None);
+            }
+            while ticks() < start { check_exit(atexit); }
+
+            atexit();
+        }
 
         //::core::repr::write_repr(io::stdout(), &bms.objs);
         ::core::repr::write_repr(io::stdout(), &infos);
@@ -2495,6 +3009,8 @@ pub mod player {
         }
         */
     }
+
+    //------------------------------------------------------------------------
 
 }
 
@@ -2573,7 +3089,7 @@ fn main() {
 
     let mut bmspath = None;
     let mut mode = PlayMode;
-    let mut modf = NoModf;
+    let mut modf = None;
     let mut bga = BgaAndMovie;
     let mut showinfo = true;
     let mut fullscreen = true;
@@ -2632,11 +3148,11 @@ fn main() {
                     'X' => { mode = ExclusiveMode; bga = NoBga; },
                     'w' => { fullscreen = false; },
                     'q' => { showinfo = false; },
-                    'm' => { modf = MirrorModf; },
-                    's' => { modf = ShuffleModf; },
-                    'S' => { modf = ShuffleExModf; },
-                    'r' => { modf = RandomModf; },
-                    'R' => { modf = RandomExModf; },
+                    'm' => { modf = Some(MirrorModf); },
+                    's' => { modf = Some(ShuffleModf); },
+                    'S' => { modf = Some(ShuffleExModf); },
+                    'r' => { modf = Some(RandomModf); },
+                    'R' => { modf = Some(RandomExModf); },
                     'k' => { preset = Some(fetch_arg('k')); },
                     'K' => {
                         leftkeys = Some(fetch_arg('K'));
@@ -2653,8 +3169,8 @@ fn main() {
                     },
                     'B' => { bga = NoBga; },
                     'M' => { bga = BgaButNoMovie; },
-                    'j' => match int::from_str(fetch_arg('j')) {
-                        Some(n) if n >= 0 => { joystick = Some(n); },
+                    'j' => match uint::from_str(fetch_arg('j')) {
+                        Some(n) => { joystick = Some(n); },
                         _ => die!("Invalid argument to option -j")
                     },
                     ' ' => {}, // for ignored long options
@@ -2673,13 +3189,13 @@ fn main() {
     match bmspath {
         None => usage(),
         Some(bmspath) => {
-            let opts = Options {
+            let opts = ~Options {
                 bmspath: bmspath, mode: mode, modf: modf, bga: bga,
                 showinfo: showinfo, fullscreen: fullscreen,
                 joystick: joystick, preset: preset, leftkeys: leftkeys,
                 rightkeys: rightkeys, playspeed: playspeed
             };
-            play(&opts);
+            play(opts);
         }
     }
 }
