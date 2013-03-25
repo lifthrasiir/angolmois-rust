@@ -18,7 +18,7 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-// This is a direct one-to-one translation of Angolmois which README is
+// This is a direct one-to-one translation of Angolmois for which README is
 // available in <http://github.com/lifthrasiir/angolmois/>. Angolmois is
 // distributed under GNU GPL version 2+, so is this translation. The portions
 // of it is intended to be sent as a patch to Rust, so those portions are
@@ -1120,7 +1120,8 @@ pub mod parser {
         blitcmd: ~[BlitCmd],
 
         objs: ~[Obj],
-        shorten: ~[float]
+        shorten: ~[float],
+        nmeasures: uint
     }
 
     /// Creates a default value of BMS data.
@@ -1129,7 +1130,7 @@ pub mod parser {
               basepath: None, player: SinglePlay, playlevel: 0, rank: 2,
               initbpm: DefaultBPM, sndpath: [None, ..MAXKEY],
               imgpath: [None, ..MAXKEY], blitcmd: ~[], objs: ~[],
-              shorten: ~[] }
+              shorten: ~[], nmeasures: 0 }
     }
 
     pub impl Bms {
@@ -1181,46 +1182,6 @@ pub mod parser {
             }
             pos
         }
-
-        /// (C: `get_bms_duration`)
-        pub fn duration(&self, originoffset: float, length: float,
-                        sound_length: &fn(SoundRef) -> float) -> float {
-            let mut pos = originoffset;
-            let mut bpm = self.initbpm;
-            let mut time = 0.0, sndtime = 0.0;
-
-            for self.objs.each |&obj| {
-                let delta = self.adjust_object_position(pos, obj.time);
-                time += measure_to_msec(delta, bpm);
-                match obj.data {
-                    Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) =>
-                        sndtime = cmp::max(sndtime, time + sound_length(sref)),
-                    SetBPM(BPM(newbpm)) =>
-                        if newbpm > 0.0 {
-                            bpm = newbpm;
-                        } else if newbpm < 0.0 {
-                            bpm = newbpm;
-                            let delta =
-                                self.adjust_object_position(originoffset, pos);
-                            time += measure_to_msec(delta, -newbpm);
-                            break;
-                        },
-                    Stop(Seconds(secs)) =>
-                        time += secs * 1000.0,
-                    Stop(Measures(measures)) =>
-                        time += measure_to_msec(measures, bpm),
-                    _ => (),
-                }
-                pos = obj.time;
-            }
-
-            if bpm > 0.0 {
-                let delta = self.adjust_object_position(pos, length);
-                time += measure_to_msec(delta, bpm);
-            }
-            cmp::max(time, sndtime)
-         }
-
     }
 
     //------------------------------------------------------------------------
@@ -1736,9 +1697,8 @@ pub mod parser {
         }
 
         // fix the unterminated longnote
-        let maxmeasure = if bmsline.is_empty() { 0 }
-                         else { bmsline.last().measure };
-        let endt = (maxmeasure + 1) as float;
+        bms.nmeasures = bmsline.last_opt().map_default(0, |l| l.measure) + 1;
+        let endt = bms.nmeasures as float;
         for uint::range(0, NLANES) |i| {
             if lastvis[i].is_some() ||
                     (!consecutiveln && lastln[i].is_some()) {
@@ -2088,6 +2048,46 @@ pub mod parser {
         infos
     }
 
+    /// (C: `get_bms_duration`)
+    pub fn bms_duration(bms: &Bms, originoffset: float,
+                        sound_length: &fn(SoundRef) -> float) -> float {
+        let mut pos = originoffset;
+        let mut bpm = bms.initbpm;
+        let mut time = 0.0, sndtime = 0.0;
+
+        for bms.objs.each |&obj| {
+            let delta = bms.adjust_object_position(pos, obj.time);
+            time += measure_to_msec(delta, bpm);
+            match obj.data {
+                Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) =>
+                    sndtime = cmp::max(sndtime, time + sound_length(sref)),
+                SetBPM(BPM(newbpm)) =>
+                    if newbpm > 0.0 {
+                        bpm = newbpm;
+                    } else if newbpm < 0.0 {
+                        bpm = newbpm;
+                        let delta =
+                            bms.adjust_object_position(originoffset, pos);
+                        time += measure_to_msec(delta, -newbpm);
+                        break;
+                    },
+                Stop(Seconds(secs)) =>
+                    time += secs * 1000.0,
+                Stop(Measures(measures)) =>
+                    time += measure_to_msec(measures, bpm),
+                _ => (),
+            }
+            pos = obj.time;
+        }
+
+        if bpm > 0.0 {
+            let delta = bms.adjust_object_position(pos,
+                                                   bms.nmeasures as float);
+            time += measure_to_msec(delta, bpm);
+        }
+        cmp::max(time, sndtime)
+     }
+
     //------------------------------------------------------------------------
     // modifiers
 
@@ -2290,14 +2290,14 @@ pub mod gfx {
             let mut dy = 0, y = 0;
             for int::range(0, h + 1) |j| {
                 let mut r = 0, g = 0, b = 0;
-                let mut a0 = [bicubic_kernel((x-1) * w - i * ww, w),
-                              bicubic_kernel( x    * w - i * ww, w),
-                              bicubic_kernel((x+1) * w - i * ww, w),
-                              bicubic_kernel((x+2) * w - i * ww, w)];
-                let mut a1 = [bicubic_kernel((y-1) * h - j * hh, h),
-                              bicubic_kernel( y    * h - j * hh, h),
-                              bicubic_kernel((y+1) * h - j * hh, h),
-                              bicubic_kernel((y+2) * h - j * hh, h)];
+                let a0 = [bicubic_kernel((x-1) * w - i * ww, w),
+                          bicubic_kernel( x    * w - i * ww, w),
+                          bicubic_kernel((x+1) * w - i * ww, w),
+                          bicubic_kernel((x+2) * w - i * ww, w)];
+                let a1 = [bicubic_kernel((y-1) * h - j * hh, h),
+                          bicubic_kernel( y    * h - j * hh, h),
+                          bicubic_kernel((y+1) * h - j * hh, h),
+                          bicubic_kernel((y+2) * h - j * hh, h)];
                 for int::range(0, 4) |k0| {
                     for int::range(0, 4) |k1| {
                         let xx = x + k0 - 1, yy = y + k1 - 1;
@@ -2389,6 +2389,7 @@ pub mod gfx {
         // - Byte 33..97 encodes a literal code word 0..64;
         // - Byte 98..126 encodes an LZ77 length distance pair with length
         //   3..31; the following byte 33..126 encodes a distance 1..94.
+        // (C: `indices`)
         let indices = ~"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB["
             + ~"Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*T2GWc8icM2U2D!.8(M$UQCQ-jab!'U"
             + ~"*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfejcNl!&J"
@@ -2611,6 +2612,8 @@ pub mod player {
         pure fn is_autoplay(&self) -> bool { self.mode != PlayMode }
         /// (C: `opt_bga < NO_BGA`)
         pure fn has_bga(&self) -> bool { self.bga != NoBga }
+        /// (C: `opt_bga < BGA_BUT_NO_MOVIE`)
+        pure fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
         /// (C: `opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA`)
         pure fn has_screen(&self) -> bool {
             !self.is_exclusive() || self.has_bga()
@@ -2637,7 +2640,8 @@ pub mod player {
                                                 |&v| copy v)))
                 }
             } else {
-                // Rust: Option<T>::clone_default maybe?
+                // Rust: `Option` of managed pointer is not easy to use due to
+                //       implicit move. `Option<T>::clone_default` maybe?
                 (opts.leftkeys.map_default(~"", |&v| copy v),
                  opts.rightkeys.map_default(~"", |&v| copy v))
             };
@@ -2740,9 +2744,9 @@ pub mod player {
                 Err(err) => die!("SDL Video Initialization Failure: %s", err)
             };
         if !exclusive {
-            ::sdl::mouse::set_cursor_visible(false);
+            mouse::set_cursor_visible(false);
         }
-        ::sdl::wm::set_caption(::version(), ~"");
+        wm::set_caption(::version(), ~"");
         screen
     }
 
@@ -2840,30 +2844,246 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    struct SoundResource {
-        res: ~mixer::Chunk,
-        ch: Option<uint>
+    enum SoundResource {
+        NoSound,
+        // Rust: ideally this should be just a ~-ptr, but the current borrowck
+        //       is very constrained in this aspect. after several attempts
+        //       I finally sticked to delegate the ownership to a managed box.
+        Sound(@~mixer::Chunk), // XXX borrowck
+        SoundPlaying(@~mixer::Chunk, uint) // XXX borrowck
+    }
+
+    pub impl SoundResource {
+        fn chunk(&self) -> Option<@~mixer::Chunk> {
+            match *self {
+                NoSound => None,
+                Sound(chunk) | SoundPlaying(chunk, _) => Some(chunk)
+            }
+        }
+
+        fn channel(&self) -> Option<uint> {
+            match *self {
+                NoSound | Sound(_) => None,
+                SoundPlaying(_, channel) => Some(channel)
+            }
+        }
+
+        fn start_playing(&mut self, channel: uint) {
+            *self = match *self {
+                NoSound => NoSound,
+                Sound(chunk) | SoundPlaying(chunk, _) =>
+                    SoundPlaying(chunk, channel)
+            };
+        }
+
+        fn stop_playing(&mut self) {
+            *self = match *self {
+                NoSound => NoSound,
+                Sound(chunk) | SoundPlaying(chunk, _) => Sound(chunk)
+            };
+        }
+    }
+
+    fn load_sound(key: Key, path: &str, opts: &Options) -> SoundResource {
+        let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
+        match mixer::Chunk::from_wav(&fullpath) {
+            Ok(res) => Sound(@res),
+            Err(_) => {
+                warn!("failed to load sound #WAV%s (%s)", key.to_str(), path);
+                NoSound
+            }
+        }
+    }
+
+    enum ImageResource {
+        NoImage,
+        Image(@~Surface), // XXX borrowck
+        Movie(@~Surface) // XXX borrowck TODO smpeg
+    }
+
+    pub impl ImageResource {
+        fn surface(&self) -> Option<@~Surface> {
+            match *self {
+                NoImage => None,
+                Image(surface) | Movie(surface) => Some(surface)
+            }
+        }
+    }
+
+    fn load_image(key: Key, path: &str, opts: &Options) -> ImageResource {
+        fn to_display_format(surface: ~Surface) -> Result<~Surface,~str> {
+            if unsafe {(*(*surface.raw).format).Amask} != 0 {
+                let res = surface.display_format_alpha();
+                // Rust: `|&surface|` causes an unchecked copy. (#3224)
+                do res.iter |surface| { // XXX #3224
+                    (*&surface).set_alpha([SrcAlpha, RLEAccel], 255);
+                }
+                res
+            } else {
+                let res = surface.display_format();
+                do res.iter |surface| { // XXX #3224
+                    (*&surface).set_alpha([SrcColorKey, RLEAccel], 0);
+                }
+                res
+            }
+        }
+
+        if path.to_lower().ends_with(~".mpg") {
+            if opts.has_movie() {
+                warn!("skipping #BMP%s", key.to_str());
+                NoImage // TODO smpeg
+            } else {
+                NoImage
+            }
+        } else if opts.has_bga() {
+            let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
+            let res = do img::load(&fullpath).chain |surface| {
+                do to_display_format(surface).chain |surface| {
+                    Ok(Image(@surface))
+                }
+            };
+            match res {
+                Ok(res) => res,
+                Err(_) => { warn!("failed to load image #BMP%s (%s)",
+                                  key.to_str(), path);
+                            NoImage }
+            }
+        } else {
+            NoImage
+        }
+    }
+
+    fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
+        let origin: @~Surface = match imgres[**bc.src] {
+            Image(src) => src,
+            _ => return
+        };
+        let target: @~Surface = match imgres[**bc.dst] {
+            Image(dst) => dst,
+            NoImage => {
+                let surface = @new_surface(256, 256);
+                surface.fill(RGB(0, 0, 0));
+                surface.set_color_key([SrcColorKey, RLEAccel], RGB(0, 0, 0));
+                imgres[**bc.dst] = Image(surface);
+                surface
+            },
+            _ => return
+        };
+
+        let x1 = cmp::max(bc.x1, 0) as i16;
+        let y1 = cmp::max(bc.y1, 0) as i16;
+        let x2 = cmp::min(bc.x2, bc.x1 + 256) as i16;
+        let y2 = cmp::min(bc.y2, bc.y1 + 256) as i16;
+        let w = (x2 - x1) as u16;
+        let h = (y2 - y1) as u16;
+        target.blit_rect(*origin, Some(Rect{x:x1,y:y1,w:w,h:h}),
+                                  Some(Rect{x:x2,y:y2,w:w,h:h}));
     }
 
     /// (C: `load_resource`)
-    fn load_sound(sndpath: &[Option<~str>], opts: &Options,
-                  callback: &fn(Option<~str>)) -> ~[Option<SoundResource>] {
-        let mut result = ~[];
-        for sndpath.eachi |i, &path| {
-            for path.each |&path| {
-                let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
-                let res = match mixer::Chunk::from_wav(&fullpath) {
-                    Ok(res) => Some(SoundResource { res: res, ch: None }),
-                    Err(err) => {
-                        warn!("failed to load sound #WAV%s (%s): %s",
-                              Key(i as int).to_str(), path, err);
-                        None
-                    }
-                };
-                result.push(res);
+    fn load_resource(bms: &Bms, opts: &Options, callback: &fn(Option<~str>))
+            -> (~[SoundResource], ~[ImageResource]) {
+        let sndres =
+            do bms.sndpath.mapi |i, &path| {
+                match path {
+                    Some(path) => {
+                        callback(Some(copy path));
+                        load_sound(Key(i as int), path, opts)
+                    },
+                    None => NoSound
+                }
+            };
+        let mut imgres =
+            do bms.imgpath.mapi |i, &path| {
+                match path {
+                    Some(path) => {
+                        callback(Some(copy path));
+                        load_image(Key(i as int), path, opts)
+                    },
+                    None => NoImage
+                }
+            };
+
+        for bms.blitcmd.each |bc| {
+            apply_blitcmd(imgres, bc);
+        }
+        (sndres, imgres)
+    }
+
+    //------------------------------------------------------------------------
+    // sound management
+
+    /// (C: `create_beep`)
+    fn create_beep() -> ~mixer::Chunk {
+        let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
+            // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
+            |i| { let i = i as i32;
+                  (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
+        mixer::Chunk::new(unsafe { cast::transmute(samples) }, 128)
+    }
+
+    //------------------------------------------------------------------------
+    // pointers
+
+    struct Pointer<'self> {
+        objs: &'self [Obj],
+        pos: uint
+    }
+
+    pub impl Pointer<'self> {
+        #[inline(always)]
+        fn current(&self) -> &'self Obj { &self.objs[self.pos] }
+
+        fn seek_until(&mut self, limit: float) {
+            let nobjs = self.objs.len();
+            while self.pos < nobjs {
+                if self.current().time >= limit { return; }
+                self.pos += 1;
             }
         }
-        result
+
+        fn iter_until(&mut self, limit: float, f: &fn(&'self Obj) -> bool) {
+            let nobjs = self.objs.len();
+            while self.pos < nobjs {
+                let current = &self.objs[self.pos];
+                if current.time >= limit { return; }
+                if !f(current) { return; }
+                self.pos += 1;
+            }
+        }
+    }
+
+    //------------------------------------------------------------------------
+    // game play logics
+
+    struct Player {
+        /// (C: `playspeed`)
+        playspeed: float,
+        /// (C: `targetspeed`)
+        targetspeed: float,
+        /// (C: `bpm`)
+        bpm: float,
+        /// (C: `origintime`)
+        origintime: uint,
+        /// (C: `starttime`)
+        starttime: uint,
+        /// (C: `stoptime`)
+        stoptime: Option<uint>,
+        /// (C: `poorlimit`)
+        poorlimit: Option<uint>,
+        /// (C: `startoffset`)
+        startoffset: float,
+        /// (C: `startshorten`)
+        startshorten: float,
+    }
+
+    fn Player(bms: &Bms, infos: &BmsInfo) -> ~Player {
+        let now = ticks();
+        let originoffset = infos.originoffset;
+        ~Player { playspeed: 1.0, targetspeed: 1.0, bpm: bms.initbpm,
+                  origintime: now, starttime: now, stoptime: None,
+                  poorlimit: None, startoffset: originoffset,
+                  startshorten: bms.shorten_factor(originoffset as int) }
     }
 
     //------------------------------------------------------------------------
@@ -2928,13 +3148,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let atexit = || {
                 if opts.is_exclusive() { update_line(~""); }
             };
-            let mut lastinfo = -1;
+            let mut lastinfo = None;
             // (C: `resource_loaded`)
             let update_status = |path: Option<~str>| {
                 let now = ticks();
                 const INFO_INTERVAL: uint = 47;
-                if opts.showinfo && now - lastinfo >= INFO_INTERVAL {
-                    lastinfo = now;
+                if opts.showinfo && lastinfo.map_default(true,
+                                        |&t| now - t >= INFO_INTERVAL) {
+                    lastinfo = Some(now);
                     match saved_screen {
                         Some(ref saved) => {
                             let screen: &Surface = *screen.get_ref();
@@ -2963,26 +3184,20 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             };
 
             let start = ticks() + 3000;
-            //load_resource(opts.bga, update_status);
-            /*
-            for int::range(0, 10) |i| {
-                update_status(Some(fmt!("%d", i)));
-                delay(100);
-            }
-            */
-            load_sound(bms.sndpath, opts, update_status);
+            let (sndres, imgres) = load_resource(bms, opts, update_status);
             if opts.showinfo {
-                lastinfo = -1;
+                lastinfo = None; // force update
+                let _ = lastinfo; // Rust: avoids incorrect warning. (#3796)
                 update_status(None);
             }
             while ticks() < start { check_exit(atexit); }
 
+            // TODO sound_length
+            let duration = bms_duration(bms, infos.originoffset, |_| 0.0);
+            let mut player = Player(bms, &infos);
+
             atexit();
         }
-
-        //::core::repr::write_repr(io::stdout(), &bms.objs);
-        ::core::repr::write_repr(io::stdout(), &infos);
-        io::println("");
 
         /*
         let bmspath = Path(copy *opts.bmspath.get_ref()).dir_path();
