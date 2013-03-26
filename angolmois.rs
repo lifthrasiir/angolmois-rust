@@ -52,7 +52,7 @@ extern mod std;
 extern mod sdl;
 
 /// (C: `VERSION`)
-pub pure fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
+pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 
 //============================================================================
 // utility declarations
@@ -101,10 +101,10 @@ pub mod util {
     /// libcore/str.rs and are not subject to the above copyright notice.
     pub mod str {
 
-        const tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
+        static tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
 
         /// Iterates over the chars in a string, with byte indices.
-        pub pure fn each_chari_byte(s: &str, it: &fn(uint, char) -> bool) {
+        pub fn each_chari_byte(s: &str, it: &fn(uint, char) -> bool) {
             let mut pos = 0u;
             let len = s.len();
             while pos < len {
@@ -116,8 +116,7 @@ pub mod util {
 
         /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid
         /// UTF-8 sequence with given error handler.
-        pub pure fn fix_utf8(v: &[u8],
-                             handler: &pure fn(&[u8]) -> ~[u8]) -> ~[u8] {
+        pub fn fix_utf8(v: &[u8], handler: &fn(&[u8]) -> ~[u8]) -> ~[u8] {
             let mut i = 0u;
             let total = vec::len::<u8>(v);
             let mut result = ~[];
@@ -129,9 +128,9 @@ pub mod util {
                 }
                 if j == chend {
                     fail_unless!(i != chend);
-                    result = vec::append(result, v.view(i, j));
+                    result = vec::append(result, v.slice(i, j));
                 } else {
-                    result = vec::append(result, handler(v.view(i, j)));
+                    result = vec::append(result, handler(v.slice(i, j)));
                 }
                 i = j;
             }
@@ -140,17 +139,15 @@ pub mod util {
 
         /// Given a potentially invalid UTF-8 string, fixes an invalid
         /// UTF-8 string with given error handler.
-        pub pure fn fix_utf8_str(s: &str,
-                                 handler: &pure fn(&[u8]) -> ~str) -> ~str {
+        pub fn fix_utf8_str(s: &str, handler: &fn(&[u8]) -> ~str) -> ~str {
             from_fixed_utf8_bytes(str::to_bytes(s), handler)
         }
 
         /// Converts a vector of bytes to a UTF-8 string. Any invalid UTF-8
         /// sequences are fixed with given error handler.
-        pub pure fn from_fixed_utf8_bytes(v: &[u8],
-                                          handler: &pure fn(&[u8]) -> ~str)
-                                                        -> ~str {
-            let newhandler: &pure fn(&[u8]) -> ~[u8] =
+        pub fn from_fixed_utf8_bytes(v: &[u8],
+                                     handler: &fn(&[u8]) -> ~str) -> ~str {
+            let newhandler: &fn(&[u8]) -> ~[u8] =
                 |v: &[u8]| -> ~[u8] { str::to_bytes(handler(v)) };
             let bytes = fix_utf8(v, newhandler);
             unsafe { str::raw::from_bytes(bytes) }
@@ -158,7 +155,7 @@ pub mod util {
 
         /// Returns a length of the longest prefix of given string, which
         /// `uint::from_str` accepts without a failure, if any.
-        pub pure fn scan_uint(s: &str) -> Option<uint> {
+        pub fn scan_uint(s: &str) -> Option<uint> {
             match str::find(s, |c| !('0' <= c && c <= '9')) {
                 Some(first) if first > 0u => Some(first),
                 None if s.len() > 0u => Some(s.len()),
@@ -168,7 +165,7 @@ pub mod util {
 
         /// Returns a length of the longest prefix of given string, which
         /// `int::from_str` accepts without a failure, if any.
-        pub pure fn scan_int(s: &str) -> Option<uint> {
+        pub fn scan_int(s: &str) -> Option<uint> {
             if s.starts_with(~"-") || s.starts_with(~"+") {
                 scan_uint(s.slice_to_end(1u)).map(|&pos| pos + 1u)
             } else {
@@ -178,7 +175,7 @@ pub mod util {
 
         /// Returns a length of the longest prefix of given string, which
         /// `float::from_str` accepts without a failure, if any.
-        pub pure fn scan_float(s: &str) -> Option<uint> {
+        pub fn scan_float(s: &str) -> Option<uint> {
             do scan_int(s).chain |pos| {
                 if s.len() > pos && s.char_at(pos) == '.' {
                     let pos2 = scan_uint(s.slice_to_end(pos + 1u));
@@ -190,6 +187,8 @@ pub mod util {
         }
 
         /// Extensions to `str`.
+        ///
+        /// Rust: forgetting `<'self>` gives a quite general error. TODO
         pub trait StrUtil {
             /// Returns a slice of the given string starting from `begin`.
             ///
@@ -197,41 +196,41 @@ pub mod util {
             ///
             /// If `begin` does not point to valid characters or beyond
             /// the last character of the string
-            pure fn slice_to_end(self, begin: uint) -> ~str;
+            fn slice_to_end(&self, begin: uint) -> &'self str;
 
             /// Iterates over the chars in a string, with byte indices.
-            pure fn each_chari_byte(self, it: &fn(uint, char) -> bool);
+            fn each_chari_byte(&self, it: &fn(uint, char) -> bool);
 
             /// Given a potentially invalid UTF-8 string, fixes an invalid
             /// UTF-8 string with given error handler.
-            pure fn fix_utf8(self, handler: &pure fn(&[u8]) -> ~str) -> ~str;
+            fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str;
 
             /// Returns a length of the longest prefix of given string, which
             /// `uint::from_str` accepts without a failure, if any.
-            pure fn scan_uint(self) -> Option<uint>;
+            fn scan_uint(&self) -> Option<uint>;
 
             /// Returns a length of the longest prefix of given string, which
             /// `int::from_str` accepts without a failure, if any.
-            pure fn scan_int(self) -> Option<uint>;
+            fn scan_int(&self) -> Option<uint>;
 
             /// Returns a length of the longest prefix of given string, which
             /// `float::from_str` accepts without a failure, if any.
-            pure fn scan_float(self) -> Option<uint>;
+            fn scan_float(&self) -> Option<uint>;
         }
 
         impl StrUtil for &'self str {
-            pure fn slice_to_end(self, begin: uint) -> ~str {
+            fn slice_to_end(&self, begin: uint) -> &'self str {
                 self.slice(begin, self.len())
             }
-            pure fn each_chari_byte(self, it: &fn(uint, char) -> bool) {
-                each_chari_byte(self, it)
+            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) {
+                each_chari_byte(*self, it)
             }
-            pure fn fix_utf8(self, handler: &pure fn(&[u8]) -> ~str) -> ~str {
-                fix_utf8_str(self, handler)
+            fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str {
+                fix_utf8_str(*self, handler)
             }
-            pure fn scan_uint(self) -> Option<uint> { scan_uint(self) }
-            pure fn scan_int(self) -> Option<uint> { scan_int(self) }
-            pure fn scan_float(self) -> Option<uint> { scan_float(self) }
+            fn scan_uint(&self) -> Option<uint> { scan_uint(*self) }
+            fn scan_int(&self) -> Option<uint> { scan_int(*self) }
+            fn scan_float(&self) -> Option<uint> { scan_float(*self) }
         }
 
         /// A trait which provides `prefix_shifted` method. Similar to
@@ -239,24 +238,25 @@ pub mod util {
         pub trait ShiftablePrefix {
             /// Returns a slice of given string with `self` at the start of
             /// the string stripped only once, if any.
-            pure fn prefix_shifted(&self, s: &str) -> Option<~str>;
+            fn prefix_shifted(&self, s: &str) -> Option<~str>;
         }
 
         impl ShiftablePrefix for char {
-            pure fn prefix_shifted(&self, s: &str) -> Option<~str> {
+            fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if !s.is_empty() {
-                     let str::CharRange {ch, next} = str::char_range_at(s, 0u);
-                     if ch == *self { Some(s.slice_to_end(next)) } else { None }
-                } else {
-                    None
+                    let str::CharRange {ch, next} = str::char_range_at(s, 0u);
+                    if ch == *self {
+                        return Some(s.slice_to_end(next).to_owned());
+                    }
                 }
+                None
             }
         }
 
         impl ShiftablePrefix for &'self str {
-            pure fn prefix_shifted(&self, s: &str) -> Option<~str> {
+            fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if s.starts_with(*self) {
-                    Some(s.slice_to_end(self.len()))
+                    Some(s.slice_to_end(self.len()).to_owned())
                 } else {
                     None
                 }
@@ -272,7 +272,7 @@ pub mod util {
     pub mod option {
 
         #[inline(always)]
-        pub pure fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool)
+        pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool)
                                         -> Option<T> {
             match opt {
                 Some(t) => if f(t) { Some(t) } else { None },
@@ -281,23 +281,23 @@ pub mod util {
         }
 
         pub trait OptionUtil<T> {
-            pure fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U>;
+            fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U>;
         }
 
         pub trait CopyableOptionUtil<T:Copy> {
-            pure fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
+            fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
         }
 
         impl<T> OptionUtil<T> for Option<T> {
             #[inline(always)]
-            pure fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U> {
+            fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U> {
                 option::chain(self, f)
             }
         }
 
         impl<T:Copy> CopyableOptionUtil<T> for Option<T> {
             #[inline(always)]
-            pure fn filter(self, f: &fn(x: T) -> bool) -> Option<T> {
+            fn filter(self, f: &fn(x: T) -> bool) -> Option<T> {
                 filter(self, f)
             }
         }
@@ -315,17 +315,17 @@ pub mod util {
             /// Reads up until the first '\n' char (which is not returned),
             /// or EOF. Any invalid UTF-8 sequences are fixed with given
             /// error handler.
-            fn read_and_fix_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str)
+            fn read_and_fix_utf8_line(&self, handler: &fn(&[u8]) -> ~str)
                                         -> ~str;
 
             /// Iterates over every line until the iterator breaks or EOF. Any
             /// invalid UTF-8 sequences are fixed with given error handler.
-            fn each_fixed_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str,
+            fn each_fixed_utf8_line(&self, handler: &fn(&[u8]) -> ~str,
                                     it: &fn(&str) -> bool);
         }
 
         impl<T: io::Reader> ReaderUtilEx for T {
-            fn read_and_fix_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str)
+            fn read_and_fix_utf8_line(&self, handler: &fn(&[u8]) -> ~str)
                                         -> ~str {
                 let mut bytes = ~[];
                 loop {
@@ -336,7 +336,7 @@ pub mod util {
                 ::util::str::from_fixed_utf8_bytes(bytes, handler)
             }
 
-            fn each_fixed_utf8_line(&self, handler: &pure fn(&[u8]) -> ~str,
+            fn each_fixed_utf8_line(&self, handler: &fn(&[u8]) -> ~str,
                                     it: &fn(&str) -> bool) {
                 while !self.eof() {
                     if !it(self.read_and_fix_utf8_line(handler)) { break; }
@@ -353,7 +353,7 @@ pub mod util {
     pub mod cmp {
 
         #[inline(always)]
-        pub pure fn clamp<T:Ord>(low: T, v: T, high: T) -> T {
+        pub fn clamp<T:Ord>(low: T, v: T, high: T) -> T {
             if v < low { low } else if v > high { high } else { v }
         }
 
@@ -459,7 +459,8 @@ pub mod util {
         ($e:expr; str -> $dst:expr, ws*, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                $dst = _line.trim_right();
+                // Rust: we should be able to avoid a copy here. (#5550)
+                $dst = _line.trim_right().to_owned(); // XXX #5550
                 lex!(""; $($tail)*) // optimization!
             } else {
                 false
@@ -468,7 +469,7 @@ pub mod util {
         ($e:expr; str -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                $dst = _line.to_owned();
+                $dst = _line.to_owned(); // XXX #5550
                 lex!(""; $($tail)*) // optimization!
             } else {
                 false
@@ -476,12 +477,12 @@ pub mod util {
         });
         ($e:expr; str* -> $dst:expr, ws*, $($tail:tt)*) => ({
             let _line: &str = $e;
-            $dst = _line.trim_right();
+            $dst = _line.trim_right().to_owned(); // XXX #5550
             lex!(""; $($tail)*) // optimization!
         });
         ($e:expr; str* -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            $dst = _line.to_owned();
+            $dst = _line.to_owned(); // XXX #5550
             lex!(""; $($tail)*) // optimization!
         });
         ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
@@ -616,23 +617,23 @@ pub mod parser {
     /// Two-letter alphanumeric identifier (henceforth "alphanumeric key")
     /// used for virtually everything, including resource management, variable
     /// BPM and chart specification.
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub struct Key(int);
 
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
-    pub const MAXKEY: int = 36*36;
+    pub static MAXKEY: int = 36*36;
 
     pub impl Key {
         /// Returns if the alphanumeric key is in the proper range. Angolmois
         /// supports the full range of 00-ZZ (0-1295) for every case.
-        pure fn is_valid(self) -> bool {
+        fn is_valid(self) -> bool {
             0 <= *self && *self < MAXKEY
         }
 
         /// Re-reads the alphanumeric key as a hexadecimal number if possible.
         /// This is required due to handling of channel #03 (BPM is expected
         /// to be in hexadecimal).
-        pure fn to_hex(self) -> Option<int> {
+        fn to_hex(self) -> Option<int> {
             let sixteens = *self / 36, ones = *self % 36;
             if sixteens < 16 && ones < 16 { Some(sixteens * 16 + ones) }
             else { None }
@@ -641,16 +642,16 @@ pub mod parser {
 
     impl Ord for Key {
         // Rust: it is very easy to make an infinite recursion here.
-        pure fn lt(&self, other: &Key) -> bool { **self < **other }
-        pure fn le(&self, other: &Key) -> bool { **self <= **other }
-        pure fn ge(&self, other: &Key) -> bool { **self >= **other }
-        pure fn gt(&self, other: &Key) -> bool { **self > **other }
+        fn lt(&self, other: &Key) -> bool { **self < **other }
+        fn le(&self, other: &Key) -> bool { **self <= **other }
+        fn ge(&self, other: &Key) -> bool { **self >= **other }
+        fn gt(&self, other: &Key) -> bool { **self > **other }
     }
 
     impl ToStr for Key {
         /// Returns a two-letter representation of alphanumeric key.
         /// (C: `TO_KEY`)
-        pure fn to_str(&self) -> ~str {
+        fn to_str(&self) -> ~str {
             fail_unless!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
             fmt!("%c%c", map[**self / 36] as char, map[**self % 36] as char)
@@ -662,15 +663,15 @@ pub mod parser {
 
     /// A game play element mapped to the single input element (for example,
     /// button) and the screen area (henceforth "lane").
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub struct Lane(uint);
 
     /// The maximum number of lanes. (C: `NNOTECHANS`)
-    pub const NLANES: uint = 72;
+    pub static NLANES: uint = 72;
 
     pub impl Lane {
         /// Converts the channel number to the lane number.
-        static pure fn from_channel(chan: Key) -> Lane {
+        fn from_channel(chan: Key) -> Lane {
             let player = match *chan / 36 {
                 1 | 3 | 5 | 0xD => 0,
                 2 | 4 | 6 | 0xE => 1,
@@ -684,15 +685,15 @@ pub mod parser {
     // object parameters
 
     /// Sound reference.
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub struct SoundRef(Key);
 
     /// Image reference.
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub struct ImageRef(Key);
 
     /// BGA layers. (C: `enum BGA_type`)
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum BGALayer {
         /// The lowest layer. BMS channel #04. (C: `BGA_LAYER`)
         Layer1,
@@ -705,29 +706,29 @@ pub mod parser {
         PoorBGA
     }
 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub struct BPM(float);
 
     /// (C: `MEASURE_TO_MSEC`)
-    pub pure fn measure_to_msec(measure: float, bpm: float) -> float {
+    pub fn measure_to_msec(measure: float, bpm: float) -> float {
         measure * 240000.0 / bpm
     }
 
     /// (C: `MSEC_TO_MEASURE`)
-    pub pure fn msec_to_measure(msec: float, bpm: float) -> float {
+    pub fn msec_to_measure(msec: float, bpm: float) -> float {
         msec * bpm / 240000.0
     }
 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum Duration { Seconds(float), Measures(float) }
 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum Damage { GaugeDamage(float), InstantDeath }
 
     //------------------------------------------------------------------------
     // object
 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum ObjData {
         /// Deleted object. Only used during various processing.
         Deleted,
@@ -769,58 +770,58 @@ pub mod parser {
     }
 
     pub trait ObjOps {
-        pub pure fn is_visible(self) -> bool;
-        pub pure fn is_invisible(self) -> bool;
-        pub pure fn is_lnstart(self) -> bool;
-        pub pure fn is_lndone(self) -> bool;
-        pub pure fn is_ln(self) -> bool;
-        pub pure fn is_bomb(self) -> bool;
-        pub pure fn is_object(self) -> bool;
-        pub pure fn is_bgm(self) -> bool;
-        pub pure fn is_setbga(self) -> bool;
-        pub pure fn is_setbpm(self) -> bool;
-        pub pure fn is_stop(self) -> bool;
+        pub fn is_visible(self) -> bool;
+        pub fn is_invisible(self) -> bool;
+        pub fn is_lnstart(self) -> bool;
+        pub fn is_lndone(self) -> bool;
+        pub fn is_ln(self) -> bool;
+        pub fn is_bomb(self) -> bool;
+        pub fn is_object(self) -> bool;
+        pub fn is_bgm(self) -> bool;
+        pub fn is_setbga(self) -> bool;
+        pub fn is_setbpm(self) -> bool;
+        pub fn is_stop(self) -> bool;
 
-        pub pure fn to_visible(self) -> Self;
-        pub pure fn to_invisible(self) -> Self;
-        pub pure fn to_lnstart(self) -> Self;
-        pub pure fn to_lndone(self) -> Self;
+        pub fn to_visible(self) -> Self;
+        pub fn to_invisible(self) -> Self;
+        pub fn to_lnstart(self) -> Self;
+        pub fn to_lndone(self) -> Self;
 
-        pub pure fn object_lane(self) -> Option<Lane>;
-        pub pure fn sounds(self) -> ~[SoundRef];
-        pub pure fn keydown_sound(self) -> Option<SoundRef>;
-        pub pure fn keyup_sound(self) -> Option<SoundRef>;
-        pub pure fn through_sound(self) -> Option<SoundRef>;
-        pub pure fn images(self) -> ~[ImageRef];
-        pub pure fn through_damage(self) -> Option<Damage>;
+        pub fn object_lane(self) -> Option<Lane>;
+        pub fn sounds(self) -> ~[SoundRef];
+        pub fn keydown_sound(self) -> Option<SoundRef>;
+        pub fn keyup_sound(self) -> Option<SoundRef>;
+        pub fn through_sound(self) -> Option<SoundRef>;
+        pub fn images(self) -> ~[ImageRef];
+        pub fn through_damage(self) -> Option<Damage>;
     }
 
     impl ObjOps for ObjData {
-        pub pure fn is_visible(self) -> bool {
+        pub fn is_visible(self) -> bool {
             match self { Visible(*) => true, _ => false }
         }
 
-        pub pure fn is_invisible(self) -> bool {
+        pub fn is_invisible(self) -> bool {
             match self { Invisible(*) => true, _ => false }
         }
 
-        pub pure fn is_lnstart(self) -> bool {
+        pub fn is_lnstart(self) -> bool {
             match self { LNStart(*) => true, _ => false }
         }
 
-        pub pure fn is_lndone(self) -> bool {
+        pub fn is_lndone(self) -> bool {
             match self { LNDone(*) => true, _ => false }
         }
 
-        pub pure fn is_ln(self) -> bool {
+        pub fn is_ln(self) -> bool {
             match self { LNStart(*)|LNDone(*) => true, _ => false }
         }
 
-        pub pure fn is_bomb(self) -> bool {
+        pub fn is_bomb(self) -> bool {
             match self { Bomb(*) => true, _ => false }
         }
 
-        pub pure fn is_object(self) -> bool {
+        pub fn is_object(self) -> bool {
             match self {
                 Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) | Bomb(*)
                     => true,
@@ -828,23 +829,23 @@ pub mod parser {
             }
         }
 
-        pub pure fn is_bgm(self) -> bool {
+        pub fn is_bgm(self) -> bool {
             match self { BGM(*) => true, _ => false }
         }
 
-        pub pure fn is_setbga(self) -> bool {
+        pub fn is_setbga(self) -> bool {
             match self { SetBGA(*) => true, _ => false }
         }
 
-        pub pure fn is_setbpm(self) -> bool {
+        pub fn is_setbpm(self) -> bool {
             match self { SetBPM(*) => true, _ => false }
         }
 
-        pub pure fn is_stop(self) -> bool {
+        pub fn is_stop(self) -> bool {
             match self { Stop(*) => true, _ => false }
         }
 
-        pub pure fn to_visible(self) -> ObjData {
+        pub fn to_visible(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Visible(lane,snd),
@@ -852,7 +853,7 @@ pub mod parser {
             }
         }
 
-        pub pure fn to_invisible(self) -> ObjData {
+        pub fn to_invisible(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Invisible(lane,snd),
@@ -860,7 +861,7 @@ pub mod parser {
             }
         }
 
-        pub pure fn to_lnstart(self) -> ObjData {
+        pub fn to_lnstart(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNStart(lane,snd),
@@ -868,7 +869,7 @@ pub mod parser {
             }
         }
 
-        pub pure fn to_lndone(self) -> ObjData {
+        pub fn to_lndone(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNDone(lane,snd),
@@ -876,7 +877,7 @@ pub mod parser {
             }
         }
 
-        pub pure fn object_lane(self) -> Option<Lane> {
+        pub fn object_lane(self) -> Option<Lane> {
             match self {
                 Visible(lane,_) | Invisible(lane,_) | LNStart(lane,_) |
                 LNDone(lane,_) | Bomb(lane,_,_) => Some(lane),
@@ -884,7 +885,7 @@ pub mod parser {
             }
         }
 
-        pub pure fn sounds(self) -> ~[SoundRef] {
+        pub fn sounds(self) -> ~[SoundRef] {
             match self {
                 Visible(_,Some(sref)) => ~[sref],
                 Invisible(_,Some(sref)) => ~[sref],
@@ -896,35 +897,35 @@ pub mod parser {
             }
         }
 
-        pub pure fn keydown_sound(self) -> Option<SoundRef> {
+        pub fn keydown_sound(self) -> Option<SoundRef> {
             match self {
                 Visible(_,sref) | Invisible(_,sref) | LNStart(_,sref) => sref,
                 _ => None
             }
         }
 
-        pub pure fn keyup_sound(self) -> Option<SoundRef> {
+        pub fn keyup_sound(self) -> Option<SoundRef> {
             match self {
                 LNDone(_,sref) => sref,
                 _ => None
             }
         }
 
-        pub pure fn through_sound(self) -> Option<SoundRef> {
+        pub fn through_sound(self) -> Option<SoundRef> {
             match self {
                 Bomb(_,sref,_) => sref,
                 _ => None
             }
         }
 
-        pub pure fn images(self) -> ~[ImageRef] {
+        pub fn images(self) -> ~[ImageRef] {
             match self {
                 SetBGA(_,Some(iref)) => ~[iref],
                 _ => ~[]
             }
         }
 
-        pub pure fn through_damage(self) -> Option<Damage> {
+        pub fn through_damage(self) -> Option<Damage> {
             match self {
                 Bomb(_,_,damage) => Some(damage),
                 _ => None
@@ -935,7 +936,7 @@ pub mod parser {
     /// Game play data associated to the time axis. Contrary to its name (I
     /// don't like naming this to `Data`) it is not limited to the objects
     /// (which are also associated to lanes) but also 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub struct Obj {
         /// Time position in measures.
         time: float,
@@ -945,116 +946,111 @@ pub mod parser {
 
     pub impl Obj {
         /// Creates a `Visible` object.
-        static pure fn Visible(time: float, lane: Lane,
-                               sref: Option<Key>) -> Obj {
+        fn Visible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             // Rust: `SoundRef` itself cannot be used as a function (#5315)
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Visible(lane, sref) }
         }
 
         /// Creates an `Invisible` object.
-        static pure fn Invisible(time: float, lane: Lane,
-                                 sref: Option<Key>) -> Obj {
+        fn Invisible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Invisible(lane, sref) }
         }
 
         /// Creates a `LNStart` object.
-        static pure fn LNStart(time: float, lane: Lane,
-                               sref: Option<Key>) -> Obj {
+        fn LNStart(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNStart(lane, sref) }
         }
 
         /// Creates a `LNDone` object.
-        static pure fn LNDone(time: float, lane: Lane,
-                              sref: Option<Key>) -> Obj {
+        fn LNDone(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNDone(lane, sref) }
         }
 
         /// Creates a `Bomb` object.
-        static pure fn Bomb(time: float, lane: Lane, sref: Option<Key>,
-                            damage: Damage) -> Obj {
+        fn Bomb(time: float, lane: Lane, sref: Option<Key>,
+                       damage: Damage) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Bomb(lane, sref, damage) }
         }
 
         /// Creates a `BGM` object.
-        static pure fn BGM(time: float, sref: Key) -> Obj {
+        fn BGM(time: float, sref: Key) -> Obj {
             Obj { time: time, data: BGM(SoundRef(sref)) }
         }
 
         /// Creates a `SetBGA` object.
-        static pure fn SetBGA(time: float, layer: BGALayer,
-                              iref: Option<Key>) -> Obj {
+        fn SetBGA(time: float, layer: BGALayer, iref: Option<Key>) -> Obj {
             let iref = iref.map_consume(|i| ImageRef(i)); // XXX #5315
             Obj { time: time, data: SetBGA(layer, iref) }
         }
 
         /// Creates a `SetBPM` object.
-        static pure fn SetBPM(time: float, bpm: BPM) -> Obj {
+        fn SetBPM(time: float, bpm: BPM) -> Obj {
             Obj { time: time, data: SetBPM(bpm) }
         }
 
         /// Creates a `Stop` object.
-        static pure fn Stop(time: float, duration: Duration) -> Obj {
+        fn Stop(time: float, duration: Duration) -> Obj {
             Obj { time: time, data: Stop(duration) }
         }
     }
 
     impl Ord for Obj {
-        pure fn lt(&self, other: &Obj) -> bool { self.time < other.time }
-        pure fn le(&self, other: &Obj) -> bool { self.time <= other.time }
-        pure fn ge(&self, other: &Obj) -> bool { self.time >= other.time }
-        pure fn gt(&self, other: &Obj) -> bool { self.time > other.time }
+        fn lt(&self, other: &Obj) -> bool { self.time < other.time }
+        fn le(&self, other: &Obj) -> bool { self.time <= other.time }
+        fn ge(&self, other: &Obj) -> bool { self.time >= other.time }
+        fn gt(&self, other: &Obj) -> bool { self.time > other.time }
     }
 
     impl ObjOps for Obj {
-        pub pure fn is_visible(self) -> bool { self.data.is_visible() }
-        pub pure fn is_invisible(self) -> bool { self.data.is_invisible() }
-        pub pure fn is_lnstart(self) -> bool { self.data.is_lnstart() }
-        pub pure fn is_lndone(self) -> bool { self.data.is_lndone() }
-        pub pure fn is_ln(self) -> bool { self.data.is_ln() }
-        pub pure fn is_bomb(self) -> bool { self.data.is_bomb() }
-        pub pure fn is_object(self) -> bool { self.data.is_object() }
-        pub pure fn is_bgm(self) -> bool { self.data.is_bgm() }
-        pub pure fn is_setbga(self) -> bool { self.data.is_setbga() }
-        pub pure fn is_setbpm(self) -> bool { self.data.is_setbpm() }
-        pub pure fn is_stop(self) -> bool { self.data.is_stop() }
+        pub fn is_visible(self) -> bool { self.data.is_visible() }
+        pub fn is_invisible(self) -> bool { self.data.is_invisible() }
+        pub fn is_lnstart(self) -> bool { self.data.is_lnstart() }
+        pub fn is_lndone(self) -> bool { self.data.is_lndone() }
+        pub fn is_ln(self) -> bool { self.data.is_ln() }
+        pub fn is_bomb(self) -> bool { self.data.is_bomb() }
+        pub fn is_object(self) -> bool { self.data.is_object() }
+        pub fn is_bgm(self) -> bool { self.data.is_bgm() }
+        pub fn is_setbga(self) -> bool { self.data.is_setbga() }
+        pub fn is_setbpm(self) -> bool { self.data.is_setbpm() }
+        pub fn is_stop(self) -> bool { self.data.is_stop() }
 
-        pub pure fn to_visible(self) -> Obj {
+        pub fn to_visible(self) -> Obj {
             Obj { time: self.time, data: self.data.to_visible() }
         }
-        pub pure fn to_invisible(self) -> Obj {
+        pub fn to_invisible(self) -> Obj {
             Obj { time: self.time, data: self.data.to_invisible() }
         }
-        pub pure fn to_lnstart(self) -> Obj {
+        pub fn to_lnstart(self) -> Obj {
             Obj { time: self.time, data: self.data.to_lnstart() }
         }
-        pub pure fn to_lndone(self) -> Obj {
+        pub fn to_lndone(self) -> Obj {
             Obj { time: self.time, data: self.data.to_lndone() }
         }
 
-        pub pure fn object_lane(self) -> Option<Lane> {
+        pub fn object_lane(self) -> Option<Lane> {
             self.data.object_lane()
         }
-        pub pure fn sounds(self) -> ~[SoundRef] {
+        pub fn sounds(self) -> ~[SoundRef] {
             self.data.sounds()
         }
-        pub pure fn keydown_sound(self) -> Option<SoundRef> {
+        pub fn keydown_sound(self) -> Option<SoundRef> {
             self.data.keydown_sound()
         }
-        pub pure fn keyup_sound(self) -> Option<SoundRef> {
+        pub fn keyup_sound(self) -> Option<SoundRef> {
             self.data.keyup_sound()
         }
-        pub pure fn through_sound(self) -> Option<SoundRef> {
+        pub fn through_sound(self) -> Option<SoundRef> {
             self.data.through_sound()
         }
-        pub pure fn images(self) -> ~[ImageRef] {
+        pub fn images(self) -> ~[ImageRef] {
             self.data.images()
         }
-        pub pure fn through_damage(self) -> Option<Damage> {
+        pub fn through_damage(self) -> Option<Damage> {
             self.data.through_damage()
         }
     }
@@ -1062,7 +1058,7 @@ pub mod parser {
     //------------------------------------------------------------------------
     // BMS data
 
-    pub const DefaultBPM: float = 130.0;
+    pub static DefaultBPM: float = 130.0;
 
     /// Blit commands, which manipulate the image after the image had been
     /// loaded. This maps to BMS #BGA command. (C: `struct blitcmd`)
@@ -1075,9 +1071,9 @@ pub mod parser {
         x2: int, y2: int, dx: int, dy: int,
     }
 
-    pub const SinglePlay: int = 1;
-    pub const CouplePlay: int = 2;
-    pub const DoublePlay: int = 3;
+    pub static SinglePlay: int = 1;
+    pub static CouplePlay: int = 2;
+    pub static DoublePlay: int = 3;
 
     /// Loaded BMS data. It is not a global state unlike C.
     pub struct Bms {
@@ -1125,7 +1121,7 @@ pub mod parser {
     }
 
     /// Creates a default value of BMS data.
-    pub pure fn Bms() -> Bms {
+    pub fn Bms() -> Bms {
         Bms { title: None, genre: None, artist: None, stagefile: None,
               basepath: None, player: SinglePlay, playlevel: 0, rank: 2,
               initbpm: DefaultBPM, sndpath: [None, ..MAXKEY],
@@ -1134,7 +1130,7 @@ pub mod parser {
     }
 
     pub impl Bms {
-        pure fn shorten_factor(&self, measure: int) -> float {
+        fn shorten_factor(&self, measure: int) -> float {
             if measure < 0 || measure as uint >= self.shorten.len() {
                 1.0
             } else {
@@ -1143,8 +1139,7 @@ pub mod parser {
         }
 
         /// (C: `adjust_object_time`)
-        pure fn adjust_object_time(&self, base: float, offset: float)
-                                        -> float {
+        fn adjust_object_time(&self, base: float, offset: float) -> float {
             use core::num::Round;
             let basemeasure = base.floor() as int;
             let baseshorten = self.shorten_factor(basemeasure);
@@ -1189,7 +1184,7 @@ pub mod parser {
 
     /// Converts a single alphanumeric (base-36) letter to an integer.
     /// (C: `getdigit`)
-    pure fn getdigit(n: char) -> Option<int> {
+    fn getdigit(n: char) -> Option<int> {
         match n {
             '0'..'9' => Some((n as int) - ('0' as int)),
             'a'..'z' => Some((n as int) - ('a' as int) + 10),
@@ -1199,7 +1194,7 @@ pub mod parser {
     }
 
     /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
-    pub pure fn key2index(s: &[char]) -> Option<int> {
+    pub fn key2index(s: &[char]) -> Option<int> {
         if s.len() < 2 { return None; }
         do getdigit(s[0]).chain |a| {
             do getdigit(s[1]).map |&b| { a * 36 + b }
@@ -1207,7 +1202,7 @@ pub mod parser {
     }
 
     /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
-    pub pure fn key2index_str(s: &str) -> Option<int> {
+    pub fn key2index_str(s: &str) -> Option<int> {
         if s.len() < 2 { return None; }
         let str::CharRange {ch:c1, next:p1} = str::char_range_at(s, 0);
         do getdigit(c1).chain |a| {
@@ -1240,9 +1235,9 @@ pub mod parser {
             skip: bool
         }
 
-        // Rust: #[deriving_eq] does not work inside the function. (#4913)
+        // Rust: #[deriving(Eq)] does not work inside the function. (#4913)
         impl Eq for RndState {
-            pure fn eq(&self, other: &RndState) -> bool {
+            fn eq(&self, other: &RndState) -> bool {
                 match (*self, *other) {
                     (Process, Process) => true,
                     (Ignore, Ignore) => true,
@@ -1250,16 +1245,16 @@ pub mod parser {
                     (_, _) => false
                 }
             }
-            pure fn ne(&self, other: &RndState) -> bool { !self.eq(other) }
+            fn ne(&self, other: &RndState) -> bool { !self.eq(other) }
         }
         impl Eq for Rnd {
-            pure fn eq(&self, other: &Rnd) -> bool {
+            fn eq(&self, other: &Rnd) -> bool {
                 // Rust: this is for using `ImmutableEqVector<T>::rposition`,
                 //       which should have been in `ImmutableVector<T>`.
                 self.val == other.val && self.inside == other.inside &&
                 self.state == other.state && self.skip == other.skip
             }
-            pure fn ne(&self, other: &Rnd) -> bool { !self.eq(other) }
+            fn ne(&self, other: &Rnd) -> bool { !self.eq(other) }
         }
 
         let mut rnd = ~[Rnd { val: None, inside: false,
@@ -1267,16 +1262,16 @@ pub mod parser {
 
         struct BmsLine { measure: uint, chan: Key, data: ~str }
         impl Ord for BmsLine {
-            pure fn lt(&self, other: &BmsLine) -> bool {
+            fn lt(&self, other: &BmsLine) -> bool {
                 self.measure < other.measure ||
                 (self.measure == other.measure && self.chan < other.chan)
             }
-            pure fn le(&self, other: &BmsLine) -> bool {
+            fn le(&self, other: &BmsLine) -> bool {
                 self.measure < other.measure ||
                 (self.measure == other.measure && self.chan <= other.chan)
             }
-            pure fn ge(&self, other: &BmsLine) -> bool { !self.lt(other) }
-            pure fn gt(&self, other: &BmsLine) -> bool { !self.le(other) }
+            fn ge(&self, other: &BmsLine) -> bool { !self.lt(other) }
+            fn gt(&self, other: &BmsLine) -> bool { !self.le(other) }
         }
 
         // (C: `bmsline`)
@@ -1296,14 +1291,15 @@ pub mod parser {
         let mut lnobj = None;
 
         let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
-        for lines.each |&line| {
-            let mut line =
-                ::util::str::from_fixed_utf8_bytes(line, |_| ~"\ufffd");
+        for lines.each |&line0| {
+            let line0 = ::util::str::from_fixed_utf8_bytes(line0,
+                                                           |_| ~"\ufffd");
+            let line: &str = line0;
 
             // skip non-command lines
-            line = line.trim_left();
+            let line = line.trim_left();
             if !line.starts_with(~"#") { loop; }
-            line = line.slice_to_end(1);
+            let line = line.slice_to_end(1);
 
             // search for header prefix. the header list (`bmsheader`) is
             // in the decreasing order of prefix length.
@@ -1313,10 +1309,10 @@ pub mod parser {
                    line.slice(0, header.len()).to_upper()
                         == header.to_owned() {
                     prefix = header;
-                    line = line.slice_to_end(header.len());
                     break;
                 }
             }
+            let line = line.slice_to_end(prefix.len());
 
             // Common readers.
             macro_rules! read(
@@ -1680,7 +1676,7 @@ pub mod parser {
                 let max = data.len() / 2 * 2;
                 let count = max as float;
                 for uint::range_step(0, max, 2) |i| {
-                    let v = key2index(data.view(i, i+2));
+                    let v = key2index(data.slice(i, i+2));
                     for v.each |&v| {
                         if v != 0 { // ignores 00
                             let t = measure + i as float / count;
@@ -1720,14 +1716,14 @@ pub mod parser {
     // key specification
 
     /// (C: `KEYKIND_MNEMONICS`)
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum KeyKind {
         WhiteKey, WhiteKeyAlt, BlackKey, Scratch, FootPedal,
         Button1, Button2, Button3, Button4, Button5
     }
 
     pub impl KeyKind {
-        static pure fn from_char(c: char) -> Option<KeyKind> {
+        fn from_char(c: char) -> Option<KeyKind> {
             match c {
                 'a' => Some(WhiteKey),
                 'y' => Some(WhiteKeyAlt),
@@ -1743,7 +1739,7 @@ pub mod parser {
             }
         }
 
-        pure fn to_char(self) -> char {
+        fn to_char(self) -> char {
             match self {
                 WhiteKey    => 'a',
                 WhiteKeyAlt => 'y',
@@ -1759,7 +1755,7 @@ pub mod parser {
         }
 
         /// (C: `KEYKIND_IS_KEY`)
-        pure fn counts_as_key(self) -> bool {
+        fn counts_as_key(self) -> bool {
             self != Scratch && self != FootPedal
         }
     }
@@ -1779,7 +1775,7 @@ pub mod parser {
     pub impl KeySpec {
         /// Returns a number of lanes that count towards "keys". Notably
         /// scratches and pedals do not count as keys. (C: `nkeys`)
-        pure fn nkeys(&self) -> uint {
+        fn nkeys(&self) -> uint {
             let mut nkeys = 0;
             for self.kinds.each |&kind| {
                 for kind.each |kind| {
@@ -1793,7 +1789,7 @@ pub mod parser {
     /// (C: `parse_key_spec`)
     pub fn parse_key_spec(s: &str) -> Option<~[(Lane, KeyKind)]> {
         let mut specs = ~[];
-        let mut s = str::trim_left(s);
+        let mut s = s.trim_left().to_owned();
         while !s.is_empty() {
             let mut chan = Key(0), kind = '\x00', s2 = ~"";
             if !lex!(s; Key -> chan, char -> kind, ws*, str* -> s2, !) {
@@ -1810,7 +1806,7 @@ pub mod parser {
     }
 
     /// (C: `presets`)
-    const PRESETS: &'static [(&'static str, &'static str, &'static str)] = &[
+    static PRESETS: &'static [(&'static str, &'static str, &'static str)] = &[
         ("5",     "16s 11a 12b 13a 14b 15a", ""),
         ("10",    "16s 11a 12b 13a 14b 15a",
                   "21a 22b 23a 24b 25a 26s"),
@@ -1920,11 +1916,11 @@ pub mod parser {
         for uint::range(0, NLANES) |lane| {
             let lane0 = Lane(lane);
 
-            const LNDONE: uint = 0;
-            const LNSTART: uint = 1;
-            const VISIBLE: uint = 2;
-            const INVISIBLE: uint = 3;
-            const BOMB: uint = 4;
+            static LNDONE: uint = 0;
+            static LNSTART: uint = 1;
+            static VISIBLE: uint = 2;
+            static INVISIBLE: uint = 3;
+            static BOMB: uint = 4;
             let to_type = |obj: &Obj| -> Option<uint> {
                 match obj.data {
                     Visible(lane,_) if lane == lane0 => Some(VISIBLE),
@@ -1938,7 +1934,7 @@ pub mod parser {
 
             let mut inside = false;
             do sanitize(bms.objs, to_type) |mut types| {
-                const LNMASK: uint = (1 << LNSTART) | (1 << LNDONE);
+                static LNMASK: uint = (1 << LNSTART) | (1 << LNDONE);
 
                 // remove overlapping LN endpoints altogether
                 if (types & LNMASK) == LNMASK { types &= !LNMASK; }
@@ -2169,7 +2165,7 @@ pub mod gfx {
     //------------------------------------------------------------------------
     // color
 
-    pure fn to_rgb(c: Color) -> (u8, u8, u8) {
+    fn to_rgb(c: Color) -> (u8, u8, u8) {
         match c { RGB(r, g, b) | RGBA(r, g, b, _) => (r, g, b) }
     }
 
@@ -2177,23 +2173,23 @@ pub mod gfx {
         top: Color, bottom: Color
     }
 
-    pub pure fn Gradient(top: Color, bottom: Color) -> Gradient {
+    pub fn Gradient(top: Color, bottom: Color) -> Gradient {
         Gradient { top: top, bottom: bottom }
     }
 
     // Rust: `Copy` can't be inherited even when it's specified. (#3984)
     pub trait Blendable {
         /// (C: `blend`)
-        pure fn blend(&self, num: int, denom: int) -> Color;
+        fn blend(&self, num: int, denom: int) -> Color;
     }
 
     impl Blendable for Color {
-        pure fn blend(&self, _: int, _: int) -> Color { *self }
+        fn blend(&self, _: int, _: int) -> Color { *self }
     }
 
     impl Blendable for Gradient {
-        pure fn blend(&self, num: int, denom: int) -> Color {
-            pure fn mix(x: u8, y: u8, num: int, denom: int) -> u8 {
+        fn blend(&self, num: int, denom: int) -> Color {
+            fn mix(x: u8, y: u8, num: int, denom: int) -> u8 {
                 let x = x as int, y = y as int;
                 (y + ((x - y) * num / denom)) as u8
             }
@@ -2205,8 +2201,8 @@ pub mod gfx {
         }
     }
 
-    pub pure fn gray(c: u8) -> Color { RGB(c, c, c) }
-    pub pure fn gray_gradient(top: u8, bottom: u8) -> Gradient {
+    pub fn gray(c: u8) -> Color { RGB(c, c, c) }
+    pub fn gray_gradient(top: u8, bottom: u8) -> Gradient {
         Gradient(gray(top), gray(bottom))
     }
 
@@ -2263,8 +2259,8 @@ pub mod gfx {
         }
     }
 
-    const FP_SHIFT1: int = 11;
-    const FP_SHIFT2: int = 16;
+    static FP_SHIFT1: int = 11;
+    static FP_SHIFT2: int = 16;
 
     /// (C: `bicubic_kernel`)
     fn bicubic_kernel(x: int, y: int) -> int {
@@ -2566,14 +2562,14 @@ pub mod player {
     //------------------------------------------------------------------------
     // options
 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum Mode { PlayMode, AutoPlayMode, ExclusiveMode }
 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum Modf { MirrorModf, ShuffleModf, ShuffleExModf,
                     RandomModf, RandomExModf }
 
-    #[deriving_eq]
+    #[deriving(Eq)]
     pub enum Bga { BgaAndMovie, BgaButNoMovie, NoBga }
 
     pub struct Options {
@@ -2602,20 +2598,20 @@ pub mod player {
     }
 
     pub impl Options {
-        pure fn rel_path(&self, path: &str) -> Path {
+        fn rel_path(&self, path: &str) -> Path {
             Path(self.bmspath).dir_path().push_rel(&Path(path))
         }
 
         /// (C: `opt_mode >= EXCLUSIVE_MODE`)
-        pure fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
+        fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
         /// (C: `!!opt_mode`)
-        pure fn is_autoplay(&self) -> bool { self.mode != PlayMode }
+        fn is_autoplay(&self) -> bool { self.mode != PlayMode }
         /// (C: `opt_bga < NO_BGA`)
-        pure fn has_bga(&self) -> bool { self.bga != NoBga }
+        fn has_bga(&self) -> bool { self.bga != NoBga }
         /// (C: `opt_bga < BGA_BUT_NO_MOVIE`)
-        pure fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
+        fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
         /// (C: `opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA`)
-        pure fn has_screen(&self) -> bool {
+        fn has_screen(&self) -> bool {
             !self.is_exclusive() || self.has_bga()
         }
     }
@@ -3152,7 +3148,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             // (C: `resource_loaded`)
             let update_status = |path: Option<~str>| {
                 let now = ticks();
-                const INFO_INTERVAL: uint = 47;
+                static INFO_INTERVAL: uint = 47;
                 if opts.showinfo && lastinfo.map_default(true,
                                         |&t| now - t >= INFO_INTERVAL) {
                     lastinfo = Some(now);
@@ -3169,10 +3165,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         None => {
                             match path {
                                 Some(path) => {
-                                    let mut path = path;
-                                    if path.len() > 63 {
-                                        path = path.slice(0, 63);
-                                    }
+                                    let path =
+                                        if path.len() > 63 { path }
+                                        else { path.slice(0, 63).to_owned() };
                                     update_line(~"Loading: " + path);
                                 }
                                 None => update_line(~"Loading done.")
@@ -3332,7 +3327,7 @@ fn main() {
                         None => die!("Invalid option: %s", args[i])
                     }
                 } else {
-                    args[i].slice_to_end(1)
+                    args[i].slice_to_end(1).to_owned()
                 };
             let nshortargs = shortargs.len();
 
@@ -3346,7 +3341,8 @@ fn main() {
                         } else {
                             i += 1;
                             if i < nargs {
-                                copy args[i]
+                                let arg: &str = args[i];
+                                arg
                             } else {
                                 die!("No argument to the option -%c", opt);
                             }
@@ -3368,10 +3364,10 @@ fn main() {
                     'S' => { modf = Some(ShuffleExModf); },
                     'r' => { modf = Some(RandomModf); },
                     'R' => { modf = Some(RandomExModf); },
-                    'k' => { preset = Some(fetch_arg('k')); },
+                    'k' => { preset = Some(fetch_arg('k').to_owned()); },
                     'K' => {
-                        leftkeys = Some(fetch_arg('K'));
-                        rightkeys = Some(fetch_arg('K'));
+                        leftkeys = Some(fetch_arg('K').to_owned());
+                        rightkeys = Some(fetch_arg('K').to_owned());
                     },
                     'a' => match float::from_str(fetch_arg('a')) {
                         Some(speed) if speed > 0.0 => {
