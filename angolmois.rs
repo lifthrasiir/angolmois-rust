@@ -127,7 +127,7 @@ pub mod util {
                     j += 1u;
                 }
                 if j == chend {
-                    fail_unless!(i != chend);
+                    assert!(i != chend);
                     result = vec::append(result, v.slice(i, j));
                 } else {
                     result = vec::append(result, handler(v.slice(i, j)));
@@ -652,7 +652,7 @@ pub mod parser {
         /// Returns a two-letter representation of alphanumeric key.
         /// (C: `TO_KEY`)
         fn to_str(&self) -> ~str {
-            fail_unless!(self.is_valid());
+            assert!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
             fmt!("%c%c", map[**self / 36] as char, map[**self % 36] as char)
         }
@@ -1208,7 +1208,7 @@ pub mod parser {
         do getdigit(c1).chain |a| {
             let str::CharRange {ch:c2, next:p2} = str::char_range_at(s, p1);
             do getdigit(c2).map |&b| {
-                fail_unless!(p2 == 2); // both characters should be in ASCII
+                assert!(p2 == 2); // both characters should be in ASCII
                 a * 36 + b
             }
         }
@@ -1336,7 +1336,7 @@ pub mod parser {
 
             // Rust: mutable loan and immutable loan cannot coexist
             //       in the same block (although it's safe). (#4666)
-            fail_unless!(!rnd.is_empty());
+            assert!(!rnd.is_empty());
             let state = { if rnd.last().skip { Ignore }
                           else { rnd.last().state } }; // XXX #4666
 
@@ -1583,7 +1583,7 @@ pub mod parser {
                         // change the last inserted visible object to the
                         // start of LN if any.
                         for {lastvis[*lane]}.each |&pos| { // XXX #4666
-                            fail_unless!(bms.objs[pos].is_visible());
+                            assert!(bms.objs[pos].is_visible());
                             bms.objs[pos] = bms.objs[pos].to_lnstart();
                             add(Obj::LNDone(t, lane, Some(v)));
                             lastvis[*lane] = None;
@@ -1629,7 +1629,7 @@ pub mod parser {
                     // the length of previous LN).
                     match lastln[*lane] {
                         Some(pos) if bms.objs[pos].time == t => {
-                            fail_unless!(bms.objs[pos].is_lndone());
+                            assert!(bms.objs[pos].is_lndone());
                             bms.objs[pos].time = t2;
                         }
                         _ => {
@@ -2024,7 +2024,8 @@ pub mod parser {
     /// Analyzes the loaded BMS file. (C: `analyze_and_compact_bms`)
     pub fn analyze_bms(bms: &Bms) -> BmsInfo {
         let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false,
-                                  haslongnote: false, nnotes: 0, maxscore: 0 };
+                                  haslongnote: false, nnotes: 0,
+                                  maxscore: 0 };
 
         for bms.objs.each |&obj| {
             infos.haslongnote |= obj.is_lnstart();
@@ -2440,15 +2441,15 @@ pub mod gfx {
         }
 
         let glyphs = decompress(dwords, indices);
-        fail_unless!(glyphs.len() == 3072);
+        assert!(glyphs.len() == 3072);
         Font { glyphs: glyphs, pixels: ~[] }
     }
 
     pub impl Font {
         /// (C: `fontprocess`)
         fn create_zoomed_font(&mut self, zoom: uint) {
-            fail_unless!(zoom > 0);
-            fail_unless!(zoom <= (8 * sys::size_of::<ZoomedFontRow>()) / 8);
+            assert!(zoom > 0);
+            assert!(zoom <= (8 * sys::size_of::<ZoomedFontRow>()) / 8);
             if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() {
                 return;
             }
@@ -2502,7 +2503,7 @@ pub mod gfx {
         pub fn print_glyph<ColorT:Blendable+Copy>(&self, // XXX #3984
                 surface: &Surface, x: uint, y: uint, zoom: uint,
                 glyph: uint, color: ColorT) {
-            fail_unless!(!self.pixels[zoom].is_empty());
+            assert!(!self.pixels[zoom].is_empty());
             for uint::range(0, 16 * zoom) |iy| {
                 let row = self.pixels[zoom][glyph][iy];
                 let rowcolor = color.blend(iy as int, 16 * zoom as int);
@@ -2553,8 +2554,8 @@ pub mod gfx {
 
 pub mod player {
     use sdl::*;
-    use sdl::audio::*;
     use sdl::video::*;
+    use sdl::mixer::*;
     use util::sdl::*;
     use parser::*;
     use gfx::*;
