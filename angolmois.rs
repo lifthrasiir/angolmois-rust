@@ -18,30 +18,41 @@
  * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
-// This is a direct one-to-one translation of Angolmois for which README is
-// available in <http://github.com/lifthrasiir/angolmois/>. Angolmois is
-// distributed under GNU GPL version 2+, so is this translation. The portions
-// of it is intended to be sent as a patch to Rust, so those portions are
-// licensed under Apache License 2.0 and MIT license.
-//
-// Angolmois is a combination of string parsing, path manipulation, two-
-// dimensional graphics and complex game play carefully packed into some
-// thousand lines of code. This translation is intended to provide an example
-// of translating a moderately-sized C code to Rust, and also to investigate
-// additional library supports required for such moderately-sized programs.
-//
-// Unlike the original Angolmois code (which sacrifices most comments due to
-// code size concerns), the Rust version has much more comments which can be
-// beneficial for understanding Angolmois itself too.
-//
-// Key:
-// * (C: ...) - variable/function corresponds to given name in the C code.
-// * Rust: ... - suboptimal translation with a room for improvement in Rust.
-//   often contains a Rust issue number like #1234.
-// * XXX - should be fixed as soon as Rust issue is gone.
+/*!
+ * This is a direct, one-to-one translation of Angolmois to Rust programming
+ * language. [Angolmois][angolmois] is a [BM98][bm98]-like minimalistic music
+ * video game which supports the [BMS format][bms] for playing.
+ * 
+ * [angolmois]: http://mearie.org/projects/angolmois/
+ * [bms]: http://en.wikipedia.org/wiki/Be-Music_Source
+ * [bm98]: http://bm98.yaneu.com/bm98/
+ * 
+ * Angolmois is a combination of string parsing, path manipulation,
+ * two-dimensional graphics and complex game play carefully packed into some
+ * thousand lines of code. This translation is intended to provide an example
+ * of translating a moderately-sized C code to Rust, and also to investigate
+ * additional library supports required for such moderately-sized programs.
+ * 
+ * Angolmois is distributed under GNU GPL version 2+, so is this translation.
+ * The portions of it is intended to be sent as a patch to Rust, so those
+ * portions are licensed under Apache License 2.0 and MIT license.
+ * 
+ * Unlike the original Angolmois code (which sacrifices most comments due to
+ * code size concerns), the Rust version has much more comments which can be
+ * beneficial for understanding Angolmois itself too.
+ * 
+ * # Key
+ * 
+ * The following notations are used in the comments and documentations.
+ * 
+ * * (C: ...) - variable/function corresponds to given name in the C code.
+ * * Rust: ... - suboptimal translation with a room for improvement in Rust.
+ *   often contains a Rust issue number like #1234.
+ * * XXX - should be fixed as soon as Rust issue is gone.
+ */
 
 #[link(name = "angolmois",
-       vers = "2.0-alpha2",
+       vers = "2.0.0-alpha2",
        uuid = "0E85EA95-BE62-4E0F-B811-8C1EC46C46EC",
        url = "https://github.com/lifthrasiir/angolmois/")];
 
@@ -51,7 +62,7 @@
 extern mod std;
 extern mod sdl;
 
-/// (C: `VERSION`)
+/// Returns a version string. (C: `VERSION`)
 pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 
 //============================================================================
@@ -63,42 +74,45 @@ pub fn exename() -> ~str {
     if args.is_empty() { ~"angolmois" } else { copy args[0] }
 }
 
-/// Immediately terminates the program with given exit code.
-pub fn exit(exitcode: int) -> ! {
-    // Rust: `os::set_exit_status` doesn't immediately terminate the program.
-    unsafe { libc::exit(exitcode as libc::c_int); }
-}
-
-/// Exits with an error message. Internally used in the `die` macro below.
-pub fn die(s: ~str) -> ! {
-    io::stderr().write_line(fmt!("%s: %s", exename(), s));
-    exit(1)
-}
-
-pub fn warn(s: ~str) {
-    io::stderr().write_line(fmt!("*** Warning: %s", s));
-}
-
-// Exits with a formatted error message. (C: `die`)
-//
-// Rust: this comment cannot be a doc comment (yet).
-macro_rules! die(
-    ($($e:expr),+) => (::die(fmt!($($e),+)))
-)
-
-// (C: `warn`)
-macro_rules! warn(
-    ($($e:expr),+) => (::warn(fmt!($($e),+)))
-)
-
 /// Utility functions.
 #[macro_escape]
 pub mod util {
 
-    /// String utilities for Rust. Parallels to `core::str`.
-    ///
-    /// NOTE: Some of these additions will be eventually sent to
-    /// libcore/str.rs and are not subject to the above copyright notice.
+    /// Immediately terminates the program with given exit code.
+    pub fn exit(exitcode: int) -> ! {
+        // Rust: `os::set_exit_status` doesn't immediately terminate the program.
+        unsafe { libc::exit(exitcode as libc::c_int); }
+    }
+
+    /// Exits with an error message. Internally used in the `die!` macro below.
+    pub fn die(s: ~str) -> ! {
+        ::core::io::stderr().write_line(fmt!("%s: %s", ::exename(), s));
+        exit(1)
+    }
+
+    /// Prints an warning message. Internally used in the `warn!` macro below.
+    pub fn warn(s: ~str) {
+        ::core::io::stderr().write_line(fmt!("*** Warning: %s", s));
+    }
+
+    // Exits with a formatted error message. (C: `die`)
+    //
+    // Rust: this comment cannot be a doc comment (yet).
+    macro_rules! die(
+        ($($e:expr),+) => (::util::die(fmt!($($e),+)))
+    )
+
+    // Prints a formatted warning message. (C: `warn`)
+    macro_rules! warn(
+        ($($e:expr),+) => (::util::warn(fmt!($($e),+)))
+    )
+
+    /**
+     * String utilities for Rust. Parallels to `core::str`.
+     *
+     * NOTE: Some of these additions will be eventually sent to
+     * `libcore/str.rs` and are not subject to the above copyright notice.
+     */
     pub mod str {
 
         static tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
@@ -187,8 +201,6 @@ pub mod util {
         }
 
         /// Extensions to `str`.
-        ///
-        /// Rust: forgetting `<'self>` gives a quite general error. TODO
         pub trait StrUtil {
             /// Returns a slice of the given string starting from `begin`.
             ///
@@ -265,10 +277,12 @@ pub mod util {
 
     }
 
-    /// Option utilities for Rust. Parallels to `core::option`.
-    ///
-    /// NOTE: Some of these additions will be eventually sent to
-    /// libcore/option.rs and are not subject to the above copyright notice.
+    /**
+     * Option utilities for Rust. Parallels to `core::option`.
+     *
+     * NOTE: Some of these additions will be eventually sent to
+     * `libcore/option.rs` and are not subject to the above copyright notice.
+     */
     pub mod option {
 
         #[inline(always)]
@@ -304,10 +318,12 @@ pub mod util {
 
     }
 
-    /// I/O utilities for Rust. Parallels to `core::io`.
-    ///
-    /// NOTE: Some of these additions will be eventually sent to
-    /// libcore/io.rs and are not subject to the above copyright notice.
+    /**
+     * I/O utilities for Rust. Parallels to `core::io`.
+     *
+     * NOTE: Some of these additions will be eventually sent to
+     * `libcore/io.rs` and are not subject to the above copyright notice.
+     */
     pub mod io {
 
         /// Extensions to `ReaderUtil`.
@@ -346,10 +362,12 @@ pub mod util {
 
     }
 
-    /// Comparison routines for Rust. Parallels to `core::cmp`.
-    ///
-    /// NOTE: Some of these additions will be eventually sent to
-    /// libcore/cmp.rs and are not subject to the above copyright notice.
+    /**
+     * Comparison routines for Rust. Parallels to `core::cmp`.
+     *
+     * NOTE: Some of these additions will be eventually sent to
+     * `libcore/cmp.rs` and are not subject to the above copyright notice.
+     */
     pub mod cmp {
 
         #[inline(always)]
@@ -375,44 +393,45 @@ pub mod util {
         }
     }
 
-    // A lexer barely powerful enough to parse BMS format. Comparable to
-    // C's `sscanf`.
-    //
-    // `lex!(e; fmt1, fmt2, ..., fmtN)` returns an expression that evaluates
-    // to true if and only if all format specification is consumed. The format
-    // specification (analogous to `sscanf`'s `%`-string) is as follows:
-    //
-    // - `ws`: Consumes one or more whitespace. (C: `%*[ \t\r\n]` or similar)
-    // - `ws*`: Consumes zero or more whitespace. (C: ` `)
-    // - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`.
-    //   (C: `%d` and `%*d`, but does not consume preceding whitespace)
-    //   The integer syntax is slightly limited compared to `sscanf`.
-    // - `float [-> e2]`: Consumes a real number and optionally saves it to
-    //   `e2`. (C: `%f` etc.) Again, the real number syntax is slightly
-    //   limited; especially an exponent support is missing.
-    // - `str [-> e2]`: Consumes a remaining input as a string and optionally
-    //   saves it to `e2`. The string is at least one character long.
-    //   (C: not really maps to `sscanf`, similar to `fgets`) Implies `!`.
-    //   It can be followed by `ws*` which makes the string right-trimmed.
-    // - `str* [-> e2]`: Same as above but the string can be empty.
-    // - `char [-> e2]`: Consumes exactly one character and optionally saves
-    //   it to `e2`. Resulting character can be whitespace. (C: `%1c`)
-    // - `!`: Ensures that the entire string has been consumed. Should be the
-    //   last format specification.
-    // - `"foo"` etc.: An ordinary expression is treated as a literal string
-    //   or literal character.
-    //
-    // For the use in Angolmois, the following specifications have been added:
-    //
-    // - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
-    //   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
-    //   followed by a call to `key2index`)
-    // - `Measure [-> e2]`: Consumes exactly three digits and optionally saves
-    //   it to `e2`. (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed
-    //   by a call to `atoi`)
-    //
+    /*
+     * A lexer barely powerful enough to parse BMS format. Comparable to C's
+     * `sscanf`.
+     *
+     * `lex!(e; fmt1, fmt2, ..., fmtN)` returns an expression that evaluates
+     * to true if and only if all format specification is consumed. The format
+     * specification (analogous to `sscanf`'s `%`-string) is as follows:
+     *
+     * - `ws`: Consumes one or more whitespace. (C: `%*[ \t\r\n]` or similar)
+     * - `ws*`: Consumes zero or more whitespace. (C: ` `)
+     * - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`.
+     *   (C: `%d` and `%*d`, but does not consume preceding whitespace)
+     *   The integer syntax is slightly limited compared to `sscanf`.
+     * - `float [-> e2]`: Consumes a real number and optionally saves it to
+     *   `e2`. (C: `%f` etc.) Again, the real number syntax is slightly
+     *   limited; especially an exponent support is missing.
+     * - `str [-> e2]`: Consumes a remaining input as a string and optionally
+     *   saves it to `e2`. The string is at least one character long.
+     *   (C: not really maps to `sscanf`, similar to `fgets`) Implies `!`.
+     *   It can be followed by `ws*` which makes the string right-trimmed.
+     * - `str* [-> e2]`: Same as above but the string can be empty.
+     * - `char [-> e2]`: Consumes exactly one character and optionally saves
+     *   it to `e2`. Resulting character can be whitespace. (C: `%1c`)
+     * - `!`: Ensures that the entire string has been consumed. Should be
+     *   the last format specification.
+     * - `"foo"` etc.: An ordinary expression is treated as a literal string
+     *   or literal character.
+     *
+     * For the use in Angolmois, the following specifications have been added:
+     *
+     * - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
+     *   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
+     *   followed by a call to `key2index`)
+     * - `Measure [-> e2]`: Consumes exactly three digits and optionally saves
+     *   it to `e2`. (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed
+     *   by a call to `atoi`)
+     */
     // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex
-    //         support will make this useless in the future, but not now.
+    //         support will make this obsolete in the future, but not now.
     //       - multiple statements do not expand correctly. (#4375)
     //       - it is desirable to have a matcher only accepts an integer
     //         literal or string literal, not a generic expression.
@@ -607,16 +626,49 @@ use util::io::*;
 //============================================================================
 // bms parser
 
-/// BMS parser module.
+/**
+ * BMS parser module.
+ *
+ * # Structure
+ *
+ * The BMS format is a plain text format with most directives start with
+ * optional whitespace followed by `#`. Besides the metadata (title, artist
+ * etc.), a BMS file is a map from the time position to various game play
+ * elements (henceforth "objects") and other effects including BGM and BGA
+ * changes. It also contains preprocessor directives used to randomize some or
+ * all parts of the BMS file, which would only make sense in the loading time.
+ *
+ * The time position is a virtual time divided by an unit of (musical)
+ * measure. It is related to the actual time by the current Beats Per Minute
+ * (BPM) value which can, well, also change during the game play. Consequently
+ * it is convenient to refer the position in terms of measures, which the BMS
+ * format does: the lines `#xxxyy:AABBCC...` indicates that the measure number
+ * `xxx` contains objects or object-like effects (of the type specified by
+ * `yy`, henceforth "channels"), evenly spaced throughout the measure and
+ * which data values are `AA`, `BB`, `CC` respectively.
+ *
+ * An alphanumeric identifier (henceforth "alphanumeric key") like `AA` or
+ * `BB` may mean that the actual numeric value interpreted as base 16 or 36
+ * (depending on the channel), or a reference to other assets (e.g. `#BMPAA
+ * foo.png`) or complex values specified by other commands (e.g. `#BPMBB
+ * 192.0`). In most cases, an identifier `00` indicates an absence of objects
+ * or object-like effects at that position.
+ *
+ * More detailed information about BMS format, including surveys about
+ * how different implementations (so called BMS players) react to
+ * underspecified features or edge cases, can be found at [BMS command
+ * memo][bmscmds].
+ *
+ * [bmscmds]: http://hitkey.nekokan.dyndns.info/cmds.htm
+ */
 pub mod parser {
     use core::rand::*;
 
     //------------------------------------------------------------------------
     // alphanumeric key
 
-    /// Two-letter alphanumeric identifier (henceforth "alphanumeric key")
-    /// used for virtually everything, including resource management, variable
-    /// BPM and chart specification.
+    /// Two-letter alphanumeric identifier used for virtually everything,
+    /// including resource management, variable BPM and chart specification.
     #[deriving(Eq)]
     pub struct Key(int);
 
@@ -659,7 +711,7 @@ pub mod parser {
     }
 
     //------------------------------------------------------------------------
-    // lane
+    // lane and key kinds
 
     /// A game play element mapped to the single input element (for example,
     /// button) and the screen area (henceforth "lane").
@@ -678,6 +730,102 @@ pub mod parser {
                 _ => fail!(~"non-object channel")
             };
             Lane(player * 36 + *chan as uint % 36)
+        }
+    }
+
+    /**
+     * Key kinds. They define an appearance of particular lane, but otherwise
+     * ignored for the game play. Angolmois supports several key kinds in
+     * order to cover many potential uses. (C: `KEYKIND_MNEMONICS`)
+     *
+     * # Defaults
+     *
+     * For BMS/BME, channels #11/13/15/19 and #21/23/25/29 use `WhiteKey`,
+     * #12/14/18 and #22/24/28 use `BlackKey`, #16 and #26 use `Scratch` ,
+     * #17 and #27 use `FootPedal`.
+     *
+     * For PMS, channels #11/17/25 use `Button1`, #12/16/24 use `Button2`,
+     * #13/19/23 use `Button3`, #14/18/22 use `Button4`, #15 uses `Button5`.
+     */
+    #[deriving(Eq)]
+    pub enum KeyKind {
+        /// White key, which mimics a real white key in the musical keyboard.
+        WhiteKey,
+        /// White key, but rendered yellow. This is used for simulating
+        /// the O2Jam interface which has one yellow lane (mapped to spacebar)
+        /// in middle of six other lanes (mapped to normal keys).
+        WhiteKeyAlt,
+        /// Black key, which mimics a real black key in the keyboard but
+        /// rendered light blue as in Beatmania and other games.
+        BlackKey,
+        /// Scratch, rendered red. Scratch lane is wider than other "keys" and
+        /// normally doesn't count as a key.
+        Scratch,
+        /// Foot pedal, rendered green. Otherwise has the same properties as
+        /// scratch. The choice of color follows that of EZ2DJ, one of
+        /// the first games that used this game element.
+        FootPedal,
+        /// White button. This and following "button"s come from Pop'n Music,
+        /// which has nine colored buttons. (White buttons constitute 1st and
+        /// 9th of Pop'n Music buttons.) The "button"s are wider than
+        /// aforementioned "keys" but narrower than scratch and foot pedal.
+        Button1,
+        /// Yellow button (2nd and 8th of Pop'n Music buttons).
+        Button2,
+        /// Green button (3rd and 7th of Pop'n Music buttons).
+        Button3,
+        /// Navy button (4th and 6th of Pop'n Music buttons).
+        Button4,
+        /// Red button (5th of Pop'n Music buttons).
+        Button5,
+    }
+
+    pub impl KeyKind {
+        /// Converts a mnemonic character to an appropriate key kind. Used
+        /// for parsing a key specification (see also `KeySpec`).
+        fn from_char(c: char) -> Option<KeyKind> {
+            match c {
+                'a' => Some(WhiteKey),
+                'y' => Some(WhiteKeyAlt),
+                'b' => Some(BlackKey),
+                's' => Some(Scratch),
+                'p' => Some(FootPedal),
+                'q' => Some(Button1),
+                'w' => Some(Button2),
+                'e' => Some(Button3),
+                'r' => Some(Button4),
+                't' => Some(Button5),
+                _   => None
+            }
+        }
+
+        /// Converts an appropriate key kind to a mnemonic character. Used
+        /// for environment variables (see also TODO).
+        fn to_char(self) -> char {
+            match self {
+                WhiteKey    => 'a',
+                WhiteKeyAlt => 'y',
+                BlackKey    => 'b',
+                Scratch     => 's',
+                FootPedal   => 'p',
+                Button1     => 'w',
+                Button2     => 'e',
+                Button3     => 'r',
+                Button4     => 't',
+                Button5     => 's'
+            }
+        }
+
+        /**
+         * Returns true if a kind counts as a "key". (C: `KEYKIND_IS_KEY`)
+         *
+         * This affects the number of keys displayed in the loading screen,
+         * and reflects a common practice of counting "keys" in many games
+         * (e.g. Beatmania IIDX has 8 lanes including one scratch but commonly
+         * said to have 7 "keys").
+         */
+        fn counts_as_key(self) -> bool {
+            self != Scratch && self != FootPedal
         }
     }
 
@@ -706,17 +854,21 @@ pub mod parser {
         PoorBGA
     }
 
+    /// Beats per minute. Used as a conversion factor between the time
+    /// position and actual time in BMS.
     #[deriving(Eq)]
     pub struct BPM(float);
 
-    /// (C: `MEASURE_TO_MSEC`)
-    pub fn measure_to_msec(measure: float, bpm: float) -> float {
-        measure * 240000.0 / bpm
-    }
+    pub impl BPM {
+        /// Converts a measure to a millisecond. (C: `MEASURE_TO_MSEC`)
+        fn measure_to_msec(self, measure: float) -> float {
+            measure * 240000.0 / *self
+        }
 
-    /// (C: `MSEC_TO_MEASURE`)
-    pub fn msec_to_measure(msec: float, bpm: float) -> float {
-        msec * bpm / 240000.0
+        /// Converts a millisecond to a measure. (C: `MSEC_TO_MEASURE`)
+        fn msec_to_measure(self, msec: float) -> float {
+            msec * *self / 240000.0
+        }
     }
 
     #[deriving(Eq)]
@@ -752,14 +904,16 @@ pub mod parser {
         Bomb(Lane, Option<SoundRef>, Damage),
         /// Plays associated sound. (C: `BGM_CHANNEL`)
         BGM(SoundRef),
-        /// Sets the virtual BGA layer to given image. The layer itself may
-        /// not be displayed depending on the current game status.
-        /// (C: `BGA_CHANNEL`)
-        ///
-        /// If the reference points to a movie, the movie starts playing; if
-        /// the other layer had the same movie started, it rewinds to
-        /// the beginning. The resulting image from the movie can be shared
-        /// among multiple layers.
+        /**
+         * Sets the virtual BGA layer to given image. The layer itself may
+         * not be displayed depending on the current game status.
+         * (C: `BGA_CHANNEL`)
+         *
+         * If the reference points to a movie, the movie starts playing; if
+         * the other layer had the same movie started, it rewinds to
+         * the beginning. The resulting image from the movie can be shared
+         * among multiple layers.
+         */
         SetBGA(BGALayer, Option<ImageRef>),
         /// Sets the BPM. Negative BPM causes the chart scrolls backwards
         /// (and implicitly signals the end of the chart). (C: `BPM_CHANNEL`)
@@ -935,7 +1089,8 @@ pub mod parser {
 
     /// Game play data associated to the time axis. Contrary to its name (I
     /// don't like naming this to `Data`) it is not limited to the objects
-    /// (which are also associated to lanes) but also 
+    /// (which are also associated to lanes) but also various effects that
+    /// causes a BGM played, a BGA updated etc.
     #[deriving(Eq)]
     pub struct Obj {
         /// Time position in measures.
@@ -1058,7 +1213,7 @@ pub mod parser {
     //------------------------------------------------------------------------
     // BMS data
 
-    pub static DefaultBPM: float = 130.0;
+    pub static DefaultBPM: BPM = BPM(130.0);
 
     /// Blit commands, which manipulate the image after the image had been
     /// loaded. This maps to BMS #BGA command. (C: `struct blitcmd`)
@@ -1102,11 +1257,11 @@ pub mod parser {
         rank: int,
 
         /// Initial BPM. (C: `initbpm`)
-        initbpm: float,
+        initbpm: BPM,
         /// Paths to sound file relative to `basepath` or BMS file.
         /// (C: `sndpath`)
-        ///
-        /// Rust: constant expression in the array size is unsupported.
+        //
+        // Rust: constant expression in the array size is unsupported.
         sndpath: [Option<~str> * 1296], // XXX 1296=MAXKEY
         /// Paths to image/movie file relative to `basepath` or BMS file.
         /// (C: `imgpath`)
@@ -1115,8 +1270,12 @@ pub mod parser {
         /// (C: `blitcmd`)
         blitcmd: ~[BlitCmd],
 
+        /// List of objects sorted by the position. (C: `objs`)
         objs: ~[Obj],
+        /// The scaling factor of measures. Defaults to 1.0. (C: `shorten`)
         shorten: ~[float],
+        /// The number of measures after the origin, i.e. the length of
+        /// the BMS file. The play stops after the last measure. (C: `length`)
         nmeasures: uint
     }
 
@@ -1218,7 +1377,7 @@ pub mod parser {
     pub fn parse_bms_from_reader(f: @io::Reader, r: @rand::Rng)
                                     -> Result<~Bms,~str> {
         // (C: `bmsheader`)
-        let bmsheader = [
+        static bmsheader: &'static [&'static str] = &[
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
             "PLAYER", "PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP",
             "BGA", "STOP", "STP", "RANDOM", "SETRANDOM", "ENDRANDOM", "IF",
@@ -1277,7 +1436,7 @@ pub mod parser {
         // (C: `bmsline`)
         let mut bmsline = ~[];
         // (C: `bpmtab`)
-        let mut bpmtab = ~[BPM(DefaultBPM), ..MAXKEY];
+        let mut bpmtab = ~[DefaultBPM, ..MAXKEY];
         // (C: `stoptab`)
         let mut stoptab = ~[Seconds(0.0), ..MAXKEY];
 
@@ -1350,11 +1509,11 @@ pub mod parser {
 
                 // #BPM <float> or #BPMxx <float>
                 ("BPM", Process) => {
-                    let mut key = Key(-1), bpm = DefaultBPM;
+                    let mut key = Key(-1), bpm = 0.0;
                     if lex!(line; Key -> key, ws, float -> bpm) {
                         let Key(key) = key; bpmtab[key] = BPM(bpm);
                     } else if lex!(line; ws, float -> bpm) {
-                        bms.initbpm = bpm;
+                        bms.initbpm = BPM(bpm);
                     }
                 }
 
@@ -1715,51 +1874,6 @@ pub mod parser {
     //------------------------------------------------------------------------
     // key specification
 
-    /// (C: `KEYKIND_MNEMONICS`)
-    #[deriving(Eq)]
-    pub enum KeyKind {
-        WhiteKey, WhiteKeyAlt, BlackKey, Scratch, FootPedal,
-        Button1, Button2, Button3, Button4, Button5
-    }
-
-    pub impl KeyKind {
-        fn from_char(c: char) -> Option<KeyKind> {
-            match c {
-                'a' => Some(WhiteKey),
-                'y' => Some(WhiteKeyAlt),
-                'b' => Some(BlackKey),
-                's' => Some(Scratch),
-                'p' => Some(FootPedal),
-                'q' => Some(Button1),
-                'w' => Some(Button2),
-                'e' => Some(Button3),
-                'r' => Some(Button4),
-                't' => Some(Button5),
-                _   => None
-            }
-        }
-
-        fn to_char(self) -> char {
-            match self {
-                WhiteKey    => 'a',
-                WhiteKeyAlt => 'y',
-                BlackKey    => 'b',
-                Scratch     => 's',
-                FootPedal   => 'p',
-                Button1     => 'w',
-                Button2     => 'e',
-                Button3     => 'r',
-                Button4     => 't',
-                Button5     => 's'
-            }
-        }
-
-        /// (C: `KEYKIND_IS_KEY`)
-        fn counts_as_key(self) -> bool {
-            self != Scratch && self != FootPedal
-        }
-    }
-
     pub struct KeySpec {
         /// The number of lanes on the left side. This number is significant
         /// only when Couple Play is used. (C: `nleftkeys`)
@@ -2009,15 +2123,19 @@ pub mod parser {
 
     /// Derived BMS information. Again, this is not a global state.
     pub struct BmsInfo {
+        /// The start position of the BMS file. This is either -1.0 or 0.0
+        /// depending on the first measure has any visible objects or not.
         /// (C: `originoffset`)
         originoffset: float,
-        /// (C: `hasbpmchange`)
+        /// Set to true if the BMS file has a BPM change. (C: `hasbpmchange`)
         hasbpmchange: bool,
+        /// Set to true if the BMS file has long note objects.
         /// (C: `haslongnote`)
         haslongnote: bool,
-        /// (C: `nnotes`)
+        /// The number of visible objects in the BMS file. A long note object
+        /// counts as one object. (C: `nnotes`)
         nnotes: int,
-        /// (C: `maxscore`)
+        /// The maximum possible score. (C: `maxscore`)
         maxscore: int
     }
 
@@ -2054,33 +2172,33 @@ pub mod parser {
 
         for bms.objs.each |&obj| {
             let delta = bms.adjust_object_position(pos, obj.time);
-            time += measure_to_msec(delta, bpm);
+            time += bpm.measure_to_msec(delta);
             match obj.data {
                 Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) =>
                     sndtime = cmp::max(sndtime, time + sound_length(sref)),
                 SetBPM(BPM(newbpm)) =>
                     if newbpm > 0.0 {
-                        bpm = newbpm;
+                        bpm = BPM(newbpm);
                     } else if newbpm < 0.0 {
-                        bpm = newbpm;
+                        bpm = BPM(newbpm);
                         let delta =
                             bms.adjust_object_position(originoffset, pos);
-                        time += measure_to_msec(delta, -newbpm);
+                        time += BPM(-newbpm).measure_to_msec(delta);
                         break;
                     },
                 Stop(Seconds(secs)) =>
                     time += secs * 1000.0,
                 Stop(Measures(measures)) =>
-                    time += measure_to_msec(measures, bpm),
+                    time += bpm.measure_to_msec(measures),
                 _ => (),
             }
             pos = obj.time;
         }
 
-        if bpm > 0.0 {
+        if *bpm > 0.0 {
             let delta = bms.adjust_object_position(pos,
                                                    bms.nmeasures as float);
-            time += measure_to_msec(delta, bpm);
+            time += bpm.measure_to_msec(delta);
         }
         cmp::max(time, sndtime)
      }
@@ -2185,7 +2303,7 @@ pub mod gfx {
     }
 
     impl Blendable for Color {
-        fn blend(&self, _: int, _: int) -> Color { *self }
+        fn blend(&self, _num: int, _denom: int) -> Color { *self }
     }
 
     impl Blendable for Gradient {
@@ -2338,32 +2456,34 @@ pub mod gfx {
 
     /// 8x16 resizable bitmap font.
     pub struct Font {
-        /// Font data used for zoomed font reconstruction. This is actually
-        /// an array of `u32` elements, where the first `u16` element forms
-        /// upper 16 bits and the second forms lower 16 bits. It is
-        /// reinterpreted for better compression. (C: `fontdata`)
-        ///
-        /// One glyph has 16 `u32` elements for each row from the top to
-        /// the bottom. One `u32` element contains eight four-bit groups for
-        /// each column from the left (lowermost group) to the right
-        /// (uppermost group). Each group is a bitwise OR of following bits:
-        ///
-        /// - 1: the lower right triangle of the zoomed pixel should be drawn.
-        /// - 2: the lower left triangle of the zoomed pixel should be drawn.
-        /// - 4: the upper left triangle of the zoomed pixel should be drawn.
-        /// - 8: the upper right triangle of the zoomed pixel should be drawn.
-        ///
-        /// So for example, if the group bits read 3 (1+2), the zoomed pixel
-        /// would be drawn as follows (in the zoom factor 5):
-        ///
-        ///     .....
-        ///     #...#
-        ///     ##.##
-        ///     #####
-        ///     #####
-        ///
-        /// The group bits 15 (1+2+4+8) always draw the whole square, so in
-        /// the zoom factor 1 only pixels with group bits 15 will be drawn.
+        /**
+         * Font data used for zoomed font reconstruction. This is actually
+         * an array of `u32` elements, where the first `u16` element forms
+         * upper 16 bits and the second forms lower 16 bits. It is
+         * reinterpreted for better compression. (C: `fontdata`)
+         *
+         * One glyph has 16 `u32` elements for each row from the top to
+         * the bottom. One `u32` element contains eight four-bit groups for
+         * each column from the left (lowermost group) to the right
+         * (uppermost group). Each group is a bitwise OR of following bits:
+         *
+         * - 1: the lower right triangle of the zoomed pixel should be drawn.
+         * - 2: the lower left triangle of the zoomed pixel should be drawn.
+         * - 4: the upper left triangle of the zoomed pixel should be drawn.
+         * - 8: the upper right triangle of the zoomed pixel should be drawn.
+         *
+         * So for example, if the group bits read 3 (1+2), the zoomed pixel
+         * would be drawn as follows (in the zoom factor 5):
+         *
+         *     .....
+         *     #...#
+         *     ##.##
+         *     #####
+         *     #####
+         *
+         * The group bits 15 (1+2+4+8) always draw the whole square, so in
+         * the zoom factor 1 only pixels with group bits 15 will be drawn.
+         */
         glyphs: ~[u16],
 
         /// Precalculated zoomed font per zoom factor. It is three-dimensional
@@ -2387,27 +2507,27 @@ pub mod gfx {
         // - Byte 98..126 encodes an LZ77 length distance pair with length
         //   3..31; the following byte 33..126 encodes a distance 1..94.
         // (C: `indices`)
-        let indices = ~"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB["
-            + ~"Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*T2GWc8icM2U2D!.8(M$UQCQ-jab!'U"
-            + ~"*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfejcNl!&J"
-            + ~"TLTLG_&J>]c*&Jm@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>"
-            + ~"UQ2U2]2a9Y[S[QCQ2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!"
-            + ~"c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u`>Uc4d@b(q@abXU!D!.8(J&J&d$q"
-            + ~"`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5"
-            + ~"ghCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4I"
-            + ~"f(Q2G[l@MSUQC!2!2c$Q:RWGOk@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>"
-            + ~"MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi$d^GWk@U2D2.9("
-            + ~"[$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWC"
-            + ~"gZU:EW.Ok@>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7["
-            + ~"&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a[CW2Qk@M+U:^[GbX,M>U`[WCO-l@'"
-            + ~"U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'O,?4!1"
-            + ~"n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!"
-            + ~"2>[e<c$G[p`dZcHd@l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!"
-            + ~"c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2U2D2.9(['[,@<2W2k`*J*"
-            + ~"?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`f"
-            + ~"VlZf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[F"
-            + ~"p`M+eZ,M=UWCO-u`Q:RWGO.A(M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g"
-            + ~"*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
+        let indices =
+            ~"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!\
+              Qi>&!&!>UT2T2&2>WT!c*T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ25\
+              2>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfejcNl!&JTLTLG_&J>]c*&J\
+              m@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ\
+              2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a\
+              [2!2k?!bnc32>[u`>Uc4d@b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!k\
+              tk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5ghCk=>UQ2Q2U2Dc>J!!&J&\
+              b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWG\
+              Ok@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a\
+              [g*Ql`7[&J&Jk$7[l`!Qi$d^GWk@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[\
+              a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWCgZU:EW.Ok@>[g<G[!2!2d$k@Ug@Q2V\
+              2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a\
+              [CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!C\
+              a[k@*Q!Q!l$b2m!+!:#W'O,?4!1n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?\
+              4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@l`czi|c$al@i`b:[!2Un`\
+              >8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2\
+              U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2\
+              !2b$h!al`aWQ!Q!Qp`fVlZf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@\
+              U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(M$U!Ck@a[]!G8.M(U$[!C\
+              a[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
         /// (C: `fontdecompress`)
         fn decompress(dwords: &[u16], indices: &str) -> ~[u16] {
@@ -2710,7 +2830,7 @@ pub mod player {
                 event::KeyEvent(event::EscapeKey,_,_,_) |
                 event::QuitEvent => {
                     atexit();
-                    ::exit(0);
+                    ::util::exit(0);
                 },
                 event::NoEvent => break,
                 _ => ()
@@ -2776,7 +2896,7 @@ pub mod player {
     fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec)
                                     -> (~str, ~str, ~str, ~str) {
         let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
-                        bms.playlevel, bms.initbpm,
+                        bms.playlevel, *bms.initbpm,
                         if infos.hasbpmchange { ~"?" } else { ~"" },
                         infos.nnotes,
                         if infos.nnotes == 1 { ~"" } else { ~"s" },
@@ -3031,6 +3151,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         #[inline(always)]
         fn current(&self) -> &'self Obj { &self.objs[self.pos] }
 
+        #[inline(always)]
+        fn current_opt(&self) -> Option<&'self Obj> {
+            if self.pos < self.objs.len() {
+                Some(&self.objs[self.pos])
+            } else {
+                None
+            }
+        }
+
         fn seek_until(&mut self, limit: float) {
             let nobjs = self.objs.len();
             while self.pos < nobjs {
@@ -3048,18 +3177,74 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 self.pos += 1;
             }
         }
+
+        fn find_next_of_type(&self, cond: &fn(&'self Obj) -> bool)
+                                        -> Option<&'self Obj> {
+            let nobjs = self.objs.len();
+            let mut i = self.pos;
+            while i < nobjs {
+                let current = &self.objs[i];
+                if cond(current) { return Some(current); }
+                i += 1;
+            }
+            None
+        }
+
+        fn find_previous_of_type(&self, cond: &fn(&'self Obj) -> bool)
+                                        -> Option<&'self Obj> {
+            let nobjs = self.objs.len();
+            let mut i = self.pos;
+            while i > 0 {
+                i -= 1;
+                let current = &self.objs[i];
+                if cond(current) { return Some(current); }
+            }
+            None
+        }
+    }
+
+    fn Pointer(bms: &'a Bms) -> Pointer<'a> {
+        Pointer { objs: bms.objs, pos: 0 }
+    }
+
+    impl Eq for Pointer<'self> {
+        fn eq(&self, other: &Pointer<'self>) -> bool {
+            self.objs == other.objs && self.pos == other.pos
+        }
+        fn ne(&self, other: &Pointer<'self>) -> bool {
+            self.objs != other.objs || self.pos != other.pos
+        }
+    }
+
+    impl Ord for Pointer<'self> {
+        fn lt(&self, other: &Pointer<'self>) -> bool {
+            assert!(self.objs == other.objs);
+            self.pos < other.pos
+        }
+        fn le(&self, other: &Pointer<'self>) -> bool {
+            assert!(self.objs == other.objs);
+            self.pos <= other.pos
+        }
+        fn ge(&self, other: &Pointer<'self>) -> bool {
+            assert!(self.objs == other.objs);
+            self.pos >= other.pos
+        }
+        fn gt(&self, other: &Pointer<'self>) -> bool {
+            assert!(self.objs == other.objs);
+            self.pos > other.pos
+        }
     }
 
     //------------------------------------------------------------------------
     // game play logics
 
-    struct Player {
+    struct Player<'self> {
         /// (C: `playspeed`)
         playspeed: float,
         /// (C: `targetspeed`)
         targetspeed: float,
         /// (C: `bpm`)
-        bpm: float,
+        bpm: BPM,
         /// (C: `origintime`)
         origintime: uint,
         /// (C: `starttime`)
@@ -3072,15 +3257,35 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         startoffset: float,
         /// (C: `startshorten`)
         startshorten: float,
+        /// (C: `gradefactor`)
+        gradefactor: float,
+        /// (C: `pfront`)
+        pfront: Pointer<'self>,
+        /// (C: `pcur`)
+        pcur: Pointer<'self>,
     }
 
-    fn Player(bms: &Bms, infos: &BmsInfo) -> ~Player {
+    fn Player(bms: &'a Bms, infos: &BmsInfo) -> ~Player<'a> {
         let now = ticks();
         let originoffset = infos.originoffset;
+        let startshorten = bms.shorten_factor(originoffset as int);
+        let gradefactor = 1.5 - cmp::min(bms.rank, 5) as float * 0.25;
         ~Player { playspeed: 1.0, targetspeed: 1.0, bpm: bms.initbpm,
                   origintime: now, starttime: now, stoptime: None,
                   poorlimit: None, startoffset: originoffset,
-                  startshorten: bms.shorten_factor(originoffset as int) }
+                  startshorten: startshorten, gradefactor: gradefactor,
+                  pfront: Pointer(bms), pcur: Pointer(bms) }
+    }
+
+    //------------------------------------------------------------------------
+    // display
+
+    struct Display {
+        font: ~Font,
+    }
+
+    fn Display(font: ~Font) -> ~Display {
+        ~Display { font: font }
     }
 
     //------------------------------------------------------------------------
@@ -3275,7 +3480,7 @@ Environment Variables:
     See the manual for more information.
 
 ", version(), exename()));
-    exit(1)
+    util::exit(1)
 }
 
 /// The entry point. Parses the command line options and delegates other
