@@ -80,11 +80,13 @@ pub mod util {
 
     /// Immediately terminates the program with given exit code.
     pub fn exit(exitcode: int) -> ! {
-        // Rust: `os::set_exit_status` doesn't immediately terminate the program.
+        // Rust: `os::set_exit_status` doesn't immediately terminate
+        //       the program.
         unsafe { libc::exit(exitcode as libc::c_int); }
     }
 
-    /// Exits with an error message. Internally used in the `die!` macro below.
+    /// Exits with an error message. Internally used in the `die!` macro
+    /// below.
     pub fn die(s: ~str) -> ! {
         ::core::io::stderr().write_line(fmt!("%s: %s", ::exename(), s));
         exit(1)
@@ -114,6 +116,7 @@ pub mod util {
      * `libcore/str.rs` and are not subject to the above copyright notice.
      */
     pub mod str {
+        use core::str::*;
 
         static tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
 
@@ -122,7 +125,7 @@ pub mod util {
             let mut pos = 0u;
             let len = s.len();
             while pos < len {
-                let str::CharRange {ch, next} = ::str::char_range_at(s, pos);
+                let CharRange {ch, next} = char_range_at(s, pos);
                 if !it(pos, ch) { break; }
                 pos = next;
             }
@@ -135,7 +138,7 @@ pub mod util {
             let total = vec::len::<u8>(v);
             let mut result = ~[];
             while i < total {
-                let chend = i + str::utf8_char_width(v[i]);
+                let chend = i + utf8_char_width(v[i]);
                 let mut j = i + 1u;
                 while j < total && j < chend && v[j] & 192u8 == tag_cont_u8 {
                     j += 1u;
@@ -154,7 +157,7 @@ pub mod util {
         /// Given a potentially invalid UTF-8 string, fixes an invalid
         /// UTF-8 string with given error handler.
         pub fn fix_utf8_str(s: &str, handler: &fn(&[u8]) -> ~str) -> ~str {
-            from_fixed_utf8_bytes(str::to_bytes(s), handler)
+            from_fixed_utf8_bytes(to_bytes(s), handler)
         }
 
         /// Converts a vector of bytes to a UTF-8 string. Any invalid UTF-8
@@ -162,15 +165,15 @@ pub mod util {
         pub fn from_fixed_utf8_bytes(v: &[u8],
                                      handler: &fn(&[u8]) -> ~str) -> ~str {
             let newhandler: &fn(&[u8]) -> ~[u8] =
-                |v: &[u8]| -> ~[u8] { str::to_bytes(handler(v)) };
+                |v: &[u8]| -> ~[u8] { to_bytes(handler(v)) };
             let bytes = fix_utf8(v, newhandler);
-            unsafe { str::raw::from_bytes(bytes) }
+            unsafe { raw::from_bytes(bytes) }
         }
 
         /// Returns a length of the longest prefix of given string, which
         /// `uint::from_str` accepts without a failure, if any.
         pub fn scan_uint(s: &str) -> Option<uint> {
-            match str::find(s, |c| !('0' <= c && c <= '9')) {
+            match find(s, |c| !('0' <= c && c <= '9')) {
                 Some(first) if first > 0u => Some(first),
                 None if s.len() > 0u => Some(s.len()),
                 _ => None
@@ -256,7 +259,7 @@ pub mod util {
         impl ShiftablePrefix for char {
             fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if !s.is_empty() {
-                    let str::CharRange {ch, next} = str::char_range_at(s, 0u);
+                    let CharRange {ch, next} = char_range_at(s, 0u);
                     if ch == *self {
                         return Some(s.slice_to_end(next).to_owned());
                     }
@@ -284,6 +287,7 @@ pub mod util {
      * `libcore/option.rs` and are not subject to the above copyright notice.
      */
     pub mod option {
+        use core::option::*;
 
         #[inline(always)]
         pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool)
@@ -305,7 +309,7 @@ pub mod util {
         impl<T> OptionUtil<T> for Option<T> {
             #[inline(always)]
             fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U> {
-                option::chain(self, f)
+                chain(self, f)
             }
         }
 
@@ -313,6 +317,71 @@ pub mod util {
             #[inline(always)]
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T> {
                 filter(self, f)
+            }
+        }
+
+    }
+
+    /**
+     * Iterator utilities for Rust. Parallels to `core::iter`.
+     *
+     * NOTE: Some of these additions will be eventually sent to
+     * `libcore/iter.rs` and are not subject to the above copyright notice.
+     */
+    pub mod iter {
+
+        pub trait OptionalIter<A> {
+            /// Like `each()`, but only iterates through the value inside
+            /// options.
+            fn each_some(&self, blk: &fn(v: &A) -> bool);
+        }
+
+        impl<A> OptionalIter<A> for BaseIter<Option<A>> {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) {
+                for self.each |e| {
+                    for e.each |v| {
+                        if !blk(v) { return; }
+                    }
+                }
+            }
+        }
+
+    }
+
+    /**
+     * Vector utilities for Rust. Parallels to `core::vec`.
+     *
+     * NOTE: Some of these additions will be eventually sent to
+     * `libcore/vec.rs` and are not subject to the above copyright notice.
+     */
+    pub mod vec {
+        use core::vec::*;
+
+        /// Like `each()`, but only iterates through the value inside options.
+        pub fn each_some<A>(vec: &'r [Option<A>],
+                            blk: &fn(v: &'r A) -> bool) {
+            for each(vec) |e| {
+                for e.each |v| {
+                    if !blk(v) { return; }
+                }
+            }
+        }
+
+        impl<A> ::util::iter::OptionalIter<A> for &'self [Option<A>] {
+            fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
+                each_some(*self, blk)
+            }
+        }
+
+        impl<A> ::util::iter::OptionalIter<A> for ~[Option<A>] {
+            fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
+                each_some(*self, blk)
+            }
+        }
+
+        impl<A> ::util::iter::OptionalIter<A> for @[Option<A>] {
+            fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
+                each_some(*self, blk)
             }
         }
 
@@ -340,7 +409,7 @@ pub mod util {
                                     it: &fn(&str) -> bool);
         }
 
-        impl<T: io::Reader> ReaderUtilEx for T {
+        impl<T: Reader> ReaderUtilEx for T {
             fn read_and_fix_utf8_line(&self, handler: &fn(&[u8]) -> ~str)
                                         -> ~str {
                 let mut bytes = ~[];
@@ -621,6 +690,7 @@ use core::io::{ReaderUtil, WriterUtil};
 
 use util::str::*;
 use util::option::*;
+use util::iter::*;
 use util::io::*;
 
 //============================================================================
@@ -781,6 +851,14 @@ pub mod parser {
     }
 
     pub impl KeyKind {
+        /// Returns a list of all supported key kinds.
+        //
+        // Rust: can this method be generated on the fly?
+        fn all() -> &'static [KeyKind] {
+            &[WhiteKey, WhiteKeyAlt, BlackKey, Scratch, FootPedal,
+              Button1, Button2, Button3, Button4, Button5]
+        }
+
         /// Converts a mnemonic character to an appropriate key kind. Used
         /// for parsing a key specification (see also `KeySpec`).
         fn from_char(c: char) -> Option<KeyKind> {
@@ -1891,12 +1969,20 @@ pub mod parser {
         /// scratches and pedals do not count as keys. (C: `nkeys`)
         fn nkeys(&self) -> uint {
             let mut nkeys = 0;
-            for self.kinds.each |&kind| {
-                for kind.each |kind| {
-                    if kind.counts_as_key() { nkeys += 1; }
-                }
+            for self.kinds.each_some |kind| {
+                if kind.counts_as_key() { nkeys += 1; }
             }
             nkeys
+        }
+
+        fn left_lanes(&self) -> &'self [Lane] {
+            assert!(self.split <= self.order.len());
+            self.order.slice(0, self.split)
+        }
+
+        fn right_lanes(&self) -> &'self [Lane] {
+            assert!(self.split <= self.order.len());
+            self.order.slice(self.split, self.order.len())
         }
     }
 
@@ -1942,8 +2028,8 @@ pub mod parser {
                                     -> Option<(~str, ~str)> {
         let mut present = [false, ..NLANES];
         for bms.objs.each |&obj| {
-            for obj.object_lane().each |&lane| {
-                present[*lane] = true;
+            for obj.object_lane().each |&Lane(lane)| {
+                present[lane] = true;
             }
         }
 
@@ -2108,8 +2194,8 @@ pub mod parser {
     /// that there is no `Deleted` object. (C: `analyze_and_compact_bms`)
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
         for vec::each_mut(bms.objs) |obj| {
-            for obj.object_lane().each |&lane| {
-                if keyspec.kinds[*lane].is_none() {
+            for obj.object_lane().each |&Lane(lane)| {
+                if keyspec.kinds[lane].is_none() {
                     remove_or_replace_note(obj)
                 }
             }
@@ -2220,12 +2306,13 @@ pub mod parser {
     /// (C: `shuffle_bms` with `MIRROR_MODF`)
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        for vec::zip_slice(lanes, vec::reversed(lanes)).each |&(from, to)| {
-            map[*from] = to;
+        let rlanes = vec::reversed(lanes);
+        for vec::zip_slice(lanes, rlanes).each |&(Lane(from), to)| {
+            map[from] = to;
         }
 
         for vec::each_mut(bms.objs) |obj| {
-            update_object_lane(obj, |lane| map[*lane]);
+            update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
 
@@ -2233,12 +2320,12 @@ pub mod parser {
     pub fn apply_shuffle_modf(bms: &mut Bms, r: @rand::Rng, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        for vec::zip_slice(lanes, shuffled).each |&(from, to)| {
-            map[*from] = to;
+        for vec::zip_slice(lanes, shuffled).each |&(Lane(from), to)| {
+            map[from] = to;
         }
 
         for vec::each_mut(bms.objs) |obj| {
-            update_object_lane(obj, |lane| map[*lane]);
+            update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
 
@@ -2259,15 +2346,16 @@ pub mod parser {
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
                 let shuffled = r.shuffle(movable);
-                for vec::zip_slice(movable, shuffled).each |&(from, to)| {
-                    map[*from] = to;
+                for vec::zip_slice(movable,
+                                   shuffled).each |&(Lane(from), to)| {
+                    map[from] = to;
                 }
             }
             if obj.is_lnstart() {
                 let lane = obj.object_lane().get();
                 movable.push(lane);
             }
-            update_object_lane(obj, |lane| map[*lane]);
+            update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
 
@@ -2318,11 +2406,6 @@ pub mod gfx {
             RGB(mix(r1, r2, num, denom), mix(g1, g2, num, denom),
                 mix(b1, b2, num, denom))
         }
-    }
-
-    pub fn gray(c: u8) -> Color { RGB(c, c, c) }
-    pub fn gray_gradient(top: u8, bottom: u8) -> Gradient {
-        Gradient(gray(top), gray(bottom))
     }
 
     //------------------------------------------------------------------------
@@ -2495,7 +2578,7 @@ pub mod gfx {
 
     pub enum Alignment { LeftAligned, Centered, RightAligned }
 
-    pub fn Font() -> Font {
+    pub fn Font() -> ~Font {
         // Delta-coded code words. (C: `words`)
         let dwords = [0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15, 1521, 15, 1537,
             16, 48, 176, 1, 3, 1, 3, 7, 1, 4080, 4096, 3, 1, 8, 3, 4097, 4080,
@@ -2562,7 +2645,7 @@ pub mod gfx {
 
         let glyphs = decompress(dwords, indices);
         assert!(glyphs.len() == 3072);
-        Font { glyphs: glyphs, pixels: ~[] }
+        ~Font { glyphs: glyphs, pixels: ~[] }
     }
 
     pub impl Font {
@@ -2679,6 +2762,15 @@ pub mod player {
     use util::sdl::*;
     use parser::*;
     use gfx::*;
+
+    /// The width of screen, unless the exclusive mode.
+    static SCREENW: uint = 800;
+    /// The height of screen, unless the exclusive mode.
+    static SCREENH: uint = 600;
+    /// The width of BGA, or the width of screen for the exclusive mode.
+    static BGAW: uint = 256;
+    /// The height of BGA, or the height of screen for the exclusive mode.
+    static BGAH: uint = 256;
 
     //------------------------------------------------------------------------
     // options
@@ -2849,11 +2941,14 @@ pub mod player {
     fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
         let result =
             if exclusive {
-                set_video_mode(256, 256, 32, [SWSurface], [DoubleBuf])
+                set_video_mode(BGAW as int, BGAH as int, 32,
+                               [SWSurface], [DoubleBuf])
             } else if !fullscreen {
-                set_video_mode(800, 600, 32, [SWSurface], [DoubleBuf])
+                set_video_mode(SCREENW as int, SCREENH as int, 32,
+                               [SWSurface], [DoubleBuf])
             } else {
-                set_video_mode(800, 600, 32, [], [Fullscreen])
+                set_video_mode(SCREENW as int, SCREENH as int, 32,
+                               [], [Fullscreen])
             };
         let screen =
             match result {
@@ -2914,9 +3009,9 @@ pub mod player {
         let (meta, title, genre, artist) =
             displayed_info(bms, infos, keyspec);
 
-        font.print_string(screen, 400, 284, 2, Centered,
+        font.print_string(screen, SCREENW/2, SCREENH/2-16, 2, Centered,
                           ~"loading bms file...",
-                          ::gfx::gray_gradient(0x20,0x80));
+                          Gradient(RGB(0x20,0x20,0x20), RGB(0x80,0x80,0x80)));
         screen.flip();
 
         for bms.stagefile.each |&path| {
@@ -2929,19 +3024,20 @@ pub mod player {
 
         if opts.showinfo {
             let bg = RGBA(0x10,0x10,0x10,0x40);
-            let fg = ::gfx::gray_gradient(0x80,0xff);
-            for uint::range(0, 800) |i| {
+            let fg = Gradient(RGB(0x80,0x80,0x80), RGB(0xff,0xff,0xff));
+            for uint::range(0, SCREENW) |i| {
                 for uint::range(0, 42) |j| {
                     put_blended_pixel(screen, i, j, bg);
                 }
-                for uint::range(580, 600) |j| {
+                for uint::range(SCREENH-20, SCREENH) |j| {
                     put_blended_pixel(screen, i, j, bg);
                 }
             }
+            let right = SCREENW-8, bottom = SCREENH-18;
             font.print_string(screen, 6, 4, 2, LeftAligned, title, fg);
-            font.print_string(screen, 792, 4, 1, RightAligned, genre, fg);
-            font.print_string(screen, 792, 20, 1, RightAligned, artist, fg);
-            font.print_string(screen, 3, 582, 1, LeftAligned, meta, fg);
+            font.print_string(screen, right, 4, 1, RightAligned, genre, fg);
+            font.print_string(screen, right, 20, 1, RightAligned, artist, fg);
+            font.print_string(screen, 3, bottom, 1, LeftAligned, meta, fg);
         }
 
         screen.flip();
@@ -3078,7 +3174,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let target: @~Surface = match imgres[**bc.dst] {
             Image(dst) => dst,
             NoImage => {
-                let surface = @new_surface(256, 256);
+                let surface = @new_surface(BGAW, BGAH);
                 surface.fill(RGB(0, 0, 0));
                 surface.set_color_key([SrcColorKey, RLEAccel], RGB(0, 0, 0));
                 imgres[**bc.dst] = Image(surface);
@@ -3089,12 +3185,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         let x1 = cmp::max(bc.x1, 0) as i16;
         let y1 = cmp::max(bc.y1, 0) as i16;
-        let x2 = cmp::min(bc.x2, bc.x1 + 256) as i16;
-        let y2 = cmp::min(bc.y2, bc.y1 + 256) as i16;
+        let x2 = cmp::min(bc.x2, bc.x1 + BGAW as int) as i16;
+        let y2 = cmp::min(bc.y2, bc.y1 + BGAH as int) as i16;
         let w = (x2 - x1) as u16;
         let h = (y2 - y1) as u16;
-        target.blit_rect(*origin, Some(Rect{x:x1,y:y1,w:w,h:h}),
-                                  Some(Rect{x:x2,y:y2,w:w,h:h}));
+        target.blit_rect(*origin, Some(Rect{x:x1, y:y1, w:w, h:h}),
+                                  Some(Rect{x:x2, y:y2, w:w, h:h}));
     }
 
     /// (C: `load_resource`)
@@ -3280,12 +3376,195 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // display
 
+    /// (C: `struct tkeykind` and `tkeyleft`)
+    struct LaneStyle {
+        left: uint,
+        spriteleft: uint,
+        spritebombleft: uint,
+        width: uint,
+        basecolor: Color
+    }
+
+    pub impl LaneStyle {
+        /// (C: `tkeykinds`)
+        fn from_kind(kind: KeyKind, pos: Either<uint,uint>) -> LaneStyle {
+            let (spriteleft, spritebombleft, width, color) = match kind {
+                WhiteKey    => ( 25,   0, 25, RGB(0x80,0x80,0x80)),
+                WhiteKeyAlt => ( 50,   0, 25, RGB(0xf0,0xe0,0x80)),
+                BlackKey    => ( 75,   0, 25, RGB(0x80,0x80,0xff)),
+                Button1     => (130, 100, 30, RGB(0xe0,0xe0,0xe0)),
+                Button2     => (160, 100, 30, RGB(0xff,0xff,0x40)),
+                Button3     => (190, 100, 30, RGB(0x80,0xff,0x80)),
+                Button4     => (220, 100, 30, RGB(0x80,0x80,0xff)),
+                Button5     => (250, 100, 30, RGB(0xff,0x40,0x40)),
+                Scratch     => (320, 280, 40, RGB(0xff,0x80,0x80)),
+                FootPedal   => (360, 280, 40, RGB(0x80,0xff,0x80)),
+            };
+            let left = pos.either(|&left| left, |&right| right - width);
+            LaneStyle { left: left, spriteleft: spriteleft,
+                        spritebombleft: spritebombleft,
+                        width: width, basecolor: color }
+        }
+
+        fn note_color(&self) -> Gradient {
+            Gradient(RGB(0xff,0xff,0xff), self.basecolor)
+        }
+
+        fn bomb_color(&self) -> Gradient {
+            Gradient(RGB(0,0,0), RGB(0xc0,0,0))
+        }
+
+        fn back_color(&self) -> Gradient {
+            Gradient(RGB(0,0,0), self.basecolor)
+        }
+
+        fn render_to_sprite(&self, sprite: &Surface) {
+            let left = self.spriteleft;
+            let noteleft = self.spriteleft + SCREENW;
+            let bombleft = self.spritebombleft + SCREENW;
+            assert!(sprite.get_width() as uint >=
+                    cmp::max(noteleft, bombleft) + self.width);
+
+            let notecolor = self.note_color();
+            let bombcolor = self.bomb_color();
+            let backcolor = self.back_color();
+
+            // render a background sprite
+            let notewidth = self.width as u16;
+            for uint::range(140, SCREENH - 80) |i| {
+                sprite.fill_rect(Some(Rect { x: left as i16, y: i as i16,
+                                             w: notewidth, h: 1 }),
+                                 backcolor.blend(i as int - 140, 1000));
+            }
+
+            // render note and bomb sprites
+            let denom = self.width as int;
+            let height = SCREENH as u16;
+            for uint::range(0, self.width / 2) |i| {
+                let num = (self.width - i) as int;
+                let width = (self.width - i*2) as u16;
+                sprite.fill_rect(Some(Rect { x: (noteleft+i) as i16, y: 0,
+                                             w: width, h: height }),
+                                 notecolor.blend(num, denom));
+                sprite.fill_rect(Some(Rect { x: (bombleft+i) as i16, y: 0,
+                                             w: width, h: height }),
+                                 bombcolor.blend(num, denom));
+            }
+        }
+    }
+
+    fn build_lane_styles(keyspec: &KeySpec) -> (uint, Option<uint>,
+                                                ~[Option<LaneStyle>]) {
+        let mut leftmost = 0, rightmost = SCREENW;
+        let mut styles = vec::from_elem(NLANES, None);
+        for keyspec.left_lanes().each |&Lane(lane)| {
+            let kind = keyspec.kinds[lane];
+            assert!(kind.is_some());
+            let kind = kind.get();
+            let style = LaneStyle::from_kind(kind, Left(leftmost));
+            styles[lane] = Some(style);
+            leftmost += style.width + 1;
+        }
+        for keyspec.right_lanes().each |&Lane(lane)| {
+            let kind = keyspec.kinds[lane];
+            assert!(kind.is_some());
+            let kind = kind.get();
+            let style = LaneStyle::from_kind(kind, Right(rightmost));
+            styles[lane] = Some(style);
+            rightmost -= style.width + 1;
+        }
+
+        let rightmost = if rightmost == SCREENW { None }
+                        else { Some(rightmost) };
+        (leftmost, rightmost, styles)
+    }
+
+    /// (C: sprite construction portion of `play_prepare`)
+    fn create_sprite(opts: &Options, leftmost: uint, rightmost: Option<uint>,
+                     styles: &[Option<LaneStyle>]) -> ~Surface {
+        let sprite = new_surface(SCREENW + 400, SCREENH);
+        let height = SCREENH as i16;
+        let black = RGB(0,0,0);
+        let gray = RGB(0x40,0x40,0x40); // gray used for separators
+
+        // render notes and lane backgrounds
+        for styles.each_some |style| {
+            style.render_to_sprite(sprite);
+        }
+
+        // render panels
+        let topgrad = Gradient(RGB(0x60,0x60,0x60), RGB(0xc0,0xc0,0xc0));
+        let bottomgrad = Gradient(RGB(0x40,0x40,0x40), RGB(0xc0,0xc0,0xc0));
+        for int::range(-244, 556) |j| {
+            for int::range(-10, 20) |i| {
+                let c = (i*2+j*3+750) % 2000;
+                put_pixel(sprite, (j+244) as uint, (i+10) as uint,
+                          topgrad.blend(850 - num::abs(c-1000), 700));
+            }
+            for int::range(-20, 60) |i| {
+                let c = (i*3+j*2+750) % 2000;
+                let bottom = (SCREENH - 60) as int;
+                put_pixel(sprite, (j+244) as uint, (i+bottom) as uint,
+                          bottomgrad.blend(850 - num::abs(c-1000), 700));
+            }
+        }
+        sprite.fill_rect(Some(Rect { x: 10, y: height-36,
+                                     w: leftmost as u16, h: 1 }), gray);
+
+        // erase portions of panels left unused
+        let leftgap = (leftmost + 20) as i16;
+        let rightgap = rightmost.map_default(SCREENW, |x| x - 20) as i16;
+        let gapwidth = (rightgap - leftgap) as u16;
+        sprite.fill_rect(Some(Rect { x: leftgap, y: 0,
+                                     w: gapwidth, h: 30 }), black);
+        sprite.fill_rect(Some(Rect { x: leftgap, y: height-80,
+                                     w: gapwidth, h: 80 }), black);
+        for uint::range(0, 20) |i| {
+            for uint::range_rev(20, 0) |j| {
+                if i*i + j*j <= 400 { break; } // circled border
+                put_pixel(sprite, leftmost + j, 10 + i, black);
+                put_pixel(sprite, leftmost + j, (SCREENH-61) - i, black);
+                for rightmost.each |&right| {
+                    put_pixel(sprite, (right-j) - 1, 10 + i, black);
+                    put_pixel(sprite, (right-j) - 1, (SCREENH-61) - i, black);
+                }
+            }
+        }
+
+        // draw the gauge bar if needed
+        if !opts.is_autoplay() {
+            sprite.fill_rect(Some(Rect { x: 0, y: height-16,
+                                         w: 368, h: 16 }), gray);
+            sprite.fill_rect(Some(Rect { x: 4, y: height-12,
+                                         w: 360, h: 8 }), black);
+        }
+
+        sprite
+    }
+
     struct Display {
+        sprite: ~Surface,
+        screen: ~Surface,
         font: ~Font,
     }
 
-    fn Display(font: ~Font) -> ~Display {
-        ~Display { font: font }
+    fn Display(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
+               font: ~Font) -> ~Display {
+        let (leftmost, rightmost, styles) = build_lane_styles(keyspec);
+        let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
+        let bgax = leftmost + (centerwidth - BGAW) / 2;
+        let bgay = (SCREENH - BGAH) / 2;
+        let sprite = create_sprite(opts, leftmost, rightmost, styles);
+
+        let w = SCREENW as u16, h = SCREENH as i16;
+        screen.fill(RGB(0,0,0));
+        screen.blit_rect(sprite, Some(Rect{x:0, y:0, w:w, h:30}),
+                                 Some(Rect{x:0, y:0, w:w, h:30}));
+        screen.blit_rect(sprite, Some(Rect{x:0, y:h-80, w:w, h:80}),
+                                 Some(Rect{x:0, y:h-80, w:w, h:80}));
+        screen.flip();
+
+        ~Display { sprite: sprite, screen: screen, font: font }
     }
 
     //------------------------------------------------------------------------
@@ -3337,10 +3616,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             if !opts.is_exclusive() {
                 let screen: &Surface = *screen.get_ref();
                 show_stagefile_screen(bms, &infos, keyspec, opts,
-                                      screen, &font);
-                let surface = new_surface(800, 20);
-                surface.blit_rect(screen, Some(Rect{x:0,y:580,w:800,h:20}),
-                                          Some(Rect{x:0,y:0,w:800,h:20}));
+                                      screen, font);
+                let surface = new_surface(SCREENW, 20);
+                let w = SCREENW as u16, h = SCREENH as i16;
+                surface.blit_rect(screen, Some(Rect{x:0, y:h-20, w:w, h:20}),
+                                          Some(Rect{x:0, y:0,    w:w, h:20}));
                 saved_screen = Some(surface);
             } else if opts.showinfo {
                 show_stagefile_noscreen(bms, &infos, keyspec, opts);
@@ -3365,7 +3645,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             screen.blit_at(*saved, 0, 580);
                             font.print_string(screen, 797, 582, 1,
                                               RightAligned, msg,
-                                              gray_gradient(0x80,0xc0));
+                                              Gradient(RGB(0x80,0x80,0x80),
+                                                       RGB(0xc0,0xc0,0xc0)));
                             screen.flip();
                         }
                         None => {
@@ -3396,6 +3677,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             // TODO sound_length
             let duration = bms_duration(bms, infos.originoffset, |_| 0.0);
             let mut player = Player(bms, &infos);
+            for screen.each |&screen| {
+                // TODO
+                let mut display = Display(opts, keyspec, screen, copy font);
+            }
+
+            loop { check_exit(atexit); }
 
             atexit();
         }
