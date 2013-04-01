@@ -62,6 +62,15 @@
 extern mod std;
 extern mod sdl;
 
+use core::io::{ReaderUtil, WriterUtil};
+use core::num::Round;
+
+// see below for specifics.
+use self::util::str::*;
+use self::util::option::*;
+use self::util::iter::*;
+use self::util::io::*;
+
 /// Returns a version string. (C: `VERSION`)
 pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 
@@ -233,7 +242,7 @@ pub mod util {
             fn scan_float(&self) -> Option<uint>;
         }
 
-        impl StrUtil for &'self str {
+        impl<'self> StrUtil for &'self str {
             fn slice_to_end(&self, begin: uint) -> &'self str {
                 self.slice(begin, self.len())
             }
@@ -268,7 +277,7 @@ pub mod util {
             }
         }
 
-        impl ShiftablePrefix for &'self str {
+        impl<'self> ShiftablePrefix for &'self str {
             fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if s.starts_with(*self) {
                     Some(s.slice_to_end(self.len()).to_owned())
@@ -298,19 +307,8 @@ pub mod util {
             }
         }
 
-        pub trait OptionUtil<T> {
-            fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U>;
-        }
-
         pub trait CopyableOptionUtil<T:Copy> {
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
-        }
-
-        impl<T> OptionUtil<T> for Option<T> {
-            #[inline(always)]
-            fn chain<U>(self, f: &fn(x: T) -> Option<U>) -> Option<U> {
-                chain(self, f)
-            }
         }
 
         impl<T:Copy> CopyableOptionUtil<T> for Option<T> {
@@ -358,8 +356,8 @@ pub mod util {
         use core::vec::*;
 
         /// Like `each()`, but only iterates through the value inside options.
-        pub fn each_some<A>(vec: &'r [Option<A>],
-                            blk: &fn(v: &'r A) -> bool) {
+        pub fn each_some<'r,A>(vec: &'r [Option<A>],
+                               blk: &fn(v: &'r A) -> bool) {
             for each(vec) |e| {
                 for e.each |v| {
                     if !blk(v) { return; }
@@ -367,7 +365,7 @@ pub mod util {
             }
         }
 
-        impl<A> ::util::iter::OptionalIter<A> for &'self [Option<A>] {
+        impl<'self,A> ::util::iter::OptionalIter<A> for &'self [Option<A>] {
             fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
                 each_some(*self, blk)
             }
@@ -715,14 +713,6 @@ pub mod util {
     )
 
 }
-
-use core::io::{ReaderUtil, WriterUtil};
-use core::num::Round;
-
-use util::str::*;
-use util::option::*;
-use util::iter::*;
-use util::io::*;
 
 //============================================================================
 // bms parser
@@ -1373,10 +1363,10 @@ pub mod parser {
         /// (C: `sndpath`)
         //
         // Rust: constant expression in the array size is unsupported.
-        sndpath: [Option<~str> * 1296], // XXX 1296=MAXKEY
+        sndpath: [Option<~str>, ..MAXKEY],
         /// Paths to image/movie file relative to `basepath` or BMS file.
         /// (C: `imgpath`)
-        imgpath: [Option<~str> * 1296], // XXX 1296=MAXKEY
+        imgpath: [Option<~str>, ..MAXKEY],
         /// List of blit commands to be executed after `imgpath` is loaded.
         /// (C: `blitcmd`)
         blitcmd: ~[BlitCmd],
@@ -1788,14 +1778,14 @@ pub mod parser {
         // Indices to last visible object per channels. A marker specified by
         // #LNOBJ will turn this last object to the start of LN.
         // (C: `prev12`)
-        let mut lastvis: [Option<uint>*72] = [None, ..NLANES];
+        let mut lastvis: [Option<uint>, ..NLANES] = [None, ..NLANES];
 
         // Indices to last LN start or end inserted (and not finalized yet)
         // per channels. If `consecutiveln` is on (#LNTYPE 2), the position
         // of referenced object gets updated during parsing; if off (#LNTYPE
         // 1), it is solely used for checking if we are inside the LN or not.
         // (C: `prev56`)
-        let mut lastln: [Option<uint>*72] = [None, ..NLANES];
+        let mut lastln: [Option<uint>, ..NLANES] = [None, ..NLANES];
 
         // Handles a non-00 alphanumeric key `v` positioned at the particular
         // channel `chan` and particular position `t`. The position `t2`
@@ -1942,7 +1932,7 @@ pub mod parser {
                 }
             } else {
                 let measure = line.measure as float;
-                let data = str::chars(line.data);
+                let data = str::to_chars(line.data);
                 let max = data.len() / 2 * 2;
                 let count = max as float;
                 for uint::range_step(0, max, 2) |i| {
@@ -1994,7 +1984,7 @@ pub mod parser {
         /// the right side. (C: `keyorder`)
         order: ~[Lane],
         /// The type of lanes. (C: `keykind`)
-        kinds: ~[Option<KeyKind> * 72] // XXX 72=NLANES
+        kinds: ~[Option<KeyKind>]
     }
 
     pub impl KeySpec {
@@ -3308,7 +3298,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pos: uint
     }
 
-    pub impl Pointer<'self> {
+    pub impl<'self> Pointer<'self> {
         #[inline(always)]
         fn current(&self) -> &'self Obj { &self.objs[self.pos] }
 
@@ -3379,11 +3369,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    fn Pointer(bms: &'a Bms) -> Pointer<'a> {
+    fn Pointer<'r>(bms: &'r Bms) -> Pointer<'r> {
         Pointer { objs: bms.objs, pos: 0 }
     }
 
-    impl Eq for Pointer<'self> {
+    impl<'self> Eq for Pointer<'self> {
         fn eq(&self, other: &Pointer<'self>) -> bool {
             self.objs == other.objs && self.pos == other.pos
         }
@@ -3392,7 +3382,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    impl Ord for Pointer<'self> {
+    impl<'self> Ord for Pointer<'self> {
         fn lt(&self, other: &Pointer<'self>) -> bool {
             assert!(self.objs == other.objs);
             self.pos < other.pos
@@ -3450,11 +3440,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// (C: `pcheck`)
         pcheck: Pointer<'self>,
         /// (C: `pthru`)
-        pthru: [Option<Pointer<'self>> * 72], // XXX NLANES=72
+        pthru: [Option<Pointer<'self>>, ..NLANES],
     }
 
-    fn Player(opts: &'a Options, bms: &'a Bms, infos: &'a BmsInfo,
-              keyspec: &'a KeySpec) -> ~Player<'a> {
+    fn Player<'r>(opts: &'r Options, bms: &'r Bms, infos: &'r BmsInfo,
+                  keyspec: &'r KeySpec) -> ~Player<'r> {
         let now = ticks();
         let originoffset = infos.originoffset;
         let startshorten = bms.shorten_factor(originoffset as int);
@@ -3469,7 +3459,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                   pcheck: Pointer(bms), pthru: [None, ..NLANES] }
     }
 
-    pub impl Player<'self> {
+    pub impl<'self> Player<'self> {
         fn tick(&mut self) {
             // Rust: this is very extreme case of loan conflict. (#4666)
             let mut targetspeed = &mut self.targetspeed;
