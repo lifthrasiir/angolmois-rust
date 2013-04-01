@@ -446,6 +446,36 @@ pub mod util {
 
     }
 
+    /**
+     * Hash table routines for Rust. Parallels to `core::hashmap`.
+     *
+     * NOTE: Some of these additions will be eventually sent to
+     * `libcore/hashmap.rs` and are not subject to the above copyright notice.
+     */
+    pub mod hashmap {
+        pub mod linear {
+            use core::hashmap::linear::*;
+
+            // TODO make this constructible from any suitable iterator
+            pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)])
+                                            -> LinearMap<K,V> {
+                let mut map = LinearMap::new();
+                map.reserve_at_least(items.len());
+                for items.each |&(k,v)| { map.insert(k, v); }
+                map
+            }
+
+            // TODO make this constructible from any suitable iterator
+            pub fn set_from_vec<V:Eq+Hash+IterBytes>(items: &[V])
+                                            -> LinearSet<V> {
+                let mut set = LinearSet::new();
+                set.reserve_at_least(items.len());
+                for items.each |&v| { set.insert(v); }
+                set
+            }
+        }
+    }
+
     pub mod sdl {
 
         pub extern {
@@ -687,6 +717,7 @@ pub mod util {
 }
 
 use core::io::{ReaderUtil, WriterUtil};
+use core::num::Round;
 
 use util::str::*;
 use util::option::*;
@@ -1230,6 +1261,8 @@ pub mod parser {
         fn Stop(time: float, duration: Duration) -> Obj {
             Obj { time: time, data: Stop(duration) }
         }
+
+        fn measure(&self) -> int { self.time.floor() as int }
     }
 
     impl Ord for Obj {
@@ -1377,7 +1410,6 @@ pub mod parser {
 
         /// (C: `adjust_object_time`)
         fn adjust_object_time(&self, base: float, offset: float) -> float {
-            use core::num::Round;
             let basemeasure = base.floor() as int;
             let baseshorten = self.shorten_factor(basemeasure);
             let basefrac = base - basemeasure as float;
@@ -1400,7 +1432,6 @@ pub mod parser {
         /// (C: `adjust_object_position`)
         pub fn adjust_object_position(&self, base: float, time: float)
                                         -> float {
-            use core::num::Round;
             let basemeasure = base.floor() as int;
             let timemeasure = time.floor() as int;
             let basefrac = base - basemeasure as float;
@@ -1804,9 +1835,11 @@ pub mod parser {
                 7 => add(Obj::SetBGA(t, Layer2, Some(v))),
 
                 // channel #08: BPM defined by #BPMxx
+                // TODO bpmtab validity check
                 8 => add(Obj::SetBPM(t, bpmtab[*v])),
 
                 // channel #09: chart stopper defined by #STOPxx
+                // TODO stoptab validity check
                 9 => add(Obj::Stop(t, stoptab[*v])),
 
                 // channel #0A: BGA layer 3
@@ -2226,7 +2259,7 @@ pub mod parser {
     }
 
     /// Analyzes the loaded BMS file. (C: `analyze_and_compact_bms`)
-    pub fn analyze_bms(bms: &Bms) -> BmsInfo {
+    pub fn analyze_bms(bms: &Bms) -> ~BmsInfo {
         let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false,
                                   haslongnote: false, nnotes: 0,
                                   maxscore: 0 };
@@ -2246,7 +2279,7 @@ pub mod parser {
             infos.maxscore += (300.0 * (1.0 + ratio)) as int;
         }
 
-        infos
+        ~infos
     }
 
     /// (C: `get_bms_duration`)
@@ -2758,6 +2791,7 @@ pub mod gfx {
 pub mod player {
     use sdl::*;
     use sdl::video::*;
+    use sdl::event::*;
     use sdl::mixer::*;
     use util::sdl::*;
     use parser::*;
@@ -2775,15 +2809,42 @@ pub mod player {
     //------------------------------------------------------------------------
     // options
 
+    /// (C: `enum mode`)
     #[deriving(Eq)]
-    pub enum Mode { PlayMode, AutoPlayMode, ExclusiveMode }
+    pub enum Mode {
+        /// (C: `PLAY_MODE`)
+        PlayMode,
+        /// (C: `AUTOPLAY_MODE`)
+        AutoPlayMode,
+        /// (C: `EXCLUSIVE_MODE`)
+        ExclusiveMode
+    }
 
+    /// (C: `enum modf`)
     #[deriving(Eq)]
-    pub enum Modf { MirrorModf, ShuffleModf, ShuffleExModf,
-                    RandomModf, RandomExModf }
+    pub enum Modf {
+        /// (C: `MIRROR_MODF`)
+        MirrorModf,
+        /// (C: `SHUFFLE_MODF`)
+        ShuffleModf,
+        /// (C: `SHUFFLEEX_MODF`)
+        ShuffleExModf,
+        /// (C: `RANDOM_MODF`)
+        RandomModf,
+        /// (C: `RANDOMEX_MODF`)
+        RandomExModf
+    }
 
+    /// (C: `enum bga`)
     #[deriving(Eq)]
-    pub enum Bga { BgaAndMovie, BgaButNoMovie, NoBga }
+    pub enum Bga {
+        /// (C: `BGA_AND_MOVIE`)
+        BgaAndMovie,
+        /// (C: `BGA_BUT_NO_MOVIE`)
+        BgaButNoMovie,
+        /// (C: `NO_BGA`)
+        NoBga
+    }
 
     pub struct Options {
         /// (C: `bmspath`)
@@ -2918,13 +2979,12 @@ pub mod player {
 
     fn check_exit(atexit: &fn()) {
         loop {
-            match event::poll_event() {
-                event::KeyEvent(event::EscapeKey,_,_,_) |
-                event::QuitEvent => {
+            match poll_event() {
+                KeyEvent(EscapeKey,_,_,_)|QuitEvent => {
                     atexit();
                     ::util::exit(0);
                 },
-                event::NoEvent => break,
+                NoEvent => break,
                 _ => ()
             }
         }
@@ -2983,6 +3043,11 @@ pub mod player {
             Ok(joy) => joy,
             Err(err) => die!("SDL Joystick Initialization Failure: %s", err)
         }
+    }
+
+    fn read_keymap(getenv: &fn(&str) -> Option<~str>) {
+        let mut map = ::core::hashmap::linear::LinearMap::new();
+        map.insert(EscapeKey as uint, "x");
     }
 
     //------------------------------------------------------------------------
@@ -3259,7 +3324,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         fn seek_until(&mut self, limit: float) {
             let nobjs = self.objs.len();
             while self.pos < nobjs {
-                if self.current().time >= limit { return; }
+                let current = &self.objs[self.pos];
+                if current.time >= limit { return; }
                 self.pos += 1;
             }
         }
@@ -3269,6 +3335,20 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             while self.pos < nobjs {
                 let current = &self.objs[self.pos];
                 if current.time >= limit { return; }
+                if !f(current) { return; }
+                self.pos += 1;
+            }
+        }
+
+        fn seek_to(&mut self, limit: uint) {
+            assert!(limit <= self.objs.len());
+            self.pos = limit;
+        }
+
+        fn iter_to(&mut self, limit: uint, f: &fn(&'self Obj) -> bool) {
+            assert!(limit <= self.objs.len());
+            while self.pos < limit {
+                let current = &self.objs[self.pos];
                 if !f(current) { return; }
                 self.pos += 1;
             }
@@ -3335,10 +3415,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     // game play logics
 
     struct Player<'self> {
+        opts: &'self Options,
+        bms: &'self Bms,
+        infos: &'self BmsInfo,
+        keyspec: &'self KeySpec,
+
+        /// (C: `nograding` field in `struct obj`)
+        nograding: ~[bool],
+
         /// (C: `playspeed`)
         playspeed: float,
         /// (C: `targetspeed`)
-        targetspeed: float,
+        targetspeed: Option<float>,
         /// (C: `bpm`)
         bpm: BPM,
         /// (C: `origintime`)
@@ -3359,18 +3447,199 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pfront: Pointer<'self>,
         /// (C: `pcur`)
         pcur: Pointer<'self>,
+        /// (C: `pcheck`)
+        pcheck: Pointer<'self>,
+        /// (C: `pthru`)
+        pthru: [Option<Pointer<'self>> * 72], // XXX NLANES=72
     }
 
-    fn Player(bms: &'a Bms, infos: &BmsInfo) -> ~Player<'a> {
+    fn Player(opts: &'a Options, bms: &'a Bms, infos: &'a BmsInfo,
+              keyspec: &'a KeySpec) -> ~Player<'a> {
         let now = ticks();
         let originoffset = infos.originoffset;
         let startshorten = bms.shorten_factor(originoffset as int);
         let gradefactor = 1.5 - cmp::min(bms.rank, 5) as float * 0.25;
-        ~Player { playspeed: 1.0, targetspeed: 1.0, bpm: bms.initbpm,
+        ~Player { opts: opts, bms: bms, infos: infos, keyspec: keyspec,
+                  nograding: vec::from_elem(bms.objs.len(), false),
+                  playspeed: 1.0, targetspeed: None, bpm: bms.initbpm,
                   origintime: now, starttime: now, stoptime: None,
                   poorlimit: None, startoffset: originoffset,
                   startshorten: startshorten, gradefactor: gradefactor,
-                  pfront: Pointer(bms), pcur: Pointer(bms) }
+                  pfront: Pointer(bms), pcur: Pointer(bms),
+                  pcheck: Pointer(bms), pthru: [None, ..NLANES] }
+    }
+
+    pub impl Player<'self> {
+        fn tick(&mut self) {
+            // Rust: this is very extreme case of loan conflict. (#4666)
+            let mut targetspeed = &mut self.targetspeed;
+            let mut playspeed = &mut self.playspeed;
+            let mut stoptime = &mut self.stoptime;
+            let mut startoffset = &mut self.startoffset;
+            let mut starttime = &mut self.starttime;
+            let mut startshorten = &mut self.startshorten;
+            let gradefactor = *&mut self.gradefactor;
+            let mut bpm = &mut self.bpm;
+            let bms = self.bms;
+            let mut nograding = &mut self.nograding;
+            let mut pfront = &mut self.pfront;
+            let mut pcur = &mut self.pcur;
+            let mut pcheck = &mut self.pcheck;
+            let mut pthru = &mut self.pthru;
+
+            if targetspeed.is_some() {
+                let target = targetspeed.get();
+                let delta = target - *playspeed;
+                if num::abs(delta) < 0.001 {
+                    *playspeed = target;
+                    *targetspeed = None;
+                } else {
+                    *playspeed += delta * 0.1;
+                }
+            }
+
+            let now = ticks();
+            let bottom = match *stoptime {
+                Some(t) => {
+                    if now >= t {
+                        *starttime = t;
+                        *stoptime = None;
+                    }
+                    *startoffset
+                }
+                None => {
+                    let msecdiff = (now - *starttime) as float;
+                    let measurediff = bpm.msec_to_measure(msecdiff);
+                    *startoffset + measurediff / *startshorten
+                }
+            };
+
+            let bottommeasure = bottom.floor();
+            let curshorten = self.bms.shorten_factor(bottommeasure as int);
+            if bottommeasure >= -1.0 && *startshorten != curshorten {
+                let measurediff = bottommeasure as float - *startoffset;
+                *starttime += (bpm.measure_to_msec(measurediff) *
+                               *startshorten) as uint;
+                *startoffset = bottommeasure;
+                *startshorten = curshorten;
+            }
+
+            //let line = self.bms.adjust_object_time(bottom, 0.03/*playspeed);
+            let line = bottom;
+            let top = self.bms.adjust_object_time(bottom, 1.25/(*playspeed));
+
+            pfront.seek_until(bottom);
+            for pcur.iter_until(line) |&obj| {
+                match obj.data {
+                    BGM(ref sref) => {
+                        //if (index) play_sound(index, 1);
+                    }
+                    SetBGA(layer, ref iref) => {
+                        //if (bga[type] >= 0 && imgres[bga[type]].movie) {
+                        //    SMPEG_stop(imgres[bga[type]].movie);
+                        //}
+                        //bga[type] = index;
+                        //if (index >= 0 && imgres[index].movie) {
+                        //    SMPEG_rewind(imgres[index].movie);
+                        //    SMPEG_play(imgres[index].movie);
+                        //}
+                    }
+                    SetBPM(newbpm) => {
+                        *starttime = now;
+                        *startoffset = bottom;
+                        *bpm = newbpm;
+                    }
+                    Stop(dur) => {
+                        let msecs = match dur {
+                            Seconds(t) => t * 1000.0,
+                            Measures(t) => bpm.measure_to_msec(t)
+                        };
+                        let newstoptime = msecs as uint + now;
+                        *stoptime = match *stoptime {
+                            None => Some(newstoptime),
+                            Some(t) => Some(cmp::max(t, newstoptime))
+                        };
+                        *startoffset = obj.time;
+                    }
+                    Visible(_,sref)|LNStart(_,sref) => {
+                        //if (index) play_sound(index, 0);
+                        //update_grade(4, 300, 0);
+                    }
+                    _ => ()
+                }
+            }
+
+            if !self.opts.is_autoplay() {
+                for pcheck.iter_to(pcur.pos) |&obj| {
+                    let dist = bpm.measure_to_msec(line - obj.time) *
+                               bms.shorten_factor(obj.measure()) *
+                               gradefactor;
+                    if dist < 144.0 { break; }
+                    if nograding[pcheck.pos] {
+                        for obj.object_lane().each |&Lane(lane)| {
+                            let missable =
+                                match obj.data {
+                                    Visible(_,_)|LNStart(_,_) => true,
+                                    LNDone(_,_) => pthru[lane].is_some(),
+                                    _ => false,
+                                };
+                            if missable {
+                                //update_grade(0, 0, 0);
+                                pthru[lane] = None;
+                            }
+                        }
+                    }
+                }
+            }
+
+/*
+            // TODO
+            let keymap = ~[None, ..NLANES];
+            keymap[
+
+            loop {
+                let (down, joy, key) = match poll_event() {
+                    QuitEvent => return,
+                    KeyEvent(EscapeKey,_,_,_) => return,
+                    KeyEvent(key,pressed,_,_) => (pressed, false, keymap[*key]),
+                    // ...
+                };
+            }
+
+            match poll_event() {
+                let (down, joy, key) = match poll::event
+
+                event::KeyEvent(event::EscapeKey,_,_,_) |
+                event::QuitEvent => {
+                    atexit();
+                    ::util::exit(0);
+                },
+                event::NoEvent => break,
+                _ => ()
+		switch (event.type) {
+		case SDL_QUIT:
+			return 0;
+		case SDL_KEYDOWN:
+		case SDL_KEYUP:
+			if (event.key.keysym.sym == SDLK_ESCAPE) return 0;
+			down = (event.type == SDL_KEYDOWN);
+			key = keymap[event.key.keysym.sym];
+			break;
+		case SDL_JOYBUTTONDOWN:
+		case SDL_JOYBUTTONUP:
+			down = (event.type == SDL_JOYBUTTONDOWN);
+			key = XV_AT(joybmap, event.jbutton.button);
+			break;
+		case SDL_JOYAXISMOTION:
+			down = (event.jaxis.value < -3200 ? -1 : event.jaxis.value > 3200 ? 1 : 0);
+			joy = 1;
+			key = XV_AT(joyamap, event.jaxis.axis);
+			break;
+		}
+            }
+        */
+
+        }
     }
 
     //------------------------------------------------------------------------
@@ -3450,6 +3719,30 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                              w: width, h: height }),
                                  bombcolor.blend(num, denom));
             }
+        }
+
+        fn render_back(&self, screen: &Surface, sprite: &Surface) {
+            // TODO
+        }
+
+        fn render_note(&self, screen: &Surface, sprite: &Surface,
+                       top: uint, bottom: uint) {
+            let w = self.width as u16, h = (bottom - top) as u16;
+            let srcleft = (self.spriteleft + SCREENW) as i16;
+            let dstleft = self.left as i16;
+            screen.blit_rect(sprite,
+                Some(Rect { x: srcleft, y: 0, w: w, h: h }),
+                Some(Rect { x: dstleft, y: top as i16, w: w, h: h }));
+        }
+
+        fn render_bomb(&self, screen: &Surface, sprite: &Surface,
+                       top: uint, bottom: uint) {
+            let w = self.width as u16, h = (bottom - top) as u16;
+            let srcleft = (self.spritebombleft + SCREENW) as i16;
+            let dstleft = self.left as i16;
+            screen.blit_rect(sprite,
+                Some(Rect { x: srcleft, y: 0, w: w, h: h }),
+                Some(Rect { x: dstleft, y: top as i16, w: w, h: h }));
         }
     }
 
@@ -3542,14 +3835,29 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         sprite
     }
 
-    struct Display {
-        sprite: ~Surface,
-        screen: ~Surface,
-        font: ~Font,
+    trait Display {
+        pub fn render(&self, player: &Player);
     }
 
-    fn Display(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
-               font: ~Font) -> ~Display {
+    struct GraphicDisplay {
+        /// (C: `sprite`)
+        sprite: ~Surface,
+        /// (C: `screen`)
+        screen: ~Surface,
+        ///
+        font: ~Font,
+        /// (C: `tpanel1`)
+        leftmost: uint,
+        /// (C: `tpanel2`)
+        rightmost: Option<uint>,
+        /// (C: `tbgax`)
+        bgax: uint,
+        /// (C: `tbgay`)
+        bgay: uint,
+    }
+
+    fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
+                      font: ~Font) -> ~GraphicDisplay {
         let (leftmost, rightmost, styles) = build_lane_styles(keyspec);
         let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
         let bgax = leftmost + (centerwidth - BGAW) / 2;
@@ -3564,7 +3872,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                  Some(Rect{x:0, y:h-80, w:w, h:80}));
         screen.flip();
 
-        ~Display { sprite: sprite, screen: screen, font: font }
+        ~GraphicDisplay { sprite: sprite, screen: screen, font: font,
+                          leftmost: leftmost, rightmost: rightmost,
+                          bgax: bgax, bgay: bgay }
+    }
+
+    pub impl GraphicDisplay {
+        
     }
 
     //------------------------------------------------------------------------
@@ -3615,7 +3929,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let mut saved_screen = None;
             if !opts.is_exclusive() {
                 let screen: &Surface = *screen.get_ref();
-                show_stagefile_screen(bms, &infos, keyspec, opts,
+                show_stagefile_screen(bms, infos, keyspec, opts,
                                       screen, font);
                 let surface = new_surface(SCREENW, 20);
                 let w = SCREENW as u16, h = SCREENH as i16;
@@ -3623,7 +3937,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                           Some(Rect{x:0, y:0,    w:w, h:20}));
                 saved_screen = Some(surface);
             } else if opts.showinfo {
-                show_stagefile_noscreen(bms, &infos, keyspec, opts);
+                show_stagefile_noscreen(bms, infos, keyspec, opts);
             }
 
             // wait for resources
@@ -3642,9 +3956,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         Some(ref saved) => {
                             let screen: &Surface = *screen.get_ref();
                             let msg = path.get_or_default(~"loading...");
-                            screen.blit_at(*saved, 0, 580);
-                            font.print_string(screen, 797, 582, 1,
-                                              RightAligned, msg,
+                            screen.blit_at(*saved, 0, (SCREENH-20) as i16);
+                            font.print_string(screen, SCREENW-3, SCREENH-18,
+                                              1, RightAligned, msg,
                                               Gradient(RGB(0x80,0x80,0x80),
                                                        RGB(0xc0,0xc0,0xc0)));
                             screen.flip();
@@ -3676,41 +3990,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // TODO sound_length
             let duration = bms_duration(bms, infos.originoffset, |_| 0.0);
-            let mut player = Player(bms, &infos);
-            for screen.each |&screen| {
-                // TODO
-                let mut display = Display(opts, keyspec, screen, copy font);
-            }
+            let mut player = Player(opts, bms, infos, keyspec);
+            let display =
+                match screen {
+                    Some(screen) =>
+                        @GraphicDisplay(opts, keyspec, screen, font),
+                    None => fail!(~"TODO")
+                };
 
             loop { check_exit(atexit); }
 
             atexit();
         }
-
-        /*
-        let bmspath = Path(copy *opts.bmspath.get_ref()).dir_path();
-        do ::sdl::start {
-            ::sdl::init([::sdl::InitAudio]);
-            ::sdl::mixer::open(44100,
-                               ::sdl::audio::S16AudioFormat,
-                               ::sdl::audio::Stereo,
-                               2048);
-            for bms.sndpath.each |&path| {
-                for path.each |&path| {
-                    //let path = str::replace(path,~".wav",~".ogg");
-                    let path = bmspath.push_rel(&Path(path));
-                    match ::sdl::mixer::Chunk::from_wav(&path) {
-                        Ok(chunk) => {
-                            chunk.play(None, 0);
-                            while ::sdl::mixer::playing(None) { }
-                        },
-                        Err(err) => io::println(err)
-                    }
-                }
-            }
-            ::sdl::mixer::close();
-        }
-        */
     }
 
     //------------------------------------------------------------------------
@@ -3773,10 +4064,9 @@ Environment Variables:
 /// The entry point. Parses the command line options and delegates other
 /// things to `play`. (C: `main`)
 fn main() {
-    // Rust: this is quite delicate... moving this to outside won't work.
     use player::*;
 
-    let longargs = std::oldmap::hash_from_vec::<~str,char>([
+    let longargs = util::hashmap::linear::map_from_vec([
         (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
         (~"--autoplay", 'v'), (~"--exclusive", 'x'), (~"--sound-only", 'X'),
         (~"--windowed", 'w'), (~"--no-fullscreen", 'w'),
@@ -3816,7 +4106,7 @@ fn main() {
             let shortargs =
                 if args[i].starts_with("--") {
                     match longargs.find(&args[i]) {
-                        Some(c) => str::from_char(c),
+                        Some(&c) => str::from_char(c),
                         None => die!("Invalid option: %s", args[i])
                     }
                 } else {
