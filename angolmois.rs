@@ -3035,9 +3035,206 @@ pub mod player {
         }
     }
 
-    fn read_keymap(getenv: &fn(&str) -> Option<~str>) {
+    //------------------------------------------------------------------------
+    // virtual input
+
+    /// Actual input. Mapped to zero or more virtual inputs by keymap.
+    #[deriving(Eq)]
+    enum Input {
+        /// Keyboard input.
+        KeyInput(event::Key),
+        /// Joystick axis input.
+        JoyAxisInput(uint),
+        /// Joystick button input.
+        JoyButtonInput(uint)
+    }
+
+    impl IterBytes for Input {
+        fn iter_bytes(&self, lsb0: bool, f: ::core::to_bytes::Cb) {
+            use core::to_bytes::iter_bytes_2;
+            match *self {
+                KeyInput(key) => iter_bytes_2(&0u8, &(key as uint), lsb0, f),
+                JoyAxisInput(axis) => iter_bytes_2(&1u8, &axis, lsb0, f),
+                JoyButtonInput(button) => iter_bytes_2(&2u8, &button, lsb0, f)
+            }
+        }
+    }
+
+    /// Virtual input. TODO doc about positive/negative/neutral input
+    #[deriving(Eq)]
+    enum VirtualInput {
+        LaneInput(Lane),
+        SpeedDownInput,
+        SpeedUpInput
+    }
+
+    pub impl VirtualInput {
+        fn active_in_key_spec(&self, kind: KeyKind,
+                              keyspec: &KeySpec) -> bool {
+            match *self {
+                LaneInput(Lane(lane)) => keyspec.kinds[lane] == Some(kind),
+                SpeedDownInput|SpeedUpInput => true
+            }
+        }
+    }
+
+    /// An information about an environment variable for multiple keys.
+    // Rust: static struct seems not working somehow...
+    /*
+    struct KeySet {
+        envvar: &'static str,
+        default: &'static str,
+        mapping: &'static [(Option<KeyKind>, &'static [VirtualInput])],
+    }
+    */
+    type KeySet = (
+        &'static str,
+        &'static str,
+        &'static [(Option<KeyKind>, &'static [VirtualInput])]);
+
+    /// (C: `envvars`)
+    static KEYSETS: &'static [KeySet] = &[
+        (/*KeySet { envvar:*/ &"ANGOLMOIS_1P_KEYS",
+                 /*default:*/ &"left shift%axis 3|z%button 3|s%button 6|\
+                            x%button 2|d%button 7|c%button 1|f%button 4|\
+                            v%axis 2|left alt",
+                 /*mapping:*/ &[(Some(Scratch),   &[LaneInput(Lane(6))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(1))]),
+                            (Some(BlackKey),  &[LaneInput(Lane(2))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(3))]),
+                            (Some(BlackKey),  &[LaneInput(Lane(4))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(5))]),
+                            (Some(BlackKey),  &[LaneInput(Lane(8))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(9))]),
+                            (Some(FootPedal), &[LaneInput(Lane(7))])] /*}*/),
+        (/*KeySet { envvar:*/ &"ANGOLMOIS_2P_KEYS",
+                 /*default:*/ &"right alt|m|k|,|l|.|;|/|right shift",
+                 /*mapping:*/ &[(Some(FootPedal), &[LaneInput(Lane(36+7))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(36+1))]),
+                            (Some(BlackKey),  &[LaneInput(Lane(36+2))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(36+3))]),
+                            (Some(BlackKey),  &[LaneInput(Lane(36+4))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(36+5))]),
+                            (Some(BlackKey),  &[LaneInput(Lane(36+8))]),
+                            (Some(WhiteKey),  &[LaneInput(Lane(36+9))]),
+                            (Some(Scratch),   &[LaneInput(Lane(36+6))])] ),
+        (/*KeySet { envvar:*/ &"ANGOLMOIS_PMS_KEYS",
+                 /*default:*/ &"z|s|x|d|c|f|v|g|b",
+                 /*mapping:*/ &[(Some(Button1), &[LaneInput(Lane(1))]),
+                            (Some(Button2), &[LaneInput(Lane(2))]),
+                            (Some(Button3), &[LaneInput(Lane(3))]),
+                            (Some(Button4), &[LaneInput(Lane(4))]),
+                            (Some(Button5), &[LaneInput(Lane(5))]),
+                            (Some(Button4), &[LaneInput(Lane(8)),
+                                              LaneInput(Lane(36+2))]),
+                            (Some(Button3), &[LaneInput(Lane(9)),
+                                              LaneInput(Lane(36+3))]),
+                            (Some(Button2), &[LaneInput(Lane(6)),
+                                              LaneInput(Lane(36+4))]),
+                            (Some(Button1), &[LaneInput(Lane(7)),
+                                              LaneInput(Lane(36+5))])] ),
+        (/*KeySet { envvar:*/ &"ANGOLMOIS_SPEED_KEYS",
+                 /*default:*/ &"f3|f4",
+                 /*mapping:*/ &[(None, &[SpeedDownInput]),
+                            (None, &[SpeedUpInput])] ),
+    ];
+
+    /// (C: `read_keymap`)
+    fn read_keymap(keyspec: &KeySpec, getenv: &fn(&str) -> Option<~str>)
+                -> ::core::hashmap::linear::LinearMap<Input,~[VirtualInput]> {
+        fn sdl_key_from_name(name: &str) -> Option<event::Key> {
+            let name = name.to_lower();
+            unsafe {
+                let firstkey = 0;
+                let lastkey = cast::transmute(event::LastKey);
+                for uint::range(firstkey, lastkey) |keyidx| {
+                    let key = cast::transmute(keyidx);
+                    let keyname = event::get_key_name(key).to_lower();
+                    if keyname == name { return Some(key) }
+                }
+            }
+            None
+        }
+
+        fn parse_input(s: &str) -> Option<Input> {
+            let mut idx = 0;
+            let s = s.trim();
+            if lex!(s; "button", ws, uint -> idx) {
+                Some(JoyButtonInput(idx))
+            } else if lex!(s; "axis", ws, uint -> idx) {
+                Some(JoyAxisInput(idx))
+            } else {
+                sdl_key_from_name(s).map(|&key| KeyInput(key))
+            }
+        }
+
         let mut map = ::core::hashmap::linear::LinearMap::new();
-        map.insert(EscapeKey as uint, "x");
+        let add_mapping = |kind: Option<KeyKind>, input: Input,
+                           vinput: VirtualInput| {
+            if kind.map_default(true,
+                    |&kind| vinput.active_in_key_spec(kind, keyspec)) {
+                // Rust: another case of loan conflicts. in this case, we want
+                //       to modify a value or insert it if none, but a loan
+                //       granted by `find_mut` is alive inside match. (#4666)
+                let mut insert = false; // XXX #4666
+                match map.find_mut(&input) {
+                    Some(vinputs) => {
+                        // Rust: we explicitly copy the pointer due to
+                        //       the premature type error. (#2429)
+                        let vinputs: &mut ~[VirtualInput] = vinputs;
+                        vinputs.push(vinput);
+                    },
+                    None => {
+                        insert = true; // XXX #4666
+                    }
+                }
+                if insert { // XXX #4666
+                    map.insert(input, ~[vinput]);
+                }
+            }
+        };
+
+        for KEYSETS.each |&keyset| {
+            let (envvar, default, mapping) = keyset; // XXX
+            let spec = getenv(/*keyset.*/envvar);
+            let spec = spec.get_or_default(/*keyset.*/default.to_owned());
+
+            let mut i = 0;
+            for spec.each_split_char('|') |part| {
+                let (kind, vinputs) = /*keyset.*/mapping[i];
+                for part.each_split_char('%') |s| {
+                    match parse_input(s) {
+                        Some(input) => {
+                            for vinputs.each |&vinput| {
+                                add_mapping(kind, input, vinput);
+                            }
+                        },
+                        None => die!("Unknown key name in the environment \
+                                      variable %s: %s", /*keyset.*/envvar, s)
+                    }
+                }
+
+                i += 1;
+                if i >= /*keyset.*/mapping.len() { break; }
+            }
+        }
+
+        for keyspec.order.each |&lane| {
+            let key = Key(36 + *lane as int);
+            let kind = keyspec.kinds[*lane].get();
+            let envvar = fmt!("ANGOLMOIS_%s%c_KEY", key.to_str(),
+                              kind.to_char());
+            for getenv(envvar).each |&s| {
+                match parse_input(s) {
+                    Some(input) => add_mapping(Some(kind), input,
+                                               LaneInput(lane)),
+                    None => die!("Unknown key name in the environment \
+                                  variable %s: %s", envvar, s)
+                }
+            }
+        }
+
+        map
     }
 
     //------------------------------------------------------------------------
@@ -3903,6 +4100,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         do start {
             init_sdl();
             for opts.joystick.each |&joyidx| { init_joystick(joyidx); }
+
+            // this has to be done after SDL initialization.
+            let keymap = read_keymap(keyspec, os::getenv);
+            for keymap.each|&(k, v)| { io::println(fmt!("%? -> %?", k,v)); }
 
             let mut font = Font();
             font.create_zoomed_font(1);
