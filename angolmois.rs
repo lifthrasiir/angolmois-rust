@@ -334,16 +334,6 @@ pub mod util {
             fn each_some(&self, blk: &fn(v: &A) -> bool);
         }
 
-        impl<A> OptionalIter<A> for BaseIter<Option<A>> {
-            fn each_some(&self, blk: &fn(v: &A) -> bool) {
-                for self.each |e| {
-                    for e.each |v| {
-                        if !blk(v) { return; }
-                    }
-                }
-            }
-        }
-
     }
 
     /**
@@ -356,6 +346,7 @@ pub mod util {
         use core::vec::*;
 
         /// Like `each()`, but only iterates through the value inside options.
+        #[inline(always)]
         pub fn each_some<'r,A>(vec: &'r [Option<A>],
                                blk: &fn(v: &'r A) -> bool) {
             for each(vec) |e| {
@@ -366,18 +357,21 @@ pub mod util {
         }
 
         impl<'self,A> ::util::iter::OptionalIter<A> for &'self [Option<A>] {
+            #[inline(always)]
             fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
                 each_some(*self, blk)
             }
         }
 
         impl<A> ::util::iter::OptionalIter<A> for ~[Option<A>] {
+            #[inline(always)]
             fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
                 each_some(*self, blk)
             }
         }
 
         impl<A> ::util::iter::OptionalIter<A> for @[Option<A>] {
+            #[inline(always)]
             fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
                 each_some(*self, blk)
             }
@@ -943,15 +937,17 @@ pub mod parser {
     #[deriving(Eq)]
     pub enum BGALayer {
         /// The lowest layer. BMS channel #04. (C: `BGA_LAYER`)
-        Layer1,
+        Layer1 = 0,
         /// The middle layer. BMS channel #07. (C: `BGA2_LAYER`)
-        Layer2,
+        Layer2 = 1,
         /// The highest layer. BMS channel #0A. (C: `BGA3_LAYER`)
-        Layer3,
+        Layer3 = 2,
         /// The layer only displayed shortly after the MISS grade. BMS channel
         /// #06. (C: `POORBGA_LAYER`)
-        PoorBGA
+        PoorBGA = 3
     }
+
+    static NLAYERS: uint = 4;
 
     /// Beats per minute. Used as a conversion factor between the time
     /// position and actual time in BMS.
@@ -1028,6 +1024,8 @@ pub mod parser {
         pub fn is_lnstart(self) -> bool;
         pub fn is_lndone(self) -> bool;
         pub fn is_ln(self) -> bool;
+        pub fn is_soundable(self) -> bool;
+        pub fn is_gradable(self) -> bool;
         pub fn is_bomb(self) -> bool;
         pub fn is_object(self) -> bool;
         pub fn is_bgm(self) -> bool;
@@ -1068,6 +1066,20 @@ pub mod parser {
 
         pub fn is_ln(self) -> bool {
             match self { LNStart(*)|LNDone(*) => true, _ => false }
+        }
+
+        pub fn is_soundable(self) -> bool {
+            match self {
+                Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) => true,
+                _ => false
+            }
+        }
+
+        pub fn is_gradable(self) -> bool {
+            match self {
+                Visible(*) | LNStart(*) | LNDone(*) => true,
+                _ => false
+            }
         }
 
         pub fn is_bomb(self) -> bool {
@@ -1268,6 +1280,8 @@ pub mod parser {
         pub fn is_lnstart(self) -> bool { self.data.is_lnstart() }
         pub fn is_lndone(self) -> bool { self.data.is_lndone() }
         pub fn is_ln(self) -> bool { self.data.is_ln() }
+        pub fn is_soundable(self) -> bool { self.data.is_soundable() }
+        pub fn is_gradable(self) -> bool { self.data.is_gradable() }
         pub fn is_bomb(self) -> bool { self.data.is_bomb() }
         pub fn is_object(self) -> bool { self.data.is_object() }
         pub fn is_bgm(self) -> bool { self.data.is_bgm() }
@@ -3060,12 +3074,38 @@ pub mod player {
         }
     }
 
-    /// Virtual input. TODO doc about positive/negative/neutral input
+    /// Virtual input.
     #[deriving(Eq)]
     enum VirtualInput {
         LaneInput(Lane),
         SpeedDownInput,
         SpeedUpInput
+    }
+
+    /**
+     * State of virtual input elements. There are three states: neutral, and
+     * positive or negative. There is no difference between positive and
+     * negative states (the naming is arbitrary) except for that they are
+     * distinct.
+     *
+     * The states should really be one of pressed (non-neutral) or unpressed
+     * (neutral) states, but we need two non-neutral states since the actual
+     * input device with continuous values (e.g. joystick axes) can trigger
+     * the state transition *twice* without hitting the neutral state.
+     * We solve this problem by making the transition from negative to
+     * positive (and vice versa) temporarily hit the neutral state.
+     */
+    #[deriving(Eq)]
+    enum InputState {
+        /// Positive input state. Occurs when the button is pressed or
+        /// the joystick axis is moved in the positive direction.
+        Positive = 1,
+        /// Neutral input state. Occurs when the button is not pressed or
+        /// the joystick axis is moved back to the origin.
+        Neutral = 0,
+        /// Negative input state. Occurs when the joystick axis is moved
+        /// in the negative direction.
+        Negative = -1
     }
 
     pub impl VirtualInput {
@@ -3079,7 +3119,7 @@ pub mod player {
     }
 
     /// An information about an environment variable for multiple keys.
-    // Rust: static struct seems not working somehow...
+    // Rust: static struct seems not working somehow... (#5688)
     /*
     struct KeySet {
         envvar: &'static str,
@@ -3139,9 +3179,11 @@ pub mod player {
                             (None, &[SpeedUpInput])] ),
     ];
 
+    type KeyMap = ::core::hashmap::linear::LinearMap<Input,VirtualInput>;
+
     /// (C: `read_keymap`)
-    fn read_keymap(keyspec: &KeySpec, getenv: &fn(&str) -> Option<~str>)
-                -> ::core::hashmap::linear::LinearMap<Input,~[VirtualInput]> {
+    fn read_keymap(keyspec: &KeySpec,
+                   getenv: &fn(&str) -> Option<~str>) -> ~KeyMap {
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
             let name = name.to_lower();
             unsafe {
@@ -3168,29 +3210,12 @@ pub mod player {
             }
         }
 
-        let mut map = ::core::hashmap::linear::LinearMap::new();
+        let mut map = ~::core::hashmap::linear::LinearMap::new();
         let add_mapping = |kind: Option<KeyKind>, input: Input,
                            vinput: VirtualInput| {
             if kind.map_default(true,
                     |&kind| vinput.active_in_key_spec(kind, keyspec)) {
-                // Rust: another case of loan conflicts. in this case, we want
-                //       to modify a value or insert it if none, but a loan
-                //       granted by `find_mut` is alive inside match. (#4666)
-                let mut insert = false; // XXX #4666
-                match map.find_mut(&input) {
-                    Some(vinputs) => {
-                        // Rust: we explicitly copy the pointer due to
-                        //       the premature type error. (#2429)
-                        let vinputs: &mut ~[VirtualInput] = vinputs;
-                        vinputs.push(vinput);
-                    },
-                    None => {
-                        insert = true; // XXX #4666
-                    }
-                }
-                if insert { // XXX #4666
-                    map.insert(input, ~[vinput]);
-                }
+                map.insert(input, vinput);
             }
         };
 
@@ -3542,32 +3567,56 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         fn find_next_of_type(&self, cond: &fn(&'self Obj) -> bool)
-                                        -> Option<&'self Obj> {
+                                        -> Option<(uint, &'self Obj)> {
             let nobjs = self.objs.len();
             let mut i = self.pos;
             while i < nobjs {
                 let current = &self.objs[i];
-                if cond(current) { return Some(current); }
+                if cond(current) { return Some((i, current)); }
                 i += 1;
             }
             None
         }
 
         fn find_previous_of_type(&self, cond: &fn(&'self Obj) -> bool)
-                                        -> Option<&'self Obj> {
+                                        -> Option<(uint, &'self Obj)> {
             let nobjs = self.objs.len();
             let mut i = self.pos;
             while i > 0 {
                 i -= 1;
                 let current = &self.objs[i];
-                if cond(current) { return Some(current); }
+                if cond(current) { return Some((i, current)); }
             }
             None
+        }
+
+        fn find_closest_of_type(&self, base: float,
+                                cond: &fn(&'self Obj) -> bool)
+                                        -> Option<(uint, &'self Obj)> {
+            let previous = self.find_previous_of_type(cond);
+            let next = self.find_next_of_type(cond);
+            match (previous, next) {
+                (None, None) => None,
+                (None, Some((j,jobj))) => Some((j,jobj)),
+                (Some((i,iobj)), None) => Some((i,iobj)),
+                (Some((i,iobj)), Some((j,jobj))) => {
+                    if num::abs(iobj.time - base) <
+                            num::abs(jobj.time - base) {
+                        Some((i,iobj))
+                    } else {
+                        Some((j,jobj))
+                    }
+                }
+            }
         }
     }
 
     fn Pointer<'r>(bms: &'r Bms) -> Pointer<'r> {
         Pointer { objs: bms.objs, pos: 0 }
+    }
+
+    fn pointer_with_pos<'r>(bms: &'r Bms, pos: uint) -> Pointer<'r> {
+        Pointer { objs: bms.objs, pos: pos }
     }
 
     impl<'self> Eq for Pointer<'self> {
@@ -3606,6 +3655,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         bms: &'self Bms,
         infos: &'self BmsInfo,
         keyspec: &'self KeySpec,
+        keymap: &'self KeyMap,
 
         /// (C: `nograding` field in `struct obj`)
         nograding: ~[bool],
@@ -3638,41 +3688,48 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pcheck: Pointer<'self>,
         /// (C: `pthru`)
         pthru: [Option<Pointer<'self>>, ..NLANES],
+        /// (C: `keypressed[0]`)
+        keymultiplicity: [uint, ..NLANES],
+        /// (C: `keypressed[1]`)
+        joystate: [InputState, ..NLANES],
     }
 
     fn Player<'r>(opts: &'r Options, bms: &'r Bms, infos: &'r BmsInfo,
-                  keyspec: &'r KeySpec) -> ~Player<'r> {
+                  keyspec: &'r KeySpec, keymap: &'r KeyMap) -> ~Player<'r> {
         let now = ticks();
         let originoffset = infos.originoffset;
         let startshorten = bms.shorten_factor(originoffset as int);
         let gradefactor = 1.5 - cmp::min(bms.rank, 5) as float * 0.25;
-        ~Player { opts: opts, bms: bms, infos: infos, keyspec: keyspec,
-                  nograding: vec::from_elem(bms.objs.len(), false),
-                  playspeed: 1.0, targetspeed: None, bpm: bms.initbpm,
-                  origintime: now, starttime: now, stoptime: None,
-                  poorlimit: None, startoffset: originoffset,
-                  startshorten: startshorten, gradefactor: gradefactor,
-                  pfront: Pointer(bms), pcur: Pointer(bms),
-                  pcheck: Pointer(bms), pthru: [None, ..NLANES] }
+        ~Player {
+            opts: opts, bms: bms, infos: infos, keyspec: keyspec,
+            keymap: keymap, nograding: vec::from_elem(bms.objs.len(), false),
+            playspeed: 1.0, targetspeed: None, bpm: bms.initbpm,
+            origintime: now, starttime: now, stoptime: None, poorlimit: None,
+            startoffset: originoffset, startshorten: startshorten,
+            gradefactor: gradefactor, pfront: Pointer(bms),
+            pcur: Pointer(bms), pcheck: Pointer(bms), pthru: [None, ..NLANES],
+            keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
+        }
     }
 
     pub impl<'self> Player<'self> {
         fn tick(&mut self) {
             // Rust: this is very extreme case of loan conflict. (#4666)
-            let mut targetspeed = &mut self.targetspeed;
-            let mut playspeed = &mut self.playspeed;
-            let mut stoptime = &mut self.stoptime;
-            let mut startoffset = &mut self.startoffset;
-            let mut starttime = &mut self.starttime;
-            let mut startshorten = &mut self.startshorten;
+            let targetspeed = &mut self.targetspeed;
+            let playspeed = &mut self.playspeed;
+            let stoptime = &mut self.stoptime;
+            let startoffset = &mut self.startoffset;
+            let starttime = &mut self.starttime;
+            let startshorten = &mut self.startshorten;
             let gradefactor = *&mut self.gradefactor;
-            let mut bpm = &mut self.bpm;
-            let bms = self.bms;
-            let mut nograding = &mut self.nograding;
-            let mut pfront = &mut self.pfront;
-            let mut pcur = &mut self.pcur;
-            let mut pcheck = &mut self.pcheck;
-            let mut pthru = &mut self.pthru;
+            let bpm = &mut self.bpm;
+            let nograding = &mut self.nograding;
+            let pfront = &mut self.pfront;
+            let pcur = &mut self.pcur;
+            let pcheck = &mut self.pcheck;
+            let pthru = &mut self.pthru;
+            let keymultiplicity = &mut self.keymultiplicity;
+            let joystate = &mut self.joystate;
 
             if targetspeed.is_some() {
                 let target = targetspeed.get();
@@ -3713,10 +3770,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             //let line = self.bms.adjust_object_time(bottom, 0.03/*playspeed);
             let line = bottom;
+            let lineshorten = self.bms.shorten_factor(line.floor() as int);
             let top = self.bms.adjust_object_time(bottom, 1.25/(*playspeed));
 
             pfront.seek_until(bottom);
-            for pcur.iter_until(line) |&obj| {
+            //for pcur.iter_until(line) |&obj| { // XXX #4666
+            let nobjs = pcur.objs.len();         // XXX #4666
+            while pcur.pos < nobjs {             // XXX #4666
+                let obj = &pcur.objs[pcur.pos];  // XXX #4666
+                if obj.time >= line { break; }   // XXX #4666
+
                 match obj.data {
                     BGM(ref sref) => {
                         //if (index) play_sound(index, 1);
@@ -3754,12 +3817,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
                     _ => ()
                 }
+
+                pcur.pos += 1; // XXX #4666
             }
 
             if !self.opts.is_autoplay() {
                 for pcheck.iter_to(pcur.pos) |&obj| {
                     let dist = bpm.measure_to_msec(line - obj.time) *
-                               bms.shorten_factor(obj.measure()) *
+                               self.bms.shorten_factor(obj.measure()) *
                                gradefactor;
                     if dist < 144.0 { break; }
                     if nograding[pcheck.pos] {
@@ -3779,52 +3844,180 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 }
             }
 
-/*
-            // TODO
-            let keymap = ~[None, ..NLANES];
-            keymap[
-
             loop {
-                let (down, joy, key) = match poll_event() {
-                    QuitEvent => return,
-                    KeyEvent(EscapeKey,_,_,_) => return,
-                    KeyEvent(key,pressed,_,_) => (pressed, false, keymap[*key]),
-                    // ...
+                let (key, state) = match poll_event() {
+                    NoEvent => break,
+                    QuitEvent | KeyEvent(EscapeKey,_,_,_) => return,
+                    KeyEvent(key,true,_,_) => (KeyInput(key), Positive),
+                    KeyEvent(key,false,_,_) => (KeyInput(key), Neutral),
+                    JoyButtonEvent(_which,button,true) =>
+                        (JoyButtonInput(button as uint), Positive),
+                    JoyButtonEvent(_which,button,false) =>
+                        (JoyButtonInput(button as uint), Neutral),
+                    JoyAxisEvent(_which,axis,delta) if delta > 3200 =>
+                        (JoyAxisInput(axis as uint), Positive),
+                    JoyAxisEvent(_which,axis,delta) if delta < -3200 =>
+                        (JoyAxisInput(axis as uint), Negative),
+                    JoyAxisEvent(_which,axis,_) =>
+                        (JoyAxisInput(axis as uint), Neutral),
+                    _ => loop
                 };
-            }
+                let vkey = match self.keymap.find(&key) {
+                    Some(&vkey) => vkey,
+                    None => loop
+                };
+                let continuous = match key {
+                    KeyInput(*) | JoyButtonInput(*) => false,
+                    JoyAxisInput(*) => true
+                };
 
-            match poll_event() {
-                let (down, joy, key) = match poll::event
+                if self.opts.is_exclusive() { loop; }
 
-                event::KeyEvent(event::EscapeKey,_,_,_) |
-                event::QuitEvent => {
-                    atexit();
-                    ::util::exit(0);
-                },
-                event::NoEvent => break,
-                _ => ()
-		switch (event.type) {
-		case SDL_QUIT:
-			return 0;
-		case SDL_KEYDOWN:
-		case SDL_KEYUP:
-			if (event.key.keysym.sym == SDLK_ESCAPE) return 0;
-			down = (event.type == SDL_KEYDOWN);
-			key = keymap[event.key.keysym.sym];
-			break;
-		case SDL_JOYBUTTONDOWN:
-		case SDL_JOYBUTTONUP:
-			down = (event.type == SDL_JOYBUTTONDOWN);
-			key = XV_AT(joybmap, event.jbutton.button);
-			break;
-		case SDL_JOYAXISMOTION:
-			down = (event.jaxis.value < -3200 ? -1 : event.jaxis.value > 3200 ? 1 : 0);
-			joy = 1;
-			key = XV_AT(joyamap, event.jaxis.axis);
-			break;
-		}
+                static speeds: &'static [float] = &[0.1, 0.2, 0.4, 0.6, 0.8,
+                    1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5,
+                    6.0, 7.0, 8.0, 10.0, 15.0, 25.0, 40.0, 60.0, 99.0];
+
+                fn next_speed_mark(current: float) -> Option<float> {
+                    let mut prev = None;
+                    for speeds.each |&speed| {
+                        if speed < current - 0.001 {
+                            prev = Some(speed);
+                        } else {
+                            return prev;
+                        }
+                    }
+                    None
+                }
+
+                fn previous_speed_mark(current: float) -> Option<float> {
+                    let mut next = None;
+                    for speeds.each_reverse |&speed| {
+                        if speed > current + 0.001 {
+                            next = Some(speed);
+                        } else {
+                            return next;
+                        }
+                    }
+                    None
+                }
+
+                let is_unpressed = |lane: Lane, continuous: bool,
+                                    state: InputState| {
+                    if state == Neutral || (continuous &&
+                                            joystate[*lane] != state) {
+                        if continuous {
+                            joystate[*lane] = state; true
+                        } else {
+                            if (keymultiplicity[*lane] > 0) {
+                                keymultiplicity[*lane] -= 1;
+                            }
+                            (keymultiplicity[*lane] > 0)
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                let is_pressed = |lane: Lane, continuous: bool,
+                                  state: InputState| {
+                    if state != Neutral {
+                        if continuous {
+                            joystate[*lane] = state; true
+                        } else {
+                            keymultiplicity[*lane] += 1;
+                            (keymultiplicity[*lane] == 1)
+                        }
+                    } else {
+                        false
+                    }
+                };
+
+                let process_unpress = |lane: Lane| {
+                    for pthru[*lane].each |&thru| {
+                        let nextlndone =
+                            do thru.find_next_of_type |&obj| {
+                                obj.object_lane() == Some(lane) &&
+                                obj.is_lndone()
+                            };
+                        for nextlndone.each |&(i,obj)| {
+                            let delta = bpm.measure_to_msec(obj.time - line) *
+                                        lineshorten * gradefactor;
+                            if num::abs(delta) < 144.0 {
+                                nograding[i] = true;
+                            } else {
+                                //update_grade(0, 0, 0);
+                            }
+                        }
+                    }
+                    pthru[*lane] = None;
+                };
+
+                let process_press = |lane: Lane| {
+                    let soundable =
+                        do pcur.find_closest_of_type(line) |&obj| {
+                            obj.object_lane() == Some(lane) &&
+                            obj.is_soundable()
+                        };
+                    for soundable.each |&(_,obj)| {
+                        for obj.sounds().each |&sref| {
+                            //play_sound(objs[l].index, 0);
+                        }
+                    }
+
+                    let gradable =
+                        do pcur.find_closest_of_type(line) |&obj| {
+                            obj.object_lane() == Some(lane) &&
+                            obj.is_gradable()
+                        };
+                    for gradable.each |&(i,obj)| {
+                        if i >= pcheck.pos && !nograding[i] &&
+                                !obj.is_lndone() {
+                            let delta = num::abs(
+                                bpm.measure_to_msec(obj.time - line) *
+                                lineshorten * gradefactor);
+                            if delta < 144.0 {
+                                if obj.is_lnstart() {
+                                    pthru[*lane] =
+                                        Some(pointer_with_pos(self.bms, i));
+                                }
+                                nograding[i] = true;
+                                //update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, (1-tmp/144)*300, 0);
+                            }
+                        }
+                    }
+                };
+
+                match (vkey, state) {
+                    (SpeedDownInput, Positive) |
+                    (SpeedDownInput, Negative) => {
+                        let current = targetspeed.get_or_default(*playspeed);
+                        for next_speed_mark(current).each |&newspeed| {
+                            *targetspeed = Some(newspeed);
+                            //Mix_PlayChannel(0, beep, 0);
+                        }
+                    },
+                    (SpeedUpInput, Positive) |
+                    (SpeedUpInput, Negative) => {
+                        let current = targetspeed.get_or_default(*playspeed);
+                        for previous_speed_mark(current).each |&newspeed| {
+                            *targetspeed = Some(newspeed);
+                            //Mix_PlayChannel(0, beep, 0);
+                        }
+                    },
+                    (LaneInput(lane), state) => {
+                        if !self.opts.is_autoplay() {
+                            if is_unpressed(lane, continuous, state) {
+                                process_unpress(lane);
+                            }
+                            if is_pressed(lane, continuous, state) {
+                                process_press(lane);
+                            }
+                        }
+                    }
+                    (_, _) => ()
+                }
+
             }
-        */
 
         }
     }
@@ -4103,7 +4296,6 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // this has to be done after SDL initialization.
             let keymap = read_keymap(keyspec, os::getenv);
-            for keymap.each|&(k, v)| { io::println(fmt!("%? -> %?", k,v)); }
 
             let mut font = Font();
             font.create_zoomed_font(1);
@@ -4181,7 +4373,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // TODO sound_length
             let duration = bms_duration(bms, infos.originoffset, |_| 0.0);
-            let mut player = Player(opts, bms, infos, keyspec);
+            let mut player = Player(opts, bms, infos, keyspec, keymap);
             let display =
                 match screen {
                     Some(screen) =>
