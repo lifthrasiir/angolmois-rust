@@ -334,6 +334,16 @@ pub mod util {
             fn each_some(&self, blk: &fn(v: &A) -> bool);
         }
 
+        impl<A> OptionalIter<A> for BaseIter<Option<A>> {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) {
+                for self.each |e| {
+                    for e.each |v| {
+                        if !blk(v) { return; }
+                    }
+                }
+            }
+        }
+
     }
 
     /**
@@ -1018,7 +1028,7 @@ pub mod parser {
         Stop(Duration)
     }
 
-    pub trait ObjOps {
+    pub trait ObjImmOps {
         pub fn is_visible(self) -> bool;
         pub fn is_invisible(self) -> bool;
         pub fn is_lnstart(self) -> bool;
@@ -1026,17 +1036,13 @@ pub mod parser {
         pub fn is_ln(self) -> bool;
         pub fn is_soundable(self) -> bool;
         pub fn is_gradable(self) -> bool;
+        pub fn is_renderable(self) -> bool;
         pub fn is_bomb(self) -> bool;
         pub fn is_object(self) -> bool;
         pub fn is_bgm(self) -> bool;
         pub fn is_setbga(self) -> bool;
         pub fn is_setbpm(self) -> bool;
         pub fn is_stop(self) -> bool;
-
-        pub fn to_visible(self) -> Self;
-        pub fn to_invisible(self) -> Self;
-        pub fn to_lnstart(self) -> Self;
-        pub fn to_lndone(self) -> Self;
 
         pub fn object_lane(self) -> Option<Lane>;
         pub fn sounds(self) -> ~[SoundRef];
@@ -1047,7 +1053,14 @@ pub mod parser {
         pub fn through_damage(self) -> Option<Damage>;
     }
 
-    impl ObjOps for ObjData {
+    pub trait ObjOps: ObjImmOps {
+        pub fn to_visible(self) -> Self;
+        pub fn to_invisible(self) -> Self;
+        pub fn to_lnstart(self) -> Self;
+        pub fn to_lndone(self) -> Self;
+    }
+
+    impl ObjImmOps for ObjData {
         pub fn is_visible(self) -> bool {
             match self { Visible(*) => true, _ => false }
         }
@@ -1082,6 +1095,13 @@ pub mod parser {
             }
         }
 
+        pub fn is_renderable(self) -> bool {
+            match self {
+                Visible(*) | LNStart(*) | LNDone(*) | Bomb(*) => true,
+                _ => false
+            }
+        }
+
         pub fn is_bomb(self) -> bool {
             match self { Bomb(*) => true, _ => false }
         }
@@ -1108,38 +1128,6 @@ pub mod parser {
 
         pub fn is_stop(self) -> bool {
             match self { Stop(*) => true, _ => false }
-        }
-
-        pub fn to_visible(self) -> ObjData {
-            match self {
-                Visible(lane,snd) | Invisible(lane,snd) |
-                LNStart(lane,snd) | LNDone(lane,snd) => Visible(lane,snd),
-                _ => fail!(~"to_visible for non-object")
-            }
-        }
-
-        pub fn to_invisible(self) -> ObjData {
-            match self {
-                Visible(lane,snd) | Invisible(lane,snd) |
-                LNStart(lane,snd) | LNDone(lane,snd) => Invisible(lane,snd),
-                _ => fail!(~"to_invisible for non-object")
-            }
-        }
-
-        pub fn to_lnstart(self) -> ObjData {
-            match self {
-                Visible(lane,snd) | Invisible(lane,snd) |
-                LNStart(lane,snd) | LNDone(lane,snd) => LNStart(lane,snd),
-                _ => fail!(~"to_lnstart for non-object")
-            }
-        }
-
-        pub fn to_lndone(self) -> ObjData {
-            match self {
-                Visible(lane,snd) | Invisible(lane,snd) |
-                LNStart(lane,snd) | LNDone(lane,snd) => LNDone(lane,snd),
-                _ => fail!(~"to_lndone for non-object")
-            }
         }
 
         pub fn object_lane(self) -> Option<Lane> {
@@ -1194,6 +1182,40 @@ pub mod parser {
             match self {
                 Bomb(_,_,damage) => Some(damage),
                 _ => None
+            }
+        }
+    }
+
+    impl ObjOps for ObjData {
+        pub fn to_visible(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => Visible(lane,snd),
+                _ => fail!(~"to_visible for non-object")
+            }
+        }
+
+        pub fn to_invisible(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => Invisible(lane,snd),
+                _ => fail!(~"to_invisible for non-object")
+            }
+        }
+
+        pub fn to_lnstart(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => LNStart(lane,snd),
+                _ => fail!(~"to_lnstart for non-object")
+            }
+        }
+
+        pub fn to_lndone(self) -> ObjData {
+            match self {
+                Visible(lane,snd) | Invisible(lane,snd) |
+                LNStart(lane,snd) | LNDone(lane,snd) => LNDone(lane,snd),
+                _ => fail!(~"to_lndone for non-object")
             }
         }
     }
@@ -1274,7 +1296,7 @@ pub mod parser {
         fn gt(&self, other: &Obj) -> bool { self.time > other.time }
     }
 
-    impl ObjOps for Obj {
+    impl ObjImmOps for Obj {
         pub fn is_visible(self) -> bool { self.data.is_visible() }
         pub fn is_invisible(self) -> bool { self.data.is_invisible() }
         pub fn is_lnstart(self) -> bool { self.data.is_lnstart() }
@@ -1282,25 +1304,13 @@ pub mod parser {
         pub fn is_ln(self) -> bool { self.data.is_ln() }
         pub fn is_soundable(self) -> bool { self.data.is_soundable() }
         pub fn is_gradable(self) -> bool { self.data.is_gradable() }
+        pub fn is_renderable(self) -> bool { self.data.is_renderable() }
         pub fn is_bomb(self) -> bool { self.data.is_bomb() }
         pub fn is_object(self) -> bool { self.data.is_object() }
         pub fn is_bgm(self) -> bool { self.data.is_bgm() }
         pub fn is_setbga(self) -> bool { self.data.is_setbga() }
         pub fn is_setbpm(self) -> bool { self.data.is_setbpm() }
         pub fn is_stop(self) -> bool { self.data.is_stop() }
-
-        pub fn to_visible(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_visible() }
-        }
-        pub fn to_invisible(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_invisible() }
-        }
-        pub fn to_lnstart(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_lnstart() }
-        }
-        pub fn to_lndone(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_lndone() }
-        }
 
         pub fn object_lane(self) -> Option<Lane> {
             self.data.object_lane()
@@ -1322,6 +1332,21 @@ pub mod parser {
         }
         pub fn through_damage(self) -> Option<Damage> {
             self.data.through_damage()
+        }
+    }
+
+    impl ObjOps for Obj {
+        pub fn to_visible(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_visible() }
+        }
+        pub fn to_invisible(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_invisible() }
+        }
+        pub fn to_lnstart(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_lnstart() }
+        }
+        pub fn to_lndone(self) -> Obj {
+            Obj { time: self.time, data: self.data.to_lndone() }
         }
     }
 
@@ -1488,7 +1513,7 @@ pub mod parser {
 
     /// Reads and parses the BMS file with given RNG from given reader.
     pub fn parse_bms_from_reader(f: @io::Reader, r: @rand::Rng)
-                                    -> Result<~Bms,~str> {
+                                    -> Result<Bms,~str> {
         // (C: `bmsheader`)
         static bmsheader: &'static [&'static str] = &[
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
@@ -1496,7 +1521,7 @@ pub mod parser {
             "BGA", "STOP", "STP", "RANDOM", "SETRANDOM", "ENDRANDOM", "IF",
             "ELSEIF", "ELSE", "ENDSW", "END"];
 
-        let mut bms = ~Bms();
+        let mut bms = Bms();
 
         enum RndState { Process = 0, Ignore = 1, NoFurther = -1 }
         struct Rnd {
@@ -1980,7 +2005,7 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
-    pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Result<~Bms,~str> {
+    pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Result<Bms,~str> {
         do io::file_reader(&Path(bmspath)).chain |f| {
             parse_bms_from_reader(f, r)
         }
@@ -2263,7 +2288,7 @@ pub mod parser {
     }
 
     /// Analyzes the loaded BMS file. (C: `analyze_and_compact_bms`)
-    pub fn analyze_bms(bms: &Bms) -> ~BmsInfo {
+    pub fn analyze_bms(bms: &Bms) -> BmsInfo {
         let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false,
                                   haslongnote: false, nnotes: 0,
                                   maxscore: 0 };
@@ -2283,7 +2308,7 @@ pub mod parser {
             infos.maxscore += (300.0 * (1.0 + ratio)) as int;
         }
 
-        ~infos
+        infos
     }
 
     /// (C: `get_bms_duration`)
@@ -2615,7 +2640,7 @@ pub mod gfx {
 
     pub enum Alignment { LeftAligned, Centered, RightAligned }
 
-    pub fn Font() -> ~Font {
+    pub fn Font() -> Font {
         // Delta-coded code words. (C: `words`)
         let dwords = [0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15, 1521, 15, 1537,
             16, 48, 176, 1, 3, 1, 3, 7, 1, 4080, 4096, 3, 1, 8, 3, 4097, 4080,
@@ -2682,7 +2707,7 @@ pub mod gfx {
 
         let glyphs = decompress(dwords, indices);
         assert!(glyphs.len() == 3072);
-        ~Font { glyphs: glyphs, pixels: ~[] }
+        Font { glyphs: glyphs, pixels: ~[] }
     }
 
     pub impl Font {
@@ -3183,7 +3208,7 @@ pub mod player {
 
     /// (C: `read_keymap`)
     fn read_keymap(keyspec: &KeySpec,
-                   getenv: &fn(&str) -> Option<~str>) -> ~KeyMap {
+                   getenv: &fn(&str) -> Option<~str>) -> KeyMap {
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
             let name = name.to_lower();
             unsafe {
@@ -3210,7 +3235,7 @@ pub mod player {
             }
         }
 
-        let mut map = ~::core::hashmap::linear::LinearMap::new();
+        let mut map = ::core::hashmap::linear::LinearMap::new();
         let add_mapping = |kind: Option<KeyKind>, input: Input,
                            vinput: VirtualInput| {
             if kind.map_default(true,
@@ -3515,134 +3540,203 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // pointers
 
-    struct Pointer<'self> {
-        objs: &'self [Obj],
+    struct Pointer {
+        bms: @mut ~Bms,
         pos: uint
     }
 
-    pub impl<'self> Pointer<'self> {
-        #[inline(always)]
-        fn current(&self) -> &'self Obj { &self.objs[self.pos] }
-
-        #[inline(always)]
-        fn current_opt(&self) -> Option<&'self Obj> {
-            if self.pos < self.objs.len() {
-                Some(&self.objs[self.pos])
-            } else {
-                None
-            }
+    impl ObjImmOps for Pointer {
+        pub fn is_visible(self) -> bool {
+            self.bms.objs[self.pos].is_visible()
+        }
+        pub fn is_invisible(self) -> bool {
+            self.bms.objs[self.pos].is_invisible()
+        }
+        pub fn is_lnstart(self) -> bool {
+            self.bms.objs[self.pos].is_lnstart()
+        }
+        pub fn is_lndone(self) -> bool {
+            self.bms.objs[self.pos].is_lndone()
+        }
+        pub fn is_ln(self) -> bool {
+            self.bms.objs[self.pos].is_ln()
+        }
+        pub fn is_soundable(self) -> bool {
+            self.bms.objs[self.pos].is_soundable()
+        }
+        pub fn is_gradable(self) -> bool {
+            self.bms.objs[self.pos].is_gradable()
+        }
+        pub fn is_renderable(self) -> bool {
+            self.bms.objs[self.pos].is_renderable()
+        }
+        pub fn is_bomb(self) -> bool {
+            self.bms.objs[self.pos].is_bomb()
+        }
+        pub fn is_object(self) -> bool {
+            self.bms.objs[self.pos].is_object()
+        }
+        pub fn is_bgm(self) -> bool {
+            self.bms.objs[self.pos].is_bgm()
+        }
+        pub fn is_setbga(self) -> bool {
+            self.bms.objs[self.pos].is_setbga()
+        }
+        pub fn is_setbpm(self) -> bool {
+            self.bms.objs[self.pos].is_setbpm()
+        }
+        pub fn is_stop(self) -> bool {
+            self.bms.objs[self.pos].is_stop()
         }
 
+        pub fn object_lane(self) -> Option<Lane> {
+            self.bms.objs[self.pos].object_lane()
+        }
+        pub fn sounds(self) -> ~[SoundRef] {
+            self.bms.objs[self.pos].sounds()
+        }
+        pub fn keydown_sound(self) -> Option<SoundRef> {
+            self.bms.objs[self.pos].keydown_sound()
+        }
+        pub fn keyup_sound(self) -> Option<SoundRef> {
+            self.bms.objs[self.pos].keyup_sound()
+        }
+        pub fn through_sound(self) -> Option<SoundRef> {
+            self.bms.objs[self.pos].through_sound()
+        }
+        pub fn images(self) -> ~[ImageRef] {
+            self.bms.objs[self.pos].images()
+        }
+        pub fn through_damage(self) -> Option<Damage> {
+            self.bms.objs[self.pos].through_damage()
+        }
+    }
+
+    pub impl Pointer {
+        #[inline(always)]
+        fn time(&self) -> float { self.bms.objs[self.pos].time }
+
+        #[inline(always)]
+        fn data(&self) -> ObjData { self.bms.objs[self.pos].data }
+
         fn seek_until(&mut self, limit: float) {
-            let nobjs = self.objs.len();
+            let bms = &*self.bms;
+            let nobjs = bms.objs.len();
             while self.pos < nobjs {
-                let current = &self.objs[self.pos];
-                if current.time >= limit { return; }
+                if bms.objs[self.pos].time >= limit { break; }
                 self.pos += 1;
             }
         }
 
-        fn iter_until(&mut self, limit: float, f: &fn(&'self Obj) -> bool) {
-            let nobjs = self.objs.len();
+        fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) {
+            let bms = &*self.bms;
+            let nobjs = bms.objs.len();
             while self.pos < nobjs {
-                let current = &self.objs[self.pos];
-                if current.time >= limit { return; }
-                if !f(current) { return; }
+                let current = &bms.objs[self.pos];
+                if current.time >= limit { break; }
+                if !f(current) { break; }
                 self.pos += 1;
             }
         }
 
         fn seek_to(&mut self, limit: uint) {
-            assert!(limit <= self.objs.len());
+            let bms = &*self.bms;
+            assert!(limit <= bms.objs.len());
             self.pos = limit;
         }
 
-        fn iter_to(&mut self, limit: uint, f: &fn(&'self Obj) -> bool) {
-            assert!(limit <= self.objs.len());
+        fn iter_to(&mut self, limit: uint, f: &fn(&Obj) -> bool) {
+            let bms = &*self.bms;
+            assert!(limit <= bms.objs.len());
             while self.pos < limit {
-                let current = &self.objs[self.pos];
-                if !f(current) { return; }
+                let current = &bms.objs[self.pos];
+                if !f(current) { break; }
                 self.pos += 1;
             }
         }
 
-        fn find_next_of_type(&self, cond: &fn(&'self Obj) -> bool)
-                                        -> Option<(uint, &'self Obj)> {
-            let nobjs = self.objs.len();
+        fn find_next_of_type(&self,
+                             cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+            let bms = &*self.bms;
+            let nobjs = bms.objs.len();
             let mut i = self.pos;
             while i < nobjs {
-                let current = &self.objs[i];
-                if cond(current) { return Some((i, current)); }
+                let current = &bms.objs[i];
+                if cond(current) {
+                    return Some(Pointer { bms: self.bms, pos: i });
+                }
                 i += 1;
             }
             None
         }
 
-        fn find_previous_of_type(&self, cond: &fn(&'self Obj) -> bool)
-                                        -> Option<(uint, &'self Obj)> {
-            let nobjs = self.objs.len();
+        fn find_previous_of_type(&self,
+                                 cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+            let bms = &*self.bms;
+            let nobjs = bms.objs.len();
             let mut i = self.pos;
             while i > 0 {
                 i -= 1;
-                let current = &self.objs[i];
-                if cond(current) { return Some((i, current)); }
+                let current = &bms.objs[i];
+                if cond(current) {
+                    return Some(Pointer { bms: self.bms, pos: i });
+                }
             }
             None
         }
 
         fn find_closest_of_type(&self, base: float,
-                                cond: &fn(&'self Obj) -> bool)
-                                        -> Option<(uint, &'self Obj)> {
+                                cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let previous = self.find_previous_of_type(cond);
             let next = self.find_next_of_type(cond);
             match (previous, next) {
                 (None, None) => None,
-                (None, Some((j,jobj))) => Some((j,jobj)),
-                (Some((i,iobj)), None) => Some((i,iobj)),
-                (Some((i,iobj)), Some((j,jobj))) => {
-                    if num::abs(iobj.time - base) <
-                            num::abs(jobj.time - base) {
-                        Some((i,iobj))
-                    } else {
-                        Some((j,jobj))
-                    }
-                }
+                (None, Some(next)) => Some(next),
+                (Some(previous), None) => Some(previous),
+                (Some(previous), Some(next)) =>
+                    if num::abs(previous.time() - base) <
+                       num::abs(next.time() - base) { Some(previous) }
+                    else { Some(next) }
             }
         }
     }
 
-    fn Pointer<'r>(bms: &'r Bms) -> Pointer<'r> {
-        Pointer { objs: bms.objs, pos: 0 }
+    fn Pointer(bms: @mut ~Bms) -> Pointer {
+        Pointer { bms: bms, pos: 0 }
     }
 
-    fn pointer_with_pos<'r>(bms: &'r Bms, pos: uint) -> Pointer<'r> {
-        Pointer { objs: bms.objs, pos: pos }
+    fn pointer_with_pos(bms: @mut ~Bms, pos: uint) -> Pointer {
+        Pointer { bms: bms, pos: pos }
     }
 
-    impl<'self> Eq for Pointer<'self> {
-        fn eq(&self, other: &Pointer<'self>) -> bool {
-            self.objs == other.objs && self.pos == other.pos
+    priv fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
+        ::core::managed::mut_ptr_eq(lhs.bms, rhs.bms)
+    }
+
+    impl Eq for Pointer {
+        fn eq(&self, other: &Pointer) -> bool {
+            has_same_bms(self, other) && self.pos == other.pos
         }
-        fn ne(&self, other: &Pointer<'self>) -> bool {
-            self.objs != other.objs || self.pos != other.pos
+        fn ne(&self, other: &Pointer) -> bool {
+            !has_same_bms(self, other) || self.pos != other.pos
         }
     }
 
-    impl<'self> Ord for Pointer<'self> {
-        fn lt(&self, other: &Pointer<'self>) -> bool {
-            assert!(self.objs == other.objs);
+    impl Ord for Pointer {
+        fn lt(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
             self.pos < other.pos
         }
-        fn le(&self, other: &Pointer<'self>) -> bool {
-            assert!(self.objs == other.objs);
+        fn le(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
             self.pos <= other.pos
         }
-        fn ge(&self, other: &Pointer<'self>) -> bool {
-            assert!(self.objs == other.objs);
+        fn ge(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
             self.pos >= other.pos
         }
-        fn gt(&self, other: &Pointer<'self>) -> bool {
-            assert!(self.objs == other.objs);
+        fn gt(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
             self.pos > other.pos
         }
     }
@@ -3650,71 +3744,137 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // game play logics
 
-    struct Player<'self> {
-        opts: &'self Options,
-        bms: &'self Bms,
-        infos: &'self BmsInfo,
-        keyspec: &'self KeySpec,
-        keymap: &'self KeyMap,
+    enum Grade {
+        MISS  = 0,
+        BAD   = 1,
+        GOOD  = 2,
+        GREAT = 3,
+        COOL  = 4,
+    }
 
+    static NGRADES: uint = 5;
+
+    static MAXGAUGE: int = 512;
+
+    struct Player {
+        // basic informations
+        opts: ~Options,
+        // Rust: this should have been just `~Bms`, and `Pointer` should have
+        //       received a lifetime parameter (for `&'self Bms` things).
+        //       in reality, though, a lifetime parameter makes borrowck much
+        //       more strict and I ended up with wrapping `bms` to a mutable
+        //       managed box.
+        bms: @mut ~Bms,
+        infos: ~BmsInfo,
+        duration: float,
+        keyspec: ~KeySpec,
+        keymap: ~KeyMap,
+
+        // object additions
         /// (C: `nograding` field in `struct obj`)
         nograding: ~[bool],
 
+        // audio timekeeping
         /// (C: `playspeed`)
         playspeed: float,
         /// (C: `targetspeed`)
         targetspeed: Option<float>,
         /// (C: `bpm`)
         bpm: BPM,
+        /// (C: `now`)
+        now: uint,
         /// (C: `origintime`)
         origintime: uint,
         /// (C: `starttime`)
         starttime: uint,
         /// (C: `stoptime`)
         stoptime: Option<uint>,
-        /// (C: `poorlimit`)
-        poorlimit: Option<uint>,
         /// (C: `startoffset`)
         startoffset: float,
         /// (C: `startshorten`)
         startshorten: float,
+
+        // gfx/input timekeeping
+        /// (C: `bottom`)
+        bottom: float,
+        /// (C: `top`)
+        top: float,
+        /// (C: `pfront`)
+        pfront: Pointer,
+        /// (C: `pcur`)
+        pcur: Pointer,
+        /// (C: `pcheck`)
+        pcheck: Pointer,
+        /// (C: `pthru`)
+        pthru: [Option<Pointer>, ..NLANES],
+
+        // grading and scoring
         /// (C: `gradefactor`)
         gradefactor: float,
-        /// (C: `pfront`)
-        pfront: Pointer<'self>,
-        /// (C: `pcur`)
-        pcur: Pointer<'self>,
-        /// (C: `pcheck`)
-        pcheck: Pointer<'self>,
-        /// (C: `pthru`)
-        pthru: [Option<Pointer<'self>>, ..NLANES],
+        /// (C: `grademode`)
+        lastgrade: Grade,
+        /// (C: `scocnt`)
+        gradecounts: [uint, ..NGRADES],
+        /// (C: `scombo`)
+        lastcombo: uint,
+        /// (C: `smaxcombo`)
+        maxcombo: uint,
+        /// (C: `score`)
+        score: uint,
+        /// (C: `gauge`)
+        gauge: int,
+        /// (C: `survival`)
+        survival: int,
+
+        // input state
         /// (C: `keypressed[0]`)
         keymultiplicity: [uint, ..NLANES],
         /// (C: `keypressed[1]`)
         joystate: [InputState, ..NLANES],
     }
 
-    fn Player<'r>(opts: &'r Options, bms: &'r Bms, infos: &'r BmsInfo,
-                  keyspec: &'r KeySpec, keymap: &'r KeyMap) -> ~Player<'r> {
+    fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: float,
+              keyspec: ~KeySpec, keymap: ~KeyMap) -> Player {
         let now = ticks();
         let originoffset = infos.originoffset;
         let startshorten = bms.shorten_factor(originoffset as int);
         let gradefactor = 1.5 - cmp::min(bms.rank, 5) as float * 0.25;
-        ~Player {
-            opts: opts, bms: bms, infos: infos, keyspec: keyspec,
-            keymap: keymap, nograding: vec::from_elem(bms.objs.len(), false),
-            playspeed: 1.0, targetspeed: None, bpm: bms.initbpm,
-            origintime: now, starttime: now, stoptime: None, poorlimit: None,
+        let initialgauge = MAXGAUGE * 500 / 1000;
+        let survival = MAXGAUGE * 293 / 1000;
+        let initbpm = bms.initbpm;
+        let nobjs = bms.objs.len();
+
+        let bms = @mut bms;
+        let initptr = Pointer(bms);
+        Player {
+            opts: opts, bms: bms, infos: infos, duration: duration,
+            keyspec: keyspec, keymap: keymap,
+
+            nograding: vec::from_elem(nobjs, false),
+
+            playspeed: 1.0, targetspeed: None, bpm: initbpm, now: now,
+            origintime: now, starttime: now, stoptime: None,
             startoffset: originoffset, startshorten: startshorten,
-            gradefactor: gradefactor, pfront: Pointer(bms),
-            pcur: Pointer(bms), pcheck: Pointer(bms), pthru: [None, ..NLANES],
+
+            bottom: originoffset, top: originoffset, pfront: initptr,
+            pcur: initptr, pcheck: initptr, pthru: [None, ..NLANES],
+
+            gradefactor: gradefactor, lastgrade: MISS,
+            gradecounts: [0, ..NGRADES], lastcombo: 0, maxcombo: 0, score: 0,
+            gauge: initialgauge, survival: survival,
+
             keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
         }
     }
 
-    pub impl<'self> Player<'self> {
-        fn tick(&mut self) {
+    pub impl Player {
+        fn key_pressed(&self, lane: Lane) -> bool {
+            self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
+        }
+
+        fn tick(&mut self) -> bool {
             // Rust: this is very extreme case of loan conflict. (#4666)
+            let nograding = &mut self.nograding;
             let targetspeed = &mut self.targetspeed;
             let playspeed = &mut self.playspeed;
             let stoptime = &mut self.stoptime;
@@ -3723,13 +3883,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let startshorten = &mut self.startshorten;
             let gradefactor = *&mut self.gradefactor;
             let bpm = &mut self.bpm;
-            let nograding = &mut self.nograding;
             let pfront = &mut self.pfront;
             let pcur = &mut self.pcur;
             let pcheck = &mut self.pcheck;
             let pthru = &mut self.pthru;
             let keymultiplicity = &mut self.keymultiplicity;
             let joystate = &mut self.joystate;
+            let bms = &*self.bms;
 
             if targetspeed.is_some() {
                 let target = targetspeed.get();
@@ -3759,7 +3919,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             };
 
             let bottommeasure = bottom.floor();
-            let curshorten = self.bms.shorten_factor(bottommeasure as int);
+            let curshorten = bms.shorten_factor(bottommeasure as int);
             if bottommeasure >= -1.0 && *startshorten != curshorten {
                 let measurediff = bottommeasure as float - *startoffset;
                 *starttime += (bpm.measure_to_msec(measurediff) *
@@ -3768,18 +3928,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 *startshorten = curshorten;
             }
 
-            //let line = self.bms.adjust_object_time(bottom, 0.03/*playspeed);
+            //let line = bms.adjust_object_time(bottom, 0.03/*playspeed);
             let line = bottom;
-            let lineshorten = self.bms.shorten_factor(line.floor() as int);
-            let top = self.bms.adjust_object_time(bottom, 1.25/(*playspeed));
+            let lineshorten = bms.shorten_factor(line.floor() as int);
+            let top = bms.adjust_object_time(bottom, 1.25/(*playspeed));
 
             pfront.seek_until(bottom);
-            //for pcur.iter_until(line) |&obj| { // XXX #4666
-            let nobjs = pcur.objs.len();         // XXX #4666
-            while pcur.pos < nobjs {             // XXX #4666
-                let obj = &pcur.objs[pcur.pos];  // XXX #4666
-                if obj.time >= line { break; }   // XXX #4666
-
+            for pcur.iter_until(line) |&obj| {
                 match obj.data {
                     BGM(ref sref) => {
                         //if (index) play_sound(index, 1);
@@ -3817,14 +3972,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
                     _ => ()
                 }
-
-                pcur.pos += 1; // XXX #4666
             }
 
             if !self.opts.is_autoplay() {
                 for pcheck.iter_to(pcur.pos) |&obj| {
                     let dist = bpm.measure_to_msec(line - obj.time) *
-                               self.bms.shorten_factor(obj.measure()) *
+                               bms.shorten_factor(obj.measure()) *
                                gradefactor;
                     if dist < 144.0 { break; }
                     if nograding[pcheck.pos] {
@@ -3847,7 +4000,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             loop {
                 let (key, state) = match poll_event() {
                     NoEvent => break,
-                    QuitEvent | KeyEvent(EscapeKey,_,_,_) => return,
+                    QuitEvent | KeyEvent(EscapeKey,_,_,_) => return false,
                     KeyEvent(key,true,_,_) => (KeyInput(key), Positive),
                     KeyEvent(key,false,_,_) => (KeyInput(key), Neutral),
                     JoyButtonEvent(_which,button,true) =>
@@ -3934,16 +4087,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
                 let process_unpress = |lane: Lane| {
                     for pthru[*lane].each |&thru| {
-                        let nextlndone =
-                            do thru.find_next_of_type |&obj| {
-                                obj.object_lane() == Some(lane) &&
-                                obj.is_lndone()
-                            };
-                        for nextlndone.each |&(i,obj)| {
-                            let delta = bpm.measure_to_msec(obj.time - line) *
+                        let nextlndone = do thru.find_next_of_type |&obj| {
+                            obj.object_lane() == Some(lane) &&
+                            obj.is_lndone()
+                        };
+                        for nextlndone.each |&p| {
+                            let delta = bpm.measure_to_msec(p.time() - line) *
                                         lineshorten * gradefactor;
                             if num::abs(delta) < 144.0 {
-                                nograding[i] = true;
+                                nograding[p.pos] = true;
                             } else {
                                 //update_grade(0, 0, 0);
                             }
@@ -3958,8 +4110,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             obj.object_lane() == Some(lane) &&
                             obj.is_soundable()
                         };
-                    for soundable.each |&(_,obj)| {
-                        for obj.sounds().each |&sref| {
+                    for soundable.each |&p| {
+                        for p.sounds().each |&sref| {
                             //play_sound(objs[l].index, 0);
                         }
                     }
@@ -3969,18 +4121,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             obj.object_lane() == Some(lane) &&
                             obj.is_gradable()
                         };
-                    for gradable.each |&(i,obj)| {
-                        if i >= pcheck.pos && !nograding[i] &&
-                                !obj.is_lndone() {
-                            let delta = num::abs(
-                                bpm.measure_to_msec(obj.time - line) *
-                                lineshorten * gradefactor);
-                            if delta < 144.0 {
-                                if obj.is_lnstart() {
+                    for gradable.each |&p| {
+                        if p.pos >= pcheck.pos && !nograding[p.pos] &&
+                                !p.is_lndone() {
+                            let delta = bpm.measure_to_msec(p.time() - line) *
+                                        lineshorten * gradefactor;
+                            if num::abs(delta) < 144.0 {
+                                if p.is_lnstart() {
                                     pthru[*lane] =
-                                        Some(pointer_with_pos(self.bms, i));
+                                        Some(pointer_with_pos(self.bms,
+                                                              p.pos));
                                 }
-                                nograding[i] = true;
+                                nograding[p.pos] = true;
                                 //update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, (1-tmp/144)*300, 0);
                             }
                         }
@@ -4019,6 +4171,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             }
 
+            // used for reference time & positions for rendering
+            *&mut self.now = now;
+            *&mut self.bottom = bottom;
+            *&mut self.top = top;
+            true
         }
     }
 
@@ -4101,8 +4258,21 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
-        fn render_back(&self, screen: &Surface, sprite: &Surface) {
-            // TODO
+        fn render_back(&self, screen: &Surface, sprite: &Surface,
+                       pressed: bool) {
+            let width = self.width as u16;
+            let scrheight = SCREENH as u16;
+            screen.fill_rect(Some(Rect { x: self.left as i16, y: 30,
+                                         w: width, h: scrheight - 110 }),
+                             RGB(0,0,0));
+            if pressed {
+                let height = scrheight - 220;
+                screen.blit_rect(sprite,
+                                 Some(Rect { x: self.spriteleft as i16,
+                                             y: 140, w: width, h: height }),
+                                 Some(Rect { x: self.left as i16, y: 140,
+                                             w: width, h: height }));
+            }
         }
 
         fn render_note(&self, screen: &Surface, sprite: &Surface,
@@ -4127,23 +4297,23 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     fn build_lane_styles(keyspec: &KeySpec) -> (uint, Option<uint>,
-                                                ~[Option<LaneStyle>]) {
+                                                ~[(Lane,LaneStyle)]) {
         let mut leftmost = 0, rightmost = SCREENW;
-        let mut styles = vec::from_elem(NLANES, None);
-        for keyspec.left_lanes().each |&Lane(lane)| {
-            let kind = keyspec.kinds[lane];
+        let mut styles = ~[];
+        for keyspec.left_lanes().each |&lane| {
+            let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.get();
             let style = LaneStyle::from_kind(kind, Left(leftmost));
-            styles[lane] = Some(style);
+            styles.push((lane, style));
             leftmost += style.width + 1;
         }
-        for keyspec.right_lanes().each |&Lane(lane)| {
-            let kind = keyspec.kinds[lane];
+        for keyspec.right_lanes().each |&lane| {
+            let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.get();
             let style = LaneStyle::from_kind(kind, Right(rightmost));
-            styles[lane] = Some(style);
+            styles.push((lane, style));
             rightmost -= style.width + 1;
         }
 
@@ -4154,14 +4324,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
     /// (C: sprite construction portion of `play_prepare`)
     fn create_sprite(opts: &Options, leftmost: uint, rightmost: Option<uint>,
-                     styles: &[Option<LaneStyle>]) -> ~Surface {
+                     styles: &[(Lane,LaneStyle)]) -> ~Surface {
         let sprite = new_surface(SCREENW + 400, SCREENH);
         let height = SCREENH as i16;
         let black = RGB(0,0,0);
         let gray = RGB(0x40,0x40,0x40); // gray used for separators
 
         // render notes and lane backgrounds
-        for styles.each_some |style| {
+        for styles.each |&(_,style)| {
             style.render_to_sprite(sprite);
         }
 
@@ -4216,7 +4386,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     trait Display {
-        pub fn render(&self, player: &Player);
+        pub fn render(&mut self, player: &Player);
     }
 
     struct GraphicDisplay {
@@ -4230,35 +4400,227 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         leftmost: uint,
         /// (C: `tpanel2`)
         rightmost: Option<uint>,
+        /// (C: `tkey` and `tkeyleft`)
+        lanestyles: ~[(Lane,LaneStyle)],
         /// (C: `tbgax`)
         bgax: uint,
         /// (C: `tbgay`)
         bgay: uint,
+
+        /// (C: `poorlimit`)
+        poorlimit: Option<uint>,
+        /// (C: `gradetime`)
+        gradelimit: Option<uint>,
     }
 
     fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
-                      font: ~Font) -> ~GraphicDisplay {
+                      font: ~Font) -> GraphicDisplay {
         let (leftmost, rightmost, styles) = build_lane_styles(keyspec);
         let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
         let bgax = leftmost + (centerwidth - BGAW) / 2;
         let bgay = (SCREENH - BGAH) / 2;
         let sprite = create_sprite(opts, leftmost, rightmost, styles);
 
-        let w = SCREENW as u16, h = SCREENH as i16;
-        screen.fill(RGB(0,0,0));
-        screen.blit_rect(sprite, Some(Rect{x:0, y:0, w:w, h:30}),
-                                 Some(Rect{x:0, y:0, w:w, h:30}));
-        screen.blit_rect(sprite, Some(Rect{x:0, y:h-80, w:w, h:80}),
-                                 Some(Rect{x:0, y:h-80, w:w, h:80}));
-        screen.flip();
+        let display = GraphicDisplay {
+            sprite: sprite, screen: screen, font: font, leftmost: leftmost,
+            rightmost: rightmost, lanestyles: styles, bgax: bgax, bgay: bgay,
+            poorlimit: None, gradelimit: None,
+        };
 
-        ~GraphicDisplay { sprite: sprite, screen: screen, font: font,
-                          leftmost: leftmost, rightmost: rightmost,
-                          bgax: bgax, bgay: bgay }
+        display.screen.fill(RGB(0,0,0));
+        display.restore_panel();
+        display.screen.flip();
+
+        display
     }
 
-    pub impl GraphicDisplay {
-        
+    /// (C: `tgradestr` and `tgradecolor`)
+    static GRADES: &'static [(&'static str,Gradient)] = &[
+        // Rust: can we just use `Gradient()`???
+        ("MISS",  Gradient { top:    RGB(0xff,0x80,0x80),
+                             bottom: RGB(0xff,0x40,0x40) }),
+        ("BAD",   Gradient { top:    RGB(0xff,0x80,0xff),
+                             bottom: RGB(0xff,0x40,0xff) }),
+        ("GOOD",  Gradient { top:    RGB(0xff,0xff,0x80),
+                             bottom: RGB(0xff,0xff,0x40) }),
+        ("GREAT", Gradient { top:    RGB(0x80,0xff,0x80),
+                             bottom: RGB(0x40,0xff,0x40) }),
+        ("COOL",  Gradient { top:    RGB(0x80,0x80,0xff),
+                             bottom: RGB(0x40,0x40,0xff) }),
+    ];
+
+    impl GraphicDisplay {
+        fn restore_panel(&self) {
+            let screen: &Surface = self.screen;
+            let sprite: &Surface = self.sprite;
+            let w = SCREENW as u16, h = SCREENH as i16;
+            screen.blit_rect(sprite, Some(Rect{x:0, y:0, w:w, h:30}),
+                                     Some(Rect{x:0, y:0, w:w, h:30}));
+            screen.blit_rect(sprite, Some(Rect{x:0, y:h-80, w:w, h:80}),
+                                     Some(Rect{x:0, y:h-80, w:w, h:80}));
+        }
+    }
+
+    impl Display for GraphicDisplay {
+        fn render(&mut self, player: &Player) {
+            let screen = &*self.screen;
+            let sprite = &*self.sprite;
+            let font = &*self.font;
+            let bms = &*player.bms;
+
+            // fill the lanes to the border color
+            screen.fill_rect(Some(Rect { x: 0, y: 30, w: self.leftmost as u16,
+                                         h: SCREENH as u16 - 110 }),
+                             RGB(0x40,0x40,0x40));
+            for self.rightmost.each |&rightmost| {
+                screen.fill_rect(Some(Rect { x: rightmost as i16, y: 30,
+                                             w: (SCREENH - rightmost) as u16,
+                                             h: 490 }),
+                                 RGB(0x40,0x40,0x40));
+            }
+            for self.lanestyles.each |&(lane,style)| {
+                style.render_back(screen, sprite, player.key_pressed(lane));
+            }
+
+            screen.set_clip_rect(&Rect { x: 0, y: 30, w: SCREENW as u16,
+                                         h: (SCREENH - 110) as u16 });
+
+            // render objects
+            let time_to_y = |time| {
+                let adjusted = bms.adjust_object_position(player.bottom,
+                                                          time);
+                (SCREENH-70) - (400.0 * player.playspeed * adjusted) as uint
+            };
+            for self.lanestyles.each |&(lane,style)| {
+                let front = do player.pfront.find_next_of_type |&obj| {
+                    obj.object_lane() == Some(lane) && obj.is_renderable()
+                };
+                if front.is_none() { loop; }
+                let front = front.get();
+
+                // LN starting before the bottom and ending after the top
+                if front.time() > player.top && front.is_lndone() {
+                    style.render_note(screen, sprite, 30, SCREENH - 80);
+                } else {
+                    let mut i = front.pos;
+                    let mut nextbottom = None;
+                    let nobjs = bms.objs.len(), top = player.top;
+                    while i < nobjs && bms.objs[i].time <= top {
+                        let y = time_to_y(bms.objs[i].time);
+                        match bms.objs[i].data {
+                            LNStart(lane0,_) if lane0 == lane => {
+                                assert!(nextbottom.is_some());
+                                nextbottom = Some(y);
+                            }
+                            LNDone(lane0,_) if lane0 == lane => {
+                                style.render_note(screen, sprite,
+                                    y, nextbottom.get_or_default(SCREENH-80));
+                                nextbottom = None;
+                            }
+                            Visible(lane0,_) if lane0 == lane => {
+                                assert!(nextbottom.is_none());
+                                style.render_note(screen, sprite, y - 5, y);
+                            }
+                            Bomb(lane0,_,_) if lane0 == lane => {
+                                assert!(nextbottom.is_none());
+                                style.render_bomb(screen, sprite, y - 5, y);
+                            }
+                            _ => ()
+                        }
+                        i += 1;
+                    }
+
+                    for nextbottom.each |&y| {
+                        style.render_note(screen, sprite, SCREENH-80, y);
+                    }
+                }
+            }
+
+            // render measure bars
+            for int::range(player.bottom.floor() as int,
+                           player.top.floor() as int) |i| {
+                let y = time_to_y(i as float) as i16;
+                screen.fill_rect(Some(Rect { x: 0, y: y,
+                                             w: self.leftmost as u16, h: 1 }),
+                                 RGB(0xc0,0xc0,0xc0));
+                for self.rightmost.each |&rightmost| {
+                    screen.fill_rect(Some(Rect { x: rightmost as i16, y: y,
+                                                 w: 800 - rightmost as u16,
+                                                 h: 1 }),
+                                     RGB(0xc0,0xc0,0xc0));
+                }
+            }
+
+            // render grading text
+            if self.gradelimit.is_some() {
+                let gradelimit = self.gradelimit.get();
+                let (gradename,gradecolor) = GRADES[player.lastgrade as uint];
+                let delta = cmp::max(0, (gradelimit - player.now - 400) / 15);
+                font.print_string(screen, self.leftmost/2,
+                                  SCREENH/2 - 40 - delta, 2, Centered,
+                                  gradename, gradecolor);
+                if player.lastcombo > 1 {
+                    font.print_string(screen, self.leftmost/2,
+                                      SCREENH/2 - 12 - delta, 1, Centered,
+                                      fmt!("%u COMBO", player.lastcombo),
+                                      Gradient(RGB(0x80,0x80,0x80),
+                                               RGB(0xff,0xff,0xff)));
+                }
+                if player.opts.is_autoplay() {
+                    font.print_string(screen, self.leftmost/2,
+                                      SCREENH/2 + 2 - delta, 1,
+                                      Centered, "(AUTO)",
+                                      Gradient(RGB(0x40,0x40,0x40),
+                                               RGB(0xc0,0xc0,0xc0)));
+                }
+            }
+
+            screen.set_clip_rect(&screen.get_rect());
+
+            // render panel
+            let elapsed = (player.now - player.origintime) / 1000;
+            let duration = player.duration as uint;
+            let durationmsec = (player.duration * 1000.0) as uint;
+            self.restore_panel();
+            font.print_string(screen, 10, 8, 1, LeftAligned,
+                              fmt!("SCORE %07u", player.score), RGB(0,0,0));
+            font.print_string(screen, 5, SCREENH-78, 2, LeftAligned,
+                              fmt!("%4.1fx", player.playspeed), RGB(0,0,0));
+            font.print_string(screen, self.leftmost-94, SCREENH-35,
+                              1, LeftAligned,
+                              fmt!("%02u:%02u / %02u:%02u",
+                                   elapsed/60, elapsed%60,
+                                   duration/60, duration%60), RGB(0,0,0));
+            font.print_string(screen, 95, SCREENH-62, 1, LeftAligned,
+                              fmt!("@%9.4f", player.bottom), RGB(0,0,0));
+            font.print_string(screen, 95, SCREENH-78, 1, LeftAligned,
+                              fmt!("BPM %6.2f", *player.bpm), RGB(0,0,0));
+            let timetick =
+                cmp::min(self.leftmost, (player.now - player.origintime) *
+                                        self.leftmost / durationmsec);
+            font.print_glyph(screen, 6 + timetick, SCREENH-52, 1,
+                             95, RGB(0x40,0x40,0x40)); // glyph #95 for tick
+
+            // render gauge
+            if !player.opts.is_autoplay() {
+                // cycles four times per measure, [0,40)
+                let cycle = (160.0 * player.startshorten *
+                             player.bottom).floor() % 40.0;
+                let width =
+                    if player.gauge < 0 { 0 }
+                    else { player.gauge * 400 / MAXGAUGE - (cycle as int) };
+                let width = ::util::cmp::clamp(5, width, 360);
+                let color =
+                    if player.gauge >= player.survival { RGB(0xc0,0,0) }
+                    else { RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0) };
+                screen.fill_rect(Some(Rect { x: 4, y: (SCREENH-12) as i16,
+                                             w: width as u16, h: 8 }), color);
+            }
+
+            // TODO bga
+
+            screen.flip();
+        }
     }
 
     //------------------------------------------------------------------------
@@ -4266,20 +4628,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
     pub fn play(opts: ~Options) {
         let r = rand::task_rng();
-        let mut bms =
-            match parse_bms(opts.bmspath, r) {
-                Ok(bms) => bms,
-                Err(err) => die!("Couldn't load BMS file: %s", err)
-            };
+        let mut bms: ~Bms = match parse_bms(opts.bmspath, r) {
+            Ok(bms) => ~bms,
+            Err(err) => die!("Couldn't load BMS file: %s", err)
+        };
         sanitize_bms(bms);
 
-        let keyspec =
-            match key_spec(bms, opts) {
-                Ok(keyspec) => keyspec,
-                Err(err) => die!("%s", err)
-            };
+        let keyspec: ~KeySpec = match key_spec(bms, opts) {
+            Ok(keyspec) => keyspec,
+            Err(err) => die!("%s", err)
+        };
         compact_bms(bms, keyspec);
-        let infos = analyze_bms(bms);
+        let infos: ~BmsInfo = ~analyze_bms(bms);
 
         for opts.modf.each |&modf| {
             apply_modf(bms, modf, r, keyspec, 0, keyspec.split);
@@ -4289,15 +4649,19 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
-        let bms = bms;
+        let (port, chan) = comm::stream();
+        chan.send(~(opts, bms, infos, keyspec));
+
         do start {
+            let ~(opts, bms, infos, keyspec) = port.recv();
+
             init_sdl();
             for opts.joystick.each |&joyidx| { init_joystick(joyidx); }
 
             // this has to be done after SDL initialization.
-            let keymap = read_keymap(keyspec, os::getenv);
+            let keymap = ~read_keymap(keyspec, os::getenv);
 
-            let mut font = Font();
+            let mut font = ~Font();
             font.create_zoomed_font(1);
             font.create_zoomed_font(2);
             let font = font;
@@ -4373,15 +4737,20 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // TODO sound_length
             let duration = bms_duration(bms, infos.originoffset, |_| 0.0);
-            let mut player = Player(opts, bms, infos, keyspec, keymap);
+            let mut player = Player(opts, bms, infos, duration,
+                                    keyspec, keymap);
             let display =
                 match screen {
                     Some(screen) =>
-                        @GraphicDisplay(opts, keyspec, screen, font),
+                        @mut GraphicDisplay(player.opts, player.keyspec,
+                                            screen, font),
                     None => fail!(~"TODO")
                 };
 
-            loop { check_exit(atexit); }
+            while player.tick() {
+                io::println("ticked");
+                display.render(&player);
+            }
 
             atexit();
         }
