@@ -479,7 +479,7 @@ pub mod util {
     }
 
     pub mod sdl {
-
+        #[doc(hidden)]
         pub extern {
             fn SDL_Delay(ms: u32);
             fn SDL_GetTicks() -> u32;
@@ -2429,7 +2429,180 @@ pub mod parser {
 // graphics
 
 pub mod gfx {
+    use sdl::Rect;
     pub use sdl::video::*;
+
+    //------------------------------------------------------------------------
+    // `Rect` additions
+
+    pub trait XyOpt {
+        fn xy_opt(&self) -> Option<(i16,i16)>;
+    }
+
+    pub trait Xy: XyOpt {
+        fn xy(&self) -> (i16,i16);
+    }
+
+    pub trait WhOpt {
+        fn wh_opt(&self) -> Option<(u16,u16)>;
+    }
+
+    pub trait Wh {
+        fn wh(&self) -> (u16,u16);
+    }
+
+    impl XyOpt for () {
+        #[inline(always)]
+        fn xy_opt(&self) -> Option<(i16,i16)> { None }
+    }
+
+    impl XyOpt for Rect {
+        #[inline(always)]
+        fn xy_opt(&self) -> Option<(i16,i16)> { Some((self.x, self.y)) }
+    }
+
+    impl<'self,T:XyOpt> XyOpt for &'self T {
+        #[inline(always)]
+        fn xy_opt(&self) -> Option<(i16,i16)> { (*self).xy_opt() }
+    }
+
+    impl Xy for Rect {
+        #[inline(always)]
+        fn xy(&self) -> (i16,i16) { (self.x, self.y) }
+    }
+
+    impl<'self,T:Xy> Xy for &'self T {
+        #[inline(always)]
+        fn xy(&self) -> (i16,i16) { (*self).xy() }
+    }
+
+    impl WhOpt for () {
+        #[inline(always)]
+        fn wh_opt(&self) -> Option<(u16,u16)> { None }
+    }
+
+    impl WhOpt for Rect {
+        #[inline(always)]
+        fn wh_opt(&self) -> Option<(u16,u16)> { Some((self.w, self.h)) }
+    }
+
+    impl WhOpt for Surface {
+        #[inline(always)]
+        fn wh_opt(&self) -> Option<(u16,u16)> { Some(self.get_size()) }
+    }
+
+    impl<'self,T:WhOpt> WhOpt for &'self T {
+        #[inline(always)]
+        fn wh_opt(&self) -> Option<(u16,u16)> { (*self).wh_opt() }
+    }
+
+    impl Wh for Rect {
+        #[inline(always)]
+        fn wh(&self) -> (u16,u16) { (self.w, self.h) }
+    }
+
+    impl Wh for Surface {
+        #[inline(always)]
+        fn wh(&self) -> (u16,u16) { self.get_size() }
+    }
+
+    impl<'self,T:Wh> Wh for &'self T {
+        #[inline(always)]
+        fn wh(&self) -> (u16,u16) { (*self).wh() }
+    }
+
+    trait ToInt16 {
+        fn to_i16(&self) -> i16;
+        fn to_u16(&self) -> u16;
+    }
+
+    macro_rules! define_ToInt16(
+        ($t:ty) => (impl ToInt16 for $t {
+                        #[inline(always)]
+                        fn to_i16(&self) -> i16 { *self as i16 }
+                        #[inline(always)]
+                        fn to_u16(&self) -> u16 { *self as u16 }
+                    })
+    )
+
+    define_ToInt16!(int)
+    define_ToInt16!(uint)
+    define_ToInt16!(i8)
+    define_ToInt16!(i16)
+    define_ToInt16!(i32)
+    define_ToInt16!(i64)
+    define_ToInt16!(u8)
+    define_ToInt16!(u16)
+    define_ToInt16!(u32)
+    define_ToInt16!(u64)
+
+    impl<X:ToInt16+Copy,Y:ToInt16+Copy> XyOpt for (X,Y) {
+        #[inline(always)]
+        fn xy_opt(&self) -> Option<(i16,i16)> {
+            let (x, y) = *self; Some((x.to_i16(), y.to_i16()))
+        }
+    }
+
+    impl<X:ToInt16+Copy,Y:ToInt16+Copy> Xy for (X,Y) {
+        #[inline(always)]
+        fn xy(&self) -> (i16,i16) {
+            let (x, y) = *self; (x.to_i16(), y.to_i16())
+        }
+    }
+
+    impl<W:ToInt16+Copy,H:ToInt16+Copy> WhOpt for (W,H) {
+        #[inline(always)]
+        fn wh_opt(&self) -> Option<(u16,u16)> {
+            let (w, h) = *self; Some((w.to_u16(), h.to_u16()))
+        }
+    }
+
+    impl<W:ToInt16+Copy,H:ToInt16+Copy> Wh for (W,H) {
+        #[inline(always)]
+        fn wh(&self) -> (u16,u16) {
+            let (w, h) = *self; (w.to_u16(), h.to_u16())
+        }
+    }
+
+    fn rect_from_xy<XY:Xy>(xy: XY) -> Rect {
+        let (x, y) = xy.xy();
+        Rect { x: x, y: y, w: 0, h: 0 }
+    }
+
+    fn rect_from_xywh<XY:Xy,WH:WhOpt>(xy: XY, wh: WH) -> Rect {
+        let (x, y) = xy.xy();
+        let (w, h) = wh.wh_opt().get_or_default((0, 0));
+        Rect { x: x, y: y, w: w, h: h }
+    }
+
+    pub trait SurfaceUtils {
+        fn set_clip_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH);
+        fn blit_area<SrcXY:Xy,DstXY:XyOpt,WH:WhOpt>(&self, src: &Surface,
+                srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool;
+        fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH,
+                                     color: Color) -> bool;
+    }
+
+    impl SurfaceUtils for Surface {
+        fn set_clip_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH) {
+            let rect = rect_from_xywh(xy, wh);
+            self.set_clip_rect(&rect)
+        }
+
+        fn blit_area<SrcXY:Xy,DstXY:XyOpt,WH:WhOpt>(&self, src: &Surface,
+                srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool {
+            let srcrect = rect_from_xywh(srcxy, wh);
+            let dstrect =
+                dstxy.xy_opt().map(|&xy| rect_from_xywh(xy, &srcrect));
+            self.blit_rect(src, Some(srcrect), dstrect)
+        }
+
+        fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH,
+                                     color: Color) -> bool {
+            let rect = rect_from_xywh(xy, wh);
+            self.fill_rect(Some(rect), color)
+        }
+    }
 
     //------------------------------------------------------------------------
     // color
@@ -3485,14 +3658,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             _ => return
         };
 
-        let x1 = cmp::max(bc.x1, 0) as i16;
-        let y1 = cmp::max(bc.y1, 0) as i16;
-        let x2 = cmp::min(bc.x2, bc.x1 + BGAW as int) as i16;
-        let y2 = cmp::min(bc.y2, bc.y1 + BGAH as int) as i16;
-        let w = (x2 - x1) as u16;
-        let h = (y2 - y1) as u16;
-        target.blit_rect(*origin, Some(Rect{x:x1, y:y1, w:w, h:h}),
-                                  Some(Rect{x:x2, y:y2, w:w, h:h}));
+        let x1 = cmp::max(bc.x1, 0);
+        let y1 = cmp::max(bc.y1, 0);
+        let x2 = cmp::min(bc.x2, bc.x1 + BGAW as int);
+        let y2 = cmp::min(bc.y2, bc.y1 + BGAH as int);
+        target.blit_area(*origin, (x1,y1), (x2,y2), (x2-x1,y2-y1));
     }
 
     /// (C: `load_resource`)
@@ -3673,7 +3843,6 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         fn find_previous_of_type(&self,
                                  cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let bms = &*self.bms;
-            let nobjs = bms.objs.len();
             let mut i = self.pos;
             while i > 0 {
                 i -= 1;
@@ -3761,8 +3930,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         opts: ~Options,
         // Rust: this should have been just `~Bms`, and `Pointer` should have
         //       received a lifetime parameter (for `&'self Bms` things).
-        //       in reality, though, a lifetime parameter makes borrowck much
-        //       more strict and I ended up with wrapping `bms` to a mutable
+        //       in reality, though, a lifetime parameter made borrowck much
+        //       stricter and I ended up with wrapping `bms` to a mutable
         //       managed box.
         bms: @mut ~Bms,
         infos: ~BmsInfo,
@@ -4221,7 +4390,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         fn back_color(&self) -> Gradient {
-            Gradient(RGB(0,0,0), self.basecolor)
+            Gradient(self.basecolor, RGB(0,0,0))
         }
 
         fn render_to_sprite(&self, sprite: &Surface) {
@@ -4236,63 +4405,43 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let backcolor = self.back_color();
 
             // render a background sprite
-            let notewidth = self.width as u16;
             for uint::range(140, SCREENH - 80) |i| {
-                sprite.fill_rect(Some(Rect { x: left as i16, y: i as i16,
-                                             w: notewidth, h: 1 }),
+                sprite.fill_area((left, i), (self.width, 1),
                                  backcolor.blend(i as int - 140, 1000));
             }
 
             // render note and bomb sprites
             let denom = self.width as int;
-            let height = SCREENH as u16;
             for uint::range(0, self.width / 2) |i| {
                 let num = (self.width - i) as int;
-                let width = (self.width - i*2) as u16;
-                sprite.fill_rect(Some(Rect { x: (noteleft+i) as i16, y: 0,
-                                             w: width, h: height }),
+                sprite.fill_area((noteleft+i, 0), (self.width-i*2, SCREENH),
                                  notecolor.blend(num, denom));
-                sprite.fill_rect(Some(Rect { x: (bombleft+i) as i16, y: 0,
-                                             w: width, h: height }),
+                sprite.fill_area((bombleft+i, 0), (self.width-i*2, SCREENH),
                                  bombcolor.blend(num, denom));
             }
         }
 
         fn render_back(&self, screen: &Surface, sprite: &Surface,
                        pressed: bool) {
-            let width = self.width as u16;
-            let scrheight = SCREENH as u16;
-            screen.fill_rect(Some(Rect { x: self.left as i16, y: 30,
-                                         w: width, h: scrheight - 110 }),
+            screen.fill_area((self.left, 30), (self.width, SCREENH-110),
                              RGB(0,0,0));
             if pressed {
-                let height = scrheight - 220;
-                screen.blit_rect(sprite,
-                                 Some(Rect { x: self.spriteleft as i16,
-                                             y: 140, w: width, h: height }),
-                                 Some(Rect { x: self.left as i16, y: 140,
-                                             w: width, h: height }));
+                screen.blit_area(sprite,
+                                 (self.spriteleft, 140), (self.left, 140),
+                                 (self.width, SCREENH-220));
             }
         }
 
         fn render_note(&self, screen: &Surface, sprite: &Surface,
                        top: uint, bottom: uint) {
-            let w = self.width as u16, h = (bottom - top) as u16;
-            let srcleft = (self.spriteleft + SCREENW) as i16;
-            let dstleft = self.left as i16;
-            screen.blit_rect(sprite,
-                Some(Rect { x: srcleft, y: 0, w: w, h: h }),
-                Some(Rect { x: dstleft, y: top as i16, w: w, h: h }));
+            screen.blit_area(sprite, (self.spriteleft + SCREENW, 0),
+                             (self.left, top), (self.width, bottom - top));
         }
 
         fn render_bomb(&self, screen: &Surface, sprite: &Surface,
                        top: uint, bottom: uint) {
-            let w = self.width as u16, h = (bottom - top) as u16;
-            let srcleft = (self.spritebombleft + SCREENW) as i16;
-            let dstleft = self.left as i16;
-            screen.blit_rect(sprite,
-                Some(Rect { x: srcleft, y: 0, w: w, h: h }),
-                Some(Rect { x: dstleft, y: top as i16, w: w, h: h }));
+            screen.blit_area(sprite, (self.spritebombleft + SCREENW, 0),
+                             (self.left, top), (self.width, bottom - top));
         }
     }
 
@@ -4326,7 +4475,6 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     fn create_sprite(opts: &Options, leftmost: uint, rightmost: Option<uint>,
                      styles: &[(Lane,LaneStyle)]) -> ~Surface {
         let sprite = new_surface(SCREENW + 400, SCREENH);
-        let height = SCREENH as i16;
         let black = RGB(0,0,0);
         let gray = RGB(0x40,0x40,0x40); // gray used for separators
 
@@ -4351,17 +4499,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                           bottomgrad.blend(850 - num::abs(c-1000), 700));
             }
         }
-        sprite.fill_rect(Some(Rect { x: 10, y: height-36,
-                                     w: leftmost as u16, h: 1 }), gray);
+        sprite.fill_area((10, SCREENH-36), (leftmost, 1), gray);
 
         // erase portions of panels left unused
-        let leftgap = (leftmost + 20) as i16;
-        let rightgap = rightmost.map_default(SCREENW, |x| x - 20) as i16;
-        let gapwidth = (rightgap - leftgap) as u16;
-        sprite.fill_rect(Some(Rect { x: leftgap, y: 0,
-                                     w: gapwidth, h: 30 }), black);
-        sprite.fill_rect(Some(Rect { x: leftgap, y: height-80,
-                                     w: gapwidth, h: 80 }), black);
+        let leftgap = leftmost + 20;
+        let rightgap = rightmost.map_default(SCREENW, |x| x - 20);
+        let gapwidth = rightgap - leftgap;
+        sprite.fill_area((leftgap, 0), (gapwidth, 30), black);
+        sprite.fill_area((leftgap, SCREENH-80), (gapwidth, 80), black);
         for uint::range(0, 20) |i| {
             for uint::range_rev(20, 0) |j| {
                 if i*i + j*j <= 400 { break; } // circled border
@@ -4376,10 +4521,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         // draw the gauge bar if needed
         if !opts.is_autoplay() {
-            sprite.fill_rect(Some(Rect { x: 0, y: height-16,
-                                         w: 368, h: 16 }), gray);
-            sprite.fill_rect(Some(Rect { x: 4, y: height-12,
-                                         w: 360, h: 8 }), black);
+            sprite.fill_area((0, SCREENH-16), (368, 16), gray);
+            sprite.fill_area((4, SCREENH-12), (360, 8), black);
         }
 
         sprite
@@ -4453,11 +4596,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         fn restore_panel(&self) {
             let screen: &Surface = self.screen;
             let sprite: &Surface = self.sprite;
-            let w = SCREENW as u16, h = SCREENH as i16;
-            screen.blit_rect(sprite, Some(Rect{x:0, y:0, w:w, h:30}),
-                                     Some(Rect{x:0, y:0, w:w, h:30}));
-            screen.blit_rect(sprite, Some(Rect{x:0, y:h-80, w:w, h:80}),
-                                     Some(Rect{x:0, y:h-80, w:w, h:80}));
+            screen.blit_area(sprite, (0,0), (0,0), (SCREENW,30));
+            screen.blit_area(sprite,
+                             (0,SCREENH-80), (0,SCREENH-80), (SCREENW,80));
         }
     }
 
@@ -4469,21 +4610,17 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let bms = &*player.bms;
 
             // fill the lanes to the border color
-            screen.fill_rect(Some(Rect { x: 0, y: 30, w: self.leftmost as u16,
-                                         h: SCREENH as u16 - 110 }),
+            screen.fill_area((0, 30), (self.leftmost, SCREENH-110),
                              RGB(0x40,0x40,0x40));
             for self.rightmost.each |&rightmost| {
-                screen.fill_rect(Some(Rect { x: rightmost as i16, y: 30,
-                                             w: (SCREENH - rightmost) as u16,
-                                             h: 490 }),
+                screen.fill_area((rightmost, 30), (SCREENH-rightmost, 490),
                                  RGB(0x40,0x40,0x40));
             }
             for self.lanestyles.each |&(lane,style)| {
                 style.render_back(screen, sprite, player.key_pressed(lane));
             }
 
-            screen.set_clip_rect(&Rect { x: 0, y: 30, w: SCREENW as u16,
-                                         h: (SCREENH - 110) as u16 });
+            screen.set_clip_area((0, 30), (SCREENW, SCREENH-110));
 
             // render objects
             let time_to_y = |time| {
@@ -4538,15 +4675,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // render measure bars
             for int::range(player.bottom.floor() as int,
-                           player.top.floor() as int) |i| {
-                let y = time_to_y(i as float) as i16;
-                screen.fill_rect(Some(Rect { x: 0, y: y,
-                                             w: self.leftmost as u16, h: 1 }),
+                           player.top.floor() as int + 1) |i| {
+                let y = time_to_y(i as float);
+                screen.fill_area((0, y), (self.leftmost, 1),
                                  RGB(0xc0,0xc0,0xc0));
                 for self.rightmost.each |&rightmost| {
-                    screen.fill_rect(Some(Rect { x: rightmost as i16, y: y,
-                                                 w: 800 - rightmost as u16,
-                                                 h: 1 }),
+                    screen.fill_area((rightmost, y), (800-rightmost, 1),
                                      RGB(0xc0,0xc0,0xc0));
                 }
             }
@@ -4613,8 +4747,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let color =
                     if player.gauge >= player.survival { RGB(0xc0,0,0) }
                     else { RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0) };
-                screen.fill_rect(Some(Rect { x: 4, y: (SCREENH-12) as i16,
-                                             w: width as u16, h: 8 }), color);
+                screen.fill_area((4, SCREENH-12), (width, 8), color);
             }
 
             // TODO bga
@@ -4679,9 +4812,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 show_stagefile_screen(bms, infos, keyspec, opts,
                                       screen, font);
                 let surface = new_surface(SCREENW, 20);
-                let w = SCREENW as u16, h = SCREENH as i16;
-                surface.blit_rect(screen, Some(Rect{x:0, y:h-20, w:w, h:20}),
-                                          Some(Rect{x:0, y:0,    w:w, h:20}));
+                surface.blit_area(screen,
+                                  (0,SCREENH-20), (0,0), (SCREENW,20));
                 saved_screen = Some(surface);
             } else if opts.showinfo {
                 show_stagefile_noscreen(bms, infos, keyspec, opts);
@@ -4748,7 +4880,6 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 };
 
             while player.tick() {
-                io::println("ticked");
                 display.render(&player);
             }
 
