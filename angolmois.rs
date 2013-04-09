@@ -334,16 +334,6 @@ pub mod util {
             fn each_some(&self, blk: &fn(v: &A) -> bool);
         }
 
-        impl<A> OptionalIter<A> for BaseIter<Option<A>> {
-            fn each_some(&self, blk: &fn(v: &A) -> bool) {
-                for self.each |e| {
-                    for e.each |v| {
-                        if !blk(v) { return; }
-                    }
-                }
-            }
-        }
-
     }
 
     /**
@@ -455,26 +445,23 @@ pub mod util {
      * `libcore/hashmap.rs` and are not subject to the above copyright notice.
      */
     pub mod hashmap {
-        pub mod linear {
-            use core::hashmap::linear::*;
+        use core::hashmap::*;
 
-            // TODO make this constructible from any suitable iterator
-            pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)])
-                                            -> LinearMap<K,V> {
-                let mut map = LinearMap::new();
-                map.reserve_at_least(items.len());
-                for items.each |&(k,v)| { map.insert(k, v); }
-                map
-            }
+        // TODO make this constructible from any suitable iterator
+        pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)])
+                                        -> HashMap<K,V> {
+            let mut map = HashMap::new();
+            map.reserve_at_least(items.len());
+            for items.each |&(k,v)| { map.insert(k, v); }
+            map
+        }
 
-            // TODO make this constructible from any suitable iterator
-            pub fn set_from_vec<V:Eq+Hash+IterBytes>(items: &[V])
-                                            -> LinearSet<V> {
-                let mut set = LinearSet::new();
-                set.reserve_at_least(items.len());
-                for items.each |&v| { set.insert(v); }
-                set
-            }
+        // TODO make this constructible from any suitable iterator
+        pub fn set_from_vec<V:Eq+Hash+IterBytes>(items: &[V]) -> HashSet<V> {
+            let mut set = HashSet::new();
+            set.reserve_at_least(items.len());
+            for items.each |&v| { set.insert(v); }
+            set
         }
     }
 
@@ -2456,6 +2443,8 @@ pub mod gfx {
         fn xy_opt(&self) -> Option<(i16,i16)> { None }
     }
 
+    // Rust: we can't define these with `impl<T:Xy> XyOpt for T` due to
+    //       the ambiguity.
     impl XyOpt for Rect {
         #[inline(always)]
         fn xy_opt(&self) -> Option<(i16,i16)> { Some((self.x, self.y)) }
@@ -3377,7 +3366,7 @@ pub mod player {
                             (None, &[SpeedUpInput])] ),
     ];
 
-    type KeyMap = ::core::hashmap::linear::LinearMap<Input,VirtualInput>;
+    type KeyMap = ::core::hashmap::HashMap<Input,VirtualInput>;
 
     /// (C: `read_keymap`)
     fn read_keymap(keyspec: &KeySpec,
@@ -3408,7 +3397,7 @@ pub mod player {
             }
         }
 
-        let mut map = ::core::hashmap::linear::LinearMap::new();
+        let mut map = ::core::hashmap::HashMap::new();
         let add_mapping = |kind: Option<KeyKind>, input: Input,
                            vinput: VirtualInput| {
             if kind.map_default(true,
@@ -4382,11 +4371,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         fn note_color(&self) -> Gradient {
-            Gradient(RGB(0xff,0xff,0xff), self.basecolor)
+            Gradient(self.basecolor, RGB(0xff,0xff,0xff))
         }
 
         fn bomb_color(&self) -> Gradient {
-            Gradient(RGB(0,0,0), RGB(0xc0,0,0))
+            Gradient(RGB(0xc0,0,0), RGB(0,0,0))
         }
 
         fn back_color(&self) -> Gradient {
@@ -4646,7 +4635,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         let y = time_to_y(bms.objs[i].time);
                         match bms.objs[i].data {
                             LNStart(lane0,_) if lane0 == lane => {
-                                assert!(nextbottom.is_some());
+                                assert!(nextbottom.is_none());
                                 nextbottom = Some(y);
                             }
                             LNDone(lane0,_) if lane0 == lane => {
@@ -4713,13 +4702,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // render panel
             let elapsed = (player.now - player.origintime) / 1000;
-            let duration = player.duration as uint;
-            let durationmsec = (player.duration * 1000.0) as uint;
+            let duration = (player.duration / 1000.0) as uint;
+            let durationmsec = player.duration as uint;
             self.restore_panel();
             font.print_string(screen, 10, 8, 1, LeftAligned,
                               fmt!("SCORE %07u", player.score), RGB(0,0,0));
+            let nominalplayspeed =
+                player.targetspeed.get_or_default(player.playspeed);
             font.print_string(screen, 5, SCREENH-78, 2, LeftAligned,
-                              fmt!("%4.1fx", player.playspeed), RGB(0,0,0));
+                              fmt!("%4.1fx", nominalplayspeed), RGB(0,0,0));
             font.print_string(screen, self.leftmost-94, SCREENH-35,
                               1, LeftAligned,
                               fmt!("%02u:%02u / %02u:%02u",
@@ -4949,7 +4940,7 @@ Environment Variables:
 fn main() {
     use player::*;
 
-    let longargs = util::hashmap::linear::map_from_vec([
+    let longargs = util::hashmap::map_from_vec([
         (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
         (~"--autoplay", 'v'), (~"--exclusive", 'x'), (~"--sound-only", 'X'),
         (~"--windowed", 'w'), (~"--no-fullscreen", 'w'),
