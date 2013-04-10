@@ -446,6 +446,7 @@ pub mod util {
      */
     pub mod hashmap {
         use core::hashmap::*;
+        use core_compat::hashmap::*;
 
         // TODO make this constructible from any suitable iterator
         pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)])
@@ -703,6 +704,15 @@ pub mod util {
         ($e:expr; $lit:expr) => (lex!($e; $lit, ))
     )
 
+}
+
+/// For the compatibility with the 0.6 release.
+mod core_compat {
+    pub mod hashmap {
+        pub use core::hashmap::*;
+        #[cfg(legacy)] pub use HashMap = core::hashmap::linear::LinearMap;
+        #[cfg(legacy)] pub use HashSet = core::hashmap::linear::LinearSet;
+    }
 }
 
 //============================================================================
@@ -3366,7 +3376,7 @@ pub mod player {
                             (None, &[SpeedUpInput])] ),
     ];
 
-    type KeyMap = ::core::hashmap::HashMap<Input,VirtualInput>;
+    type KeyMap = ::core_compat::hashmap::HashMap<Input,VirtualInput>;
 
     /// (C: `read_keymap`)
     fn read_keymap(keyspec: &KeySpec,
@@ -3397,7 +3407,7 @@ pub mod player {
             }
         }
 
-        let mut map = ::core::hashmap::HashMap::new();
+        let mut map = ::core_compat::hashmap::HashMap::new();
         let add_mapping = |kind: Option<KeyKind>, input: Input,
                            vinput: VirtualInput| {
             if kind.map_default(true,
