@@ -949,11 +949,13 @@ pub mod parser {
         Layer2 = 1,
         /// The highest layer. BMS channel #0A. (C: `BGA3_LAYER`)
         Layer3 = 2,
-        /// The layer only displayed shortly after the MISS grade. BMS channel
-        /// #06. (C: `POORBGA_LAYER`)
+        /// The layer only displayed shortly after the MISS grade. It is
+        /// technically not over `Layer3`, but several extensions to BMS
+        /// assumes it. BMS channel #06. (C: `POORBGA_LAYER`)
         PoorBGA = 3
     }
 
+    /// The number of BGA layers.
     static NLAYERS: uint = 4;
 
     /// Beats per minute. Used as a conversion factor between the time
@@ -973,9 +975,15 @@ pub mod parser {
         }
     }
 
+    /// A duration from the particular point. It may be specified in measures
+    /// or seconds. Used in the `Stop` object.
     #[deriving(Eq)]
     pub enum Duration { Seconds(float), Measures(float) }
 
+    /// A damage value upon the MISS grade. Normally it is specified in
+    /// percents of the full gauge (as in `MAXGAUGE`), but sometimes it may
+    /// cause an instant death. Used in the `Bomb` object (normal note objects
+    /// have a fixed value).
     #[deriving(Eq)]
     pub enum Damage { GaugeDamage(float), InstantDeath }
 
@@ -1020,8 +1028,8 @@ pub mod parser {
         /// Sets the BPM. Negative BPM causes the chart scrolls backwards
         /// (and implicitly signals the end of the chart). (C: `BPM_CHANNEL`)
         SetBPM(BPM),
-        /// Stops the scroll of the chart for given duration.
-        /// (C: `STOP_CHANNEL`)
+        /// Stops the scroll of the chart for given duration ("scroll
+        /// stopper" hereafter). (C: `STOP_CHANNEL`)
         Stop(Duration)
     }
 
@@ -1864,7 +1872,7 @@ pub mod parser {
                 // TODO bpmtab validity check
                 8 => add(Obj::SetBPM(t, bpmtab[*v])),
 
-                // channel #09: chart stopper defined by #STOPxx
+                // channel #09: scroll stopper defined by #STOPxx
                 // TODO stoptab validity check
                 9 => add(Obj::Stop(t, stoptab[*v])),
 
@@ -3709,6 +3717,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // pointers
 
+    #[deriving(Clone)]
     struct Pointer {
         bms: @mut ~Bms,
         pos: uint
@@ -3912,6 +3921,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // game play logics
 
+    #[deriving(Eq)]
     enum Grade {
         MISS  = 0,
         BAD   = 1,
@@ -3920,84 +3930,129 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         COOL  = 4,
     }
 
+    static COOL_CUTOFF: float = 14.4;
+    static GREAT_CUTOFF: float = 48.0;
+    static GOOD_CUTOFF: float = 84.0;
+    static BAD_CUTOFF: float = 144.0;
+
     static NGRADES: uint = 5;
 
     static MAXGAUGE: int = 512;
+    static SCOREPERNOTE: float = 300.0;
 
+    static MISS_DAMAGE: Damage = GaugeDamage(0.059);
+    static BAD_DAMAGE: Damage = GaugeDamage(0.030);
+
+    /// Game play states independent to the display.
     struct Player {
-        // basic informations
+        /// The game play options.
         opts: ~Options,
+        /// The current BMS data.
         // Rust: this should have been just `~Bms`, and `Pointer` should have
         //       received a lifetime parameter (for `&'self Bms` things).
         //       in reality, though, a lifetime parameter made borrowck much
         //       stricter and I ended up with wrapping `bms` to a mutable
         //       managed box.
         bms: @mut ~Bms,
+        /// The derived BMS information.
         infos: ~BmsInfo,
+        /// The length of BMS file in seconds as calculated by `bms_duration`.
+        /// (C: `duration`)
         duration: float,
+        /// The key specification.
         keyspec: ~KeySpec,
+        /// The input mapping.
         keymap: ~KeyMap,
 
-        // object additions
-        /// (C: `nograding` field in `struct obj`)
+        /// Set to true if the corresponding object in `bms.objs` had graded
+        /// and should not be graded twice. Its length equals to that of
+        /// `bms.objs`. (C: `nograding` field in `struct obj`)
         nograding: ~[bool],
 
-        // audio timekeeping
-        /// (C: `playspeed`)
+        /// The chart expansion rate, or "play speed". One measure has
+        /// the length of 400 pixels times the play speed, so higher play
+        /// speed means that objects will fall much more quickly (hence
+        /// the name). (C: `playspeed`)
         playspeed: float,
+        /// The play speed targeted for speed change if any. It is also
+        /// the value displayed while the play speed is changing.
         /// (C: `targetspeed`)
         targetspeed: Option<float>,
-        /// (C: `bpm`)
+        /// The current BPM. Can be negative, in that case the chart will
+        /// scroll backwards. (C: `bpm`)
         bpm: BPM,
-        /// (C: `now`)
+        /// The timestamp at the last tick. It is a return value from
+        /// `util::sdl::ticks` and measured in milliseconds. (C: `now`)
         now: uint,
-        /// (C: `origintime`)
+        /// The timestamp at the first tick. (C: `origintime`)
         origintime: uint,
-        /// (C: `starttime`)
+        /// The timestamp at the last discontinuity that breaks a linear
+        /// relationship between the virtual time and actual time.
+        /// (C: `starttime`) Currently the following are considered
+        /// a discontinuity:
+        ///
+        /// * `origintime`
+        /// * A change in BPM
+        /// * A change in scaling factor of measure
+        /// * A scroll stopper (in this case, `stoptime` is first updated and
+        ///   `starttime` is updated at the end of stop)
         starttime: uint,
+        /// The timestamp at the end of ongoing scroll stopper, if any.
         /// (C: `stoptime`)
         stoptime: Option<uint>,
-        /// (C: `startoffset`)
+        /// The virtual time at the last discontinuity. (C: `startoffset`)
         startoffset: float,
-        /// (C: `startshorten`)
+        /// The current scaling factor of measure. (C: `startshorten`)
         startshorten: float,
 
-        // gfx/input timekeeping
-        /// (C: `bottom`)
+        /// The virtual time at the bottom of the visible chart. (C: `bottom`)
         bottom: float,
-        /// (C: `top`)
+        /// The virtual time at the top of the visible chart. (C: `top`)
         top: float,
-        /// (C: `pfront`)
+        /// A pointer to the first `Obj` after `bottom`. (C: `pfront`)
         pfront: Pointer,
-        /// (C: `pcur`)
+        /// A pointer to the first `Obj` after the grading line, which is
+        /// currently same as `bottom`. (C: `pcur`)
         pcur: Pointer,
-        /// (C: `pcheck`)
+        /// A pointer to the first `Obj` that haven't escaped the grading
+        /// area. It is possible that this `Obj` haven't reached the grading
+        /// area either. (C: `pcheck`)
         pcheck: Pointer,
-        /// (C: `pthru`)
-        pthru: [Option<Pointer>, ..NLANES],
+        /// Pointers to `Obj`s for the start of LN which grading is
+        /// in progress. (C: `pthru`)
+        pthru: ~[Option<Pointer>],
 
-        // grading and scoring
-        /// (C: `gradefactor`)
+        /// The scale factor for grading area. The factor less than 1 causes
+        /// the grading area shrink. (C: `gradefactor`)
         gradefactor: float,
         /// (C: `grademode`)
         lastgrade: Grade,
-        /// (C: `scocnt`)
+        /// The numbers of each grades. (C: `scocnt`)
         gradecounts: [uint, ..NGRADES],
+        /// The last combo number, i.e. the number of objects graded at least
+        /// GREAT. GOOD doesn't cause the combo number reset; BAD and MISS do.
         /// (C: `scombo`)
         lastcombo: uint,
-        /// (C: `smaxcombo`)
-        maxcombo: uint,
-        /// (C: `score`)
+        /// The best combo number so far. If the player manages to get no BADs
+        /// and MISSes, then the combo number should end up with the number of
+        /// note and LN objects (`BMSInfo::nnotes`). (C: `smaxcombo`)
+        bestcombo: uint,
+        /// The current score. (C: `score`)
         score: uint,
-        /// (C: `gauge`)
+        /// The current health gauge. Should be no larger than `MAXGAUGE`.
+        /// This can go negative (not displayed directly), which will require
+        /// players much more efforts to survive. (C: `gauge`)
         gauge: int,
-        /// (C: `survival`)
+        /// The health gauge required to survive at the end of the song.
+        /// Note that the gauge less than this value (or even zero) doesn't
+        /// cause the instant game over; only `InstantDeath` value from
+        /// `Damage` does. (C: `survival`)
         survival: int,
 
-        // input state
-        /// (C: `keypressed[0]`)
+        /// The number of keyboard or joystick keys, mapped to each lane and
+        /// and currently pressed. (C: `keypressed[0]`)
         keymultiplicity: [uint, ..NLANES],
-        /// (C: `keypressed[1]`)
+        /// The state of joystick axes. (C: `keypressed[1]`)
         joystate: [InputState, ..NLANES],
     }
 
@@ -4025,10 +4080,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             startoffset: originoffset, startshorten: startshorten,
 
             bottom: originoffset, top: originoffset, pfront: initptr,
-            pcur: initptr, pcheck: initptr, pthru: [None, ..NLANES],
+            pcur: initptr, pcheck: initptr, pthru: ~[None, ..NLANES],
 
             gradefactor: gradefactor, lastgrade: MISS,
-            gradecounts: [0, ..NGRADES], lastcombo: 0, maxcombo: 0, score: 0,
+            gradecounts: [0, ..NGRADES], lastcombo: 0, bestcombo: 0, score: 0,
             gauge: initialgauge, survival: survival,
 
             keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
@@ -4040,68 +4095,119 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
         }
 
+        /// (C: `update_grade`)
+        fn update_grade(&mut self, grade: Grade, scoredelta: float,
+                        damage: Option<Damage>) -> bool {
+            self.gradecounts[grade as uint] += 1;
+            self.lastgrade = grade;
+            //gradetime = now + 700; /* disappears after 700ms */
+            self.score += (scoredelta * SCOREPERNOTE *
+                           (1.0 + (self.lastcombo as float) /
+                                  (self.infos.nnotes as float))) as uint;
+
+            match grade {
+                MISS => {
+                    self.lastcombo = 0;
+                    //poorlimit = now + 600; /* switches to the normal BGA after 600ms */
+                }
+                BAD => { self.lastcombo = 0; }
+                GOOD => {}
+                GREAT|COOL => {
+                    // at most 5/512(1%) recover when the combo is topped
+                    let weight = if grade == GREAT {2} else {3};
+                    let cmbbonus = cmp::min(self.lastcombo as int, 100) / 50;
+                    self.lastcombo += 1;
+                    self.gauge += weight + cmbbonus;
+                }
+            }
+            self.bestcombo = cmp::max(self.bestcombo, self.lastcombo);
+
+            match damage {
+                Some(GaugeDamage(ratio)) => {
+                    self.gauge -= (MAXGAUGE as float * ratio) as int; true
+                }
+                Some(InstantDeath) => {
+                    self.gauge = cmp::min(self.gauge, 0); false
+                }
+                None => true
+            }
+        }
+
+        fn update_grade_from_distance(&mut self, dist: float) {
+            let dist = num::abs(dist);
+            let (grade, damage) =
+                if      dist <  COOL_CUTOFF {(COOL,None)}
+                else if dist < GREAT_CUTOFF {(GREAT,None)}
+                else if dist <  GOOD_CUTOFF {(GOOD,None)}
+                else if dist <   BAD_CUTOFF {(BAD,Some(BAD_DAMAGE))}
+                else                        {(MISS,Some(MISS_DAMAGE))};
+            let scoredelta = cmp::max(1.0 - dist / BAD_CUTOFF, 0.0);
+            let keepgoing = self.update_grade(grade, scoredelta, damage);
+            assert!(keepgoing);
+        }
+
+        fn update_grade_from_damage(&mut self, damage: Damage) -> bool {
+            self.update_grade(MISS, 0.0, Some(damage))
+        }
+
+        fn update_grade_to_miss(&mut self) {
+            let keepgoing = self.update_grade(MISS, 0.0, Some(MISS_DAMAGE));
+            assert!(keepgoing);
+        }
+
+        /// (C: `play_process`)
         fn tick(&mut self) -> bool {
             // Rust: this is very extreme case of loan conflict. (#4666)
-            let nograding = &mut self.nograding;
-            let targetspeed = &mut self.targetspeed;
-            let playspeed = &mut self.playspeed;
-            let stoptime = &mut self.stoptime;
-            let startoffset = &mut self.startoffset;
-            let starttime = &mut self.starttime;
-            let startshorten = &mut self.startshorten;
-            let gradefactor = *&mut self.gradefactor;
-            let bpm = &mut self.bpm;
-            let pfront = &mut self.pfront;
-            let pcur = &mut self.pcur;
-            let pcheck = &mut self.pcheck;
-            let pthru = &mut self.pthru;
-            let keymultiplicity = &mut self.keymultiplicity;
-            let joystate = &mut self.joystate;
             let bms = &*self.bms;
+            let mut pfront = self.pfront.clone();
+            let mut pcur = self.pcur.clone();
+            let mut pcheck = self.pcheck.clone();
+            let mut pthru = self.pthru.clone();
 
-            if targetspeed.is_some() {
-                let target = targetspeed.get();
-                let delta = target - *playspeed;
+            if self.targetspeed.is_some() {
+                let target = self.targetspeed.get();
+                let delta = target - self.playspeed;
                 if num::abs(delta) < 0.001 {
-                    *playspeed = target;
-                    *targetspeed = None;
+                    self.playspeed = target;
+                    self.targetspeed = None;
                 } else {
-                    *playspeed += delta * 0.1;
+                    self.playspeed += delta * 0.1;
                 }
             }
 
             let now = ticks();
-            let bottom = match *stoptime {
+            let bottom = match self.stoptime {
                 Some(t) => {
                     if now >= t {
-                        *starttime = t;
-                        *stoptime = None;
+                        self.starttime = t;
+                        self.stoptime = None;
                     }
-                    *startoffset
+                    self.startoffset
                 }
                 None => {
-                    let msecdiff = (now - *starttime) as float;
-                    let measurediff = bpm.msec_to_measure(msecdiff);
-                    *startoffset + measurediff / *startshorten
+                    let msecdiff = (now - self.starttime) as float;
+                    let measurediff = self.bpm.msec_to_measure(msecdiff);
+                    self.startoffset + measurediff / self.startshorten
                 }
             };
 
             let bottommeasure = bottom.floor();
             let curshorten = bms.shorten_factor(bottommeasure as int);
-            if bottommeasure >= -1.0 && *startshorten != curshorten {
-                let measurediff = bottommeasure as float - *startoffset;
-                *starttime += (bpm.measure_to_msec(measurediff) *
-                               *startshorten) as uint;
-                *startoffset = bottommeasure;
-                *startshorten = curshorten;
+            if bottommeasure >= -1.0 && self.startshorten != curshorten {
+                let measurediff = bottommeasure as float - self.startoffset;
+                self.starttime += (self.bpm.measure_to_msec(measurediff) *
+                                   self.startshorten) as uint;
+                self.startoffset = bottommeasure;
+                self.startshorten = curshorten;
             }
 
-            //let line = bms.adjust_object_time(bottom, 0.03/*playspeed);
+            //let line = bms.adjust_object_time(bottom, 0.03/self.playspeed);
             let line = bottom;
             let lineshorten = bms.shorten_factor(line.floor() as int);
-            let top = bms.adjust_object_time(bottom, 1.25/(*playspeed));
+            let top = bms.adjust_object_time(bottom, 1.25 / self.playspeed);
 
             pfront.seek_until(bottom);
+            let mut prevpcur = pointer_with_pos(self.bms, pcur.pos);
             for pcur.iter_until(line) |&obj| {
                 match obj.data {
                     BGM(ref sref) => {
@@ -4118,25 +4224,27 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         //}
                     }
                     SetBPM(newbpm) => {
-                        *starttime = now;
-                        *startoffset = bottom;
-                        *bpm = newbpm;
+                        self.starttime = now;
+                        self.startoffset = bottom;
+                        self.bpm = newbpm;
                     }
                     Stop(dur) => {
                         let msecs = match dur {
                             Seconds(t) => t * 1000.0,
-                            Measures(t) => bpm.measure_to_msec(t)
+                            Measures(t) => self.bpm.measure_to_msec(t)
                         };
                         let newstoptime = msecs as uint + now;
-                        *stoptime = match *stoptime {
+                        self.stoptime = match self.stoptime {
                             None => Some(newstoptime),
                             Some(t) => Some(cmp::max(t, newstoptime))
                         };
-                        *startoffset = obj.time;
+                        self.startoffset = obj.time;
                     }
                     Visible(_,sref)|LNStart(_,sref) => {
-                        //if (index) play_sound(index, 0);
-                        //update_grade(4, 300, 0);
+                        if self.opts.is_autoplay() {
+                            //if (index) play_sound(index, 0);
+                            self.update_grade_from_distance(0.0);
+                        }
                     }
                     _ => ()
                 }
@@ -4144,11 +4252,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             if !self.opts.is_autoplay() {
                 for pcheck.iter_to(pcur.pos) |&obj| {
-                    let dist = bpm.measure_to_msec(line - obj.time) *
+                    let dist = self.bpm.measure_to_msec(line - obj.time) *
                                bms.shorten_factor(obj.measure()) *
-                               gradefactor;
+                               self.gradefactor;
                     if dist < 144.0 { break; }
-                    if nograding[pcheck.pos] {
+                    if !self.nograding[pcheck.pos] {
                         for obj.object_lane().each |&Lane(lane)| {
                             let missable =
                                 match obj.data {
@@ -4157,7 +4265,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                     _ => false,
                                 };
                             if missable {
-                                //update_grade(0, 0, 0);
+                                self.update_grade_to_miss();
                                 pthru[lane] = None;
                             }
                         }
@@ -4225,14 +4333,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let is_unpressed = |lane: Lane, continuous: bool,
                                     state: InputState| {
                     if state == Neutral || (continuous &&
-                                            joystate[*lane] != state) {
+                                            self.joystate[*lane] != state) {
                         if continuous {
-                            joystate[*lane] = state; true
+                            self.joystate[*lane] = state; true
                         } else {
-                            if (keymultiplicity[*lane] > 0) {
-                                keymultiplicity[*lane] -= 1;
+                            if (self.keymultiplicity[*lane] > 0) {
+                                self.keymultiplicity[*lane] -= 1;
                             }
-                            (keymultiplicity[*lane] > 0)
+                            (self.keymultiplicity[*lane] > 0)
                         }
                     } else {
                         false
@@ -4243,10 +4351,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                   state: InputState| {
                     if state != Neutral {
                         if continuous {
-                            joystate[*lane] = state; true
+                            self.joystate[*lane] = state; true
                         } else {
-                            keymultiplicity[*lane] += 1;
-                            (keymultiplicity[*lane] == 1)
+                            self.keymultiplicity[*lane] += 1;
+                            (self.keymultiplicity[*lane] == 1)
                         }
                     } else {
                         false
@@ -4260,12 +4368,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             obj.is_lndone()
                         };
                         for nextlndone.each |&p| {
-                            let delta = bpm.measure_to_msec(p.time() - line) *
-                                        lineshorten * gradefactor;
+                            let delta =
+                                self.bpm.measure_to_msec(p.time() - line) *
+                                lineshorten * self.gradefactor;
                             if num::abs(delta) < 144.0 {
-                                nograding[p.pos] = true;
+                                self.nograding[p.pos] = true;
                             } else {
-                                //update_grade(0, 0, 0);
+                                self.update_grade_to_miss();
                             }
                         }
                     }
@@ -4290,37 +4399,41 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             obj.is_gradable()
                         };
                     for gradable.each |&p| {
-                        if p.pos >= pcheck.pos && !nograding[p.pos] &&
+                        if p.pos >= pcheck.pos && !self.nograding[p.pos] &&
                                 !p.is_lndone() {
-                            let delta = bpm.measure_to_msec(p.time() - line) *
-                                        lineshorten * gradefactor;
-                            if num::abs(delta) < 144.0 {
+                            let dist =
+                                self.bpm.measure_to_msec(p.time() - line) *
+                                lineshorten * self.gradefactor;
+                            if num::abs(dist) < 144.0 {
                                 if p.is_lnstart() {
                                     pthru[*lane] =
                                         Some(pointer_with_pos(self.bms,
                                                               p.pos));
                                 }
-                                nograding[p.pos] = true;
-                                //update_grade((tmp<14.4) + (tmp<48) + (tmp<84) + 1, (1-tmp/144)*300, 0);
+                                self.nograding[p.pos] = true;
+                                self.update_grade_from_distance(dist);
                             }
                         }
                     }
+                    true
                 };
 
                 match (vkey, state) {
                     (SpeedDownInput, Positive) |
                     (SpeedDownInput, Negative) => {
-                        let current = targetspeed.get_or_default(*playspeed);
+                        let current =
+                            self.targetspeed.get_or_default(self.playspeed);
                         for next_speed_mark(current).each |&newspeed| {
-                            *targetspeed = Some(newspeed);
+                            self.targetspeed = Some(newspeed);
                             //Mix_PlayChannel(0, beep, 0);
                         }
                     },
                     (SpeedUpInput, Positive) |
                     (SpeedUpInput, Negative) => {
-                        let current = targetspeed.get_or_default(*playspeed);
+                        let current =
+                            self.targetspeed.get_or_default(self.playspeed);
                         for previous_speed_mark(current).each |&newspeed| {
-                            *targetspeed = Some(newspeed);
+                            self.targetspeed = Some(newspeed);
                             //Mix_PlayChannel(0, beep, 0);
                         }
                     },
@@ -4339,11 +4452,41 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             }
 
+            if !self.opts.is_autoplay() {
+                for prevpcur.iter_to(pcur.pos) |&obj| {
+                    match obj.data {
+                        Bomb(lane,sref,damage) if self.key_pressed(lane) => {
+                            // ongoing long note is not graded twice
+                            pthru[*lane] = None;
+                            //play_sound(objs[i].index, 0);
+                            if !self.update_grade_from_damage(damage) {
+                                // instant death
+                                pcur.seek_to(bms.objs.len());
+                                return false;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+
             // used for reference time & positions for rendering
-            *&mut self.now = now;
-            *&mut self.bottom = bottom;
-            *&mut self.top = top;
-            true
+            self.now = now;
+            self.bottom = bottom;
+            self.top = top;
+            self.pfront = pfront;
+            self.pcur = pcur;
+            self.pcheck = pcheck;
+            self.pthru = pthru;
+
+            if bottom > bms.nmeasures as float {
+                //if (opt_mode ? Mix_Playing(-1)==Mix_Playing(0) : Mix_GroupNewer(1)==-1) return 0;
+                false
+            } else if bottom < self.infos.originoffset {
+                false
+            } else {
+                true
+            }
         }
     }
 
