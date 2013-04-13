@@ -296,8 +296,6 @@ pub mod util {
      * `libcore/option.rs` and are not subject to the above copyright notice.
      */
     pub mod option {
-        use core::option::*;
-
         #[inline(always)]
         pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool)
                                         -> Option<T> {
@@ -1332,6 +1330,7 @@ pub mod parser {
             Obj { time: time, data: Stop(duration) }
         }
 
+        /// Returns a measure number containing this object.
         fn measure(&self) -> int { self.time.floor() as int }
     }
 
@@ -2633,6 +2632,7 @@ pub mod gfx {
     /// Constructs an `sdl::Rect` from given point coordinates. Fills `w` and
     /// `h` fields to 0 as expected by the second `sdl::Rect` argument from
     /// `SDL_BlitSurface`.
+    #[inline(always)]
     fn rect_from_xy<XY:Xy>(xy: XY) -> Rect {
         let (x, y) = xy.xy();
         Rect { x: x, y: y, w: 0, h: 0 }
@@ -2641,6 +2641,7 @@ pub mod gfx {
     /// Constructs an `sdl::Rect` from given point coordinates and optional
     /// rectangular area. `rect_from_xywh(xy, ())` equals to
     /// `rect_from_xy(xy)`.
+    #[inline(always)]
     fn rect_from_xywh<XY:Xy,WH:WhOpt>(xy: XY, wh: WH) -> Rect {
         let (x, y) = xy.xy();
         let (w, h) = wh.wh_opt().get_or_default((0, 0));
@@ -2661,11 +2662,13 @@ pub mod gfx {
     }
 
     impl SurfaceAreaUtil for Surface {
+        #[inline(always)]
         fn set_clip_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH) {
             let rect = rect_from_xywh(xy, wh);
             self.set_clip_rect(&rect)
         }
 
+        #[inline(always)]
         fn blit_area<SrcXY:Xy,DstXY:XyOpt,WH:WhOpt>(&self, src: &Surface,
                 srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool {
             let srcrect = rect_from_xywh(srcxy, wh);
@@ -2674,6 +2677,7 @@ pub mod gfx {
             self.blit_rect(src, Some(srcrect), dstrect)
         }
 
+        #[inline(always)]
         fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH,
                                      color: Color) -> bool {
             let rect = rect_from_xywh(xy, wh);
@@ -2755,7 +2759,7 @@ pub mod gfx {
     /// A trait for the direct access to pixels.
     pub trait SurfacePixelsUtil {
         /// Grants the direct access to pixels. Also locks the surface
-        /// as needed.
+        /// as needed, so you can't blit during working with pixels.
         fn with_pixels<R>(&self, f: &fn(pixels: &SurfacePixels) -> R) -> R;
     }
 
@@ -3825,10 +3829,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // pointers
 
-    #[deriving(Clone)]
     struct Pointer {
         bms: @mut ~Bms,
         pos: uint
+    }
+
+    impl Clone for Pointer {
+        pub fn clone(&self) -> Pointer {
+            Pointer { bms: self.bms, pos: self.pos }
+        }
     }
 
     impl ObjQueryOps for Pointer {
@@ -3899,10 +3908,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     pub impl Pointer {
-        #[inline(always)]
         fn time(&self) -> float { self.bms.objs[self.pos].time }
 
-        #[inline(always)]
         fn data(&self) -> ObjData { self.bms.objs[self.pos].data }
 
         fn seek_until(&mut self, limit: float) {
@@ -4128,6 +4135,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pcheck: Pointer,
         /// Pointers to `Obj`s for the start of LN which grading is
         /// in progress. (C: `pthru`)
+        // Rust: this is intended to be `[Option<Pointer>, ..NLANES]` but
+        //       a fixed-size vector cannot be cloned.
         pthru: ~[Option<Pointer>],
 
         /// The scale factor for grading area. The factor less than 1 causes
