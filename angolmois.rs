@@ -465,18 +465,68 @@ pub mod util {
     }
 
     pub mod sdl {
-        #[doc(hidden)]
-        pub extern {
-            fn SDL_Delay(ms: u32);
-            fn SDL_GetTicks() -> u32;
+        pub mod ll {
+            pub extern {
+                fn SDL_Delay(ms: u32);
+                fn SDL_GetTicks() -> u32;
+            }
         }
 
         pub fn delay(msec: uint) {
-            unsafe { SDL_Delay(msec as u32); }
+            unsafe { ll::SDL_Delay(msec as u32); }
         }
 
         pub fn ticks() -> uint {
-            unsafe { SDL_GetTicks() as uint }
+            unsafe { ll::SDL_GetTicks() as uint }
+        }
+
+        pub mod mixer {
+            use core::libc::c_int;
+
+            pub mod ll {
+                use core::libc::c_int;
+                pub extern {
+                    fn Mix_Volume(channel: c_int, volume: c_int) -> c_int;
+                    fn Mix_ReserveChannels(num: c_int) -> c_int;
+                    fn Mix_GroupChannel(which: c_int, tag: c_int) -> c_int;
+                    fn Mix_GroupNewer(tag: c_int) -> c_int;
+                }
+            }
+
+            pub fn get_channel_volume(channel: Option<c_int>) -> c_int {
+                unsafe {
+                    let ll_channel = channel.get_or_default(-1);
+                    ll::Mix_Volume(ll_channel, -1)
+                }
+            }
+
+            pub fn set_channel_volume(channel: Option<c_int>, volume: c_int) {
+                unsafe {
+                    let ll_channel = channel.get_or_default(-1);
+                    ll::Mix_Volume(ll_channel, volume);
+                }
+            }
+
+            pub fn reserve_channels(num: c_int) -> c_int {
+                unsafe { ll::Mix_ReserveChannels(num) }
+            }
+
+            pub fn group_channel(which: Option<c_int>,
+                                 tag: Option<c_int>) -> bool {
+                unsafe {
+                    let ll_which = which.get_or_default(-1);
+                    let ll_tag = tag.get_or_default(-1);
+                    ll::Mix_GroupChannel(ll_which, ll_tag) != 0
+                }
+            }
+
+            pub fn newest_in_group(tag: Option<c_int>) -> Option<c_int> {
+                unsafe {
+                    let ll_tag = tag.get_or_default(-1);
+                    let channel = ll::Mix_GroupNewer(ll_tag);
+                    if channel == -1 {None} else {Some(channel)}
+                }
+            }
         }
     }
 
@@ -1124,7 +1174,7 @@ pub mod parser {
         }
 
         pub fn is_ln(self) -> bool {
-            match self { LNStart(*)|LNDone(*) => true, _ => false }
+            match self { LNStart(*) | LNDone(*) => true, _ => false }
         }
 
         pub fn is_bomb(self) -> bool {
@@ -3102,7 +3152,8 @@ pub mod player {
     use sdl::video::*;
     use sdl::event::*;
     use sdl::mixer::*;
-    use util::sdl::*;
+    use util::sdl::{delay, ticks};
+    use util::sdl::mixer::*;
     use parser::*;
     use gfx::*;
 
@@ -3289,7 +3340,7 @@ pub mod player {
     fn check_exit(atexit: &fn()) {
         loop {
             match poll_event() {
-                KeyEvent(EscapeKey,_,_,_)|QuitEvent => {
+                KeyEvent(EscapeKey,_,_,_) | QuitEvent => {
                     atexit();
                     ::util::exit(0);
                 },
@@ -3305,6 +3356,9 @@ pub mod player {
 
     //------------------------------------------------------------------------
     // initialization
+
+    static SAMPLERATE: i32 = 44100;
+    static BYTESPERSEC: i32 = SAMPLERATE * 2 * 2; // stereo, 16 bits/sample
 
     /// (C: `init_video`)
     fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
@@ -3336,10 +3390,9 @@ pub mod player {
         if !init([InitVideo, InitAudio, InitJoystick]) {
             die!("SDL Initialization Failure: %s", get_error());
         }
-        // TODO opt_joystick
         img::init([img::InitJPG, img::InitPNG]);
         //mixer::init([mixer::InitOGG, mixer::InitMP3]); // TODO
-        if mixer::open(44100, audio::S16AudioFormat,
+        if mixer::open(SAMPLERATE, audio::S16AudioFormat,
                        audio::Stereo, 2048).is_err() {
             die!("SDL Mixer Initialization Failure");
         }
@@ -3418,7 +3471,7 @@ pub mod player {
                               keyspec: &KeySpec) -> bool {
             match *self {
                 LaneInput(Lane(lane)) => keyspec.kinds[lane] == Some(kind),
-                SpeedDownInput|SpeedUpInput => true
+                SpeedDownInput | SpeedUpInput => true
             }
         }
     }
@@ -3656,44 +3709,31 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         // Rust: ideally this should be just a ~-ptr, but the current borrowck
         //       is very constrained in this aspect. after several attempts
         //       I finally sticked to delegate the ownership to a managed box.
-        Sound(@~mixer::Chunk), // XXX borrowck
-        SoundPlaying(@~mixer::Chunk, uint) // XXX borrowck
+        Sound(@~Chunk) // XXX borrowck
     }
 
     pub impl SoundResource {
-        fn chunk(&self) -> Option<@~mixer::Chunk> {
+        fn chunk(&self) -> Option<@~Chunk> {
             match *self {
                 NoSound => None,
-                Sound(chunk) | SoundPlaying(chunk, _) => Some(chunk)
+                Sound(chunk) => Some(chunk)
             }
         }
 
-        fn channel(&self) -> Option<uint> {
+        fn duration(&self) -> float {
             match *self {
-                NoSound | Sound(_) => None,
-                SoundPlaying(_, channel) => Some(channel)
+                NoSound => 0.0,
+                Sound(chunk) => {
+                    let chunk = chunk.to_ll_chunk();
+                    (unsafe {(*chunk).alen} as float) / (BYTESPERSEC as float)
+                }
             }
-        }
-
-        fn start_playing(&mut self, channel: uint) {
-            *self = match *self {
-                NoSound => NoSound,
-                Sound(chunk) | SoundPlaying(chunk, _) =>
-                    SoundPlaying(chunk, channel)
-            };
-        }
-
-        fn stop_playing(&mut self) {
-            *self = match *self {
-                NoSound => NoSound,
-                Sound(chunk) | SoundPlaying(chunk, _) => Sound(chunk)
-            };
         }
     }
 
     fn load_sound(key: Key, path: &str, opts: &Options) -> SoundResource {
         let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
-        match mixer::Chunk::from_wav(&fullpath) {
+        match Chunk::from_wav(&fullpath) {
             Ok(res) => Sound(@res),
             Err(_) => {
                 warn!("failed to load sound #WAV%s (%s)", key.to_str(), path);
@@ -3818,12 +3858,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     // sound management
 
     /// (C: `create_beep`)
-    fn create_beep() -> ~mixer::Chunk {
+    fn create_beep() -> ~Chunk {
         let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
             |i| { let i = i as i32;
                   (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
-        mixer::Chunk::new(unsafe { cast::transmute(samples) }, 128)
+        Chunk::new(unsafe { cast::transmute(samples) }, 128)
     }
 
     //------------------------------------------------------------------------
@@ -4083,6 +4123,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// and should not be graded twice. Its length equals to that of
         /// `bms.objs`. (C: `nograding` field in `struct obj`)
         nograding: ~[bool],
+        /// Sound resources. (C: `res` field in `sndres`)
+        sndres: ~[SoundResource],
+        /// A sound chunk used for beeps. It always plays on the channel #0.
+        /// (C: `beep`)
+        beep: ~Chunk,
+        /// Last channels in which the corresponding sound in `sndres` was
+        /// played. (C: `lastch` field in `sndres`)
+        sndlastch: ~[Option<uint>],
+        /// Indices to last sounds which the channel has played. For every
+        /// `x`, if `sndlastch[x] == Some(y)` then `sndlastchmap[y] ==
+        /// Some(x)` and vice versa. (C: `sndlastchmap`)
+        lastchsnd: ~[Option<uint>],
 
         /// The chart expansion rate, or "play speed". One measure has
         /// the length of 400 pixels times the play speed, so higher play
@@ -4122,12 +4174,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// The virtual time at the bottom of the visible chart. (C: `bottom`)
         bottom: float,
+        /// The virtual time at the grading line. Currently same as `bottom`.
+        /// (C: `line`)
+        line: float,
         /// The virtual time at the top of the visible chart. (C: `top`)
         top: float,
         /// A pointer to the first `Obj` after `bottom`. (C: `pfront`)
         pfront: Pointer,
-        /// A pointer to the first `Obj` after the grading line, which is
-        /// currently same as `bottom`. (C: `pcur`)
+        /// A pointer to the first `Obj` after `line`. (C: `pcur`)
         pcur: Pointer,
         /// A pointer to the first `Obj` that haven't escaped the grading
         /// area. It is possible that this `Obj` haven't reached the grading
@@ -4142,8 +4196,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// The scale factor for grading area. The factor less than 1 causes
         /// the grading area shrink. (C: `gradefactor`)
         gradefactor: float,
-        /// (C: `grademode`)
-        lastgrade: Grade,
+        /// (C: `grademode` and `gradetime`)
+        lastgrade: Option<(Grade,uint)>,
         /// The numbers of each grades. (C: `scocnt`)
         gradecounts: [uint, ..NGRADES],
         /// The last combo number, i.e. the number of objects graded at least
@@ -4174,8 +4228,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: float,
-              keyspec: ~KeySpec, keymap: ~KeyMap) -> Player {
+              keyspec: ~KeySpec, keymap: ~KeyMap, sndres: ~[SoundResource])
+                                    -> Player {
         let now = ticks();
+        let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
         let startshorten = bms.shorten_factor(originoffset as int);
         let gradefactor = 1.5 - cmp::min(bms.rank, 5) as float * 0.25;
@@ -4183,28 +4239,36 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let survival = MAXGAUGE * 293 / 1000;
         let initbpm = bms.initbpm;
         let nobjs = bms.objs.len();
+        let nsounds = sndres.len();
 
         let bms = @mut bms;
         let initptr = Pointer(bms);
-        Player {
+        let mut player = Player {
             opts: opts, bms: bms, infos: infos, duration: duration,
             keyspec: keyspec, keymap: keymap,
 
-            nograding: vec::from_elem(nobjs, false),
+            nograding: vec::from_elem(nobjs, false), sndres: sndres,
+            beep: create_beep(), sndlastch: vec::from_elem(nsounds, None),
+            lastchsnd: ~[],
 
-            playspeed: 1.0, targetspeed: None, bpm: initbpm, now: now,
-            origintime: now, starttime: now, stoptime: None,
+            playspeed: initplayspeed, targetspeed: None, bpm: initbpm,
+            now: now, origintime: now, starttime: now, stoptime: None,
             startoffset: originoffset, startshorten: startshorten,
 
-            bottom: originoffset, top: originoffset, pfront: initptr,
-            pcur: initptr, pcheck: initptr, pthru: ~[None, ..NLANES],
+            bottom: originoffset, line: originoffset, top: originoffset,
+            pfront: initptr, pcur: initptr, pcheck: initptr,
+            pthru: ~[None, ..NLANES],
 
-            gradefactor: gradefactor, lastgrade: MISS,
+            gradefactor: gradefactor, lastgrade: None,
             gradecounts: [0, ..NGRADES], lastcombo: 0, bestcombo: 0, score: 0,
             gauge: initialgauge, survival: survival,
 
             keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
-        }
+        };
+
+        player.allocate_more_channels(64);
+        reserve_channels(1); // so that the beep won't be affected
+        player
     }
 
     pub impl Player {
@@ -4216,7 +4280,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         fn update_grade(&mut self, grade: Grade, scoredelta: float,
                         damage: Option<Damage>) -> bool {
             self.gradecounts[grade as uint] += 1;
-            self.lastgrade = grade;
+            self.lastgrade = Some((grade, self.now));
             //gradetime = now + 700; /* disappears after 700ms */
             self.score += (scoredelta * SCOREPERNOTE *
                            (1.0 + (self.lastcombo as float) /
@@ -4229,7 +4293,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 }
                 BAD => { self.lastcombo = 0; }
                 GOOD => {}
-                GREAT|COOL => {
+                GREAT | COOL => {
                     // at most 5/512(1%) recover when the combo is topped
                     let weight = if grade == GREAT {2} else {3};
                     let cmbbonus = cmp::min(self.lastcombo as int, 100) / 50;
@@ -4251,6 +4315,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// (C: `update_grade(grade, 0, 0)` where `grade` is pre-calculated
+        /// from `dist`)
         fn update_grade_from_distance(&mut self, dist: float) {
             let dist = num::abs(dist);
             let (grade, damage) =
@@ -4264,13 +4330,62 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             assert!(keepgoing);
         }
 
+        /// (C: `update_grade(0, 0, damage)`)
         fn update_grade_from_damage(&mut self, damage: Damage) -> bool {
             self.update_grade(MISS, 0.0, Some(damage))
         }
 
+        /// (C: `update_grade(0, 0, 0)`)
         fn update_grade_to_miss(&mut self) {
             let keepgoing = self.update_grade(MISS, 0.0, Some(MISS_DAMAGE));
             assert!(keepgoing);
+        }
+
+        /// (C: `allocate_more_channels`)
+        fn allocate_more_channels(&mut self, howmany: uint) {
+            let howmany = howmany as libc::c_int;
+            let nchannels = allocate_channels(-1 as libc::c_int);
+            let nchannels = allocate_channels(nchannels + howmany) as uint;
+            if self.lastchsnd.len() < nchannels {
+                self.lastchsnd.grow(nchannels, &None);
+            }
+        }
+
+        /// (C: `play_sound`)
+        fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
+            let sref = **sref as uint;
+            let chunk = match self.sndres[sref].chunk() {
+                Some(chunk) => chunk,
+                None => { return; }
+            };
+            let lastch = self.sndlastch[sref].map(|&ch| ch as libc::c_int);
+
+            // try to play on the last channel if it is not occupied by
+            // other sounds (in this case the last channel info is removed)
+            let mut ch;
+            loop {
+                ch = chunk.play(lastch, 0);
+                if ch >= 0 { break; }
+                self.allocate_more_channels(32);
+            }
+
+            let group = if bgm {1} else {0};
+            set_channel_volume(Some(ch), if bgm {96} else {128});
+            group_channel(Some(ch), Some(group));
+
+            let ch = ch as uint;
+            for self.lastchsnd[ch].each |&idx| { self.sndlastch[idx] = None; }
+            self.sndlastch[sref] = Some(ch);
+            self.lastchsnd[ch] = Some(sref as uint);
+        }
+
+        fn play_sound_if_nonzero(&mut self, sref: SoundRef, bgm: bool) {
+            if **sref > 0 { self.play_sound(sref, bgm); }
+        }
+
+        /// (C: `Mix_PlayChannel(0, beep, 0)`)
+        fn play_beep(&self) {
+            self.beep.play(Some(0), 0);
         }
 
         /// (C: `play_process`)
@@ -4293,23 +4408,23 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 }
             }
 
-            let now = ticks();
-            let bottom = match self.stoptime {
+            self.now = ticks();
+            self.bottom = match self.stoptime {
                 Some(t) => {
-                    if now >= t {
+                    if self.now >= t {
                         self.starttime = t;
                         self.stoptime = None;
                     }
                     self.startoffset
                 }
                 None => {
-                    let msecdiff = (now - self.starttime) as float;
+                    let msecdiff = (self.now - self.starttime) as float;
                     let measurediff = self.bpm.msec_to_measure(msecdiff);
                     self.startoffset + measurediff / self.startshorten
                 }
             };
 
-            let bottommeasure = bottom.floor();
+            let bottommeasure = self.bottom.floor();
             let curshorten = bms.shorten_factor(bottommeasure as int);
             if bottommeasure >= -1.0 && self.startshorten != curshorten {
                 let measurediff = bottommeasure as float - self.startoffset;
@@ -4319,19 +4434,21 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 self.startshorten = curshorten;
             }
 
-            //let line = bms.adjust_object_time(bottom, 0.03/self.playspeed);
-            let line = bottom;
-            let lineshorten = bms.shorten_factor(line.floor() as int);
-            let top = bms.adjust_object_time(bottom, 1.25 / self.playspeed);
+            //self.line = bms.adjust_object_time(self.bottom,
+            //                                   0.03 / self.playspeed);
+            self.line = self.bottom;
+            self.top = bms.adjust_object_time(self.bottom,
+                                              1.25 / self.playspeed);
+            let lineshorten = bms.shorten_factor(self.line.floor() as int);
 
-            pfront.seek_until(bottom);
+            pfront.seek_until(self.bottom);
             let mut prevpcur = pointer_with_pos(self.bms, pcur.pos);
-            for pcur.iter_until(line) |&obj| {
+            for pcur.iter_until(self.line) |&obj| {
                 match obj.data {
-                    BGM(ref sref) => {
-                        //if (index) play_sound(index, 1);
+                    BGM(sref) => {
+                        self.play_sound_if_nonzero(sref, true);
                     }
-                    SetBGA(layer, ref iref) => {
+                    SetBGA(layer, iref) => {
                         //if (bga[type] >= 0 && imgres[bga[type]].movie) {
                         //    SMPEG_stop(imgres[bga[type]].movie);
                         //}
@@ -4342,8 +4459,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         //}
                     }
                     SetBPM(newbpm) => {
-                        self.starttime = now;
-                        self.startoffset = bottom;
+                        self.starttime = self.now;
+                        self.startoffset = self.bottom;
                         self.bpm = newbpm;
                     }
                     Stop(dur) => {
@@ -4351,16 +4468,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             Seconds(t) => t * 1000.0,
                             Measures(t) => self.bpm.measure_to_msec(t)
                         };
-                        let newstoptime = msecs as uint + now;
+                        let newstoptime = msecs as uint + self.now;
                         self.stoptime = match self.stoptime {
                             None => Some(newstoptime),
                             Some(t) => Some(cmp::max(t, newstoptime))
                         };
                         self.startoffset = obj.time;
                     }
-                    Visible(_,sref)|LNStart(_,sref) => {
+                    Visible(_,sref) | LNStart(_,sref) => {
                         if self.opts.is_autoplay() {
-                            //if (index) play_sound(index, 0);
+                            for sref.each |&sref| {
+                                self.play_sound_if_nonzero(sref, false);
+                            }
                             self.update_grade_from_distance(0.0);
                         }
                     }
@@ -4370,16 +4489,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             if !self.opts.is_autoplay() {
                 for pcheck.iter_to(pcur.pos) |&obj| {
-                    let dist = self.bpm.measure_to_msec(line - obj.time) *
-                               bms.shorten_factor(obj.measure()) *
-                               self.gradefactor;
+                    let dist =
+                        self.bpm.measure_to_msec(self.line - obj.time) *
+                        bms.shorten_factor(obj.measure()) * self.gradefactor;
                     if dist < 144.0 { break; }
                     if !self.nograding[pcheck.pos] {
                         for obj.object_lane().each |&Lane(lane)| {
                             let missable =
                                 match obj.data {
-                                    Visible(_,_)|LNStart(_,_) => true,
-                                    LNDone(_,_) => pthru[lane].is_some(),
+                                    Visible(*) | LNStart(*) => true,
+                                    LNDone(*) => pthru[lane].is_some(),
                                     _ => false,
                                 };
                             if missable {
@@ -4405,7 +4524,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         (JoyAxisInput(axis as uint), Positive),
                     JoyAxisEvent(_which,axis,delta) if delta < -3200 =>
                         (JoyAxisInput(axis as uint), Negative),
-                    JoyAxisEvent(_which,axis,_) =>
+                    JoyAxisEvent(_which,axis,_delta) =>
                         (JoyAxisInput(axis as uint), Neutral),
                     _ => loop
                 };
@@ -4486,9 +4605,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             obj.is_lndone()
                         };
                         for nextlndone.each |&p| {
-                            let delta =
-                                self.bpm.measure_to_msec(p.time() - line) *
-                                lineshorten * self.gradefactor;
+                            let delta = self.bpm.measure_to_msec(p.time() -
+                                                                 self.line) *
+                                        lineshorten * self.gradefactor;
                             if num::abs(delta) < 144.0 {
                                 self.nograding[p.pos] = true;
                             } else {
@@ -4501,27 +4620,27 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
                 let process_press = |lane: Lane| {
                     let soundable =
-                        do pcur.find_closest_of_type(line) |&obj| {
+                        do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) &&
                             obj.is_soundable()
                         };
                     for soundable.each |&p| {
                         for p.sounds().each |&sref| {
-                            //play_sound(objs[l].index, 0);
+                            self.play_sound(sref, false);
                         }
                     }
 
                     let gradable =
-                        do pcur.find_closest_of_type(line) |&obj| {
+                        do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) &&
                             obj.is_gradable()
                         };
                     for gradable.each |&p| {
                         if p.pos >= pcheck.pos && !self.nograding[p.pos] &&
                                 !p.is_lndone() {
-                            let dist =
-                                self.bpm.measure_to_msec(p.time() - line) *
-                                lineshorten * self.gradefactor;
+                            let dist = self.bpm.measure_to_msec(p.time() -
+                                                                self.line) *
+                                       lineshorten * self.gradefactor;
                             if num::abs(dist) < 144.0 {
                                 if p.is_lnstart() {
                                     pthru[*lane] =
@@ -4543,7 +4662,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             self.targetspeed.get_or_default(self.playspeed);
                         for next_speed_mark(current).each |&newspeed| {
                             self.targetspeed = Some(newspeed);
-                            //Mix_PlayChannel(0, beep, 0);
+                            self.play_beep();
                         }
                     }
                     (SpeedUpInput, Positive) |
@@ -4552,7 +4671,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             self.targetspeed.get_or_default(self.playspeed);
                         for previous_speed_mark(current).each |&newspeed| {
                             self.targetspeed = Some(newspeed);
-                            //Mix_PlayChannel(0, beep, 0);
+                            self.play_beep();
                         }
                     }
                     (LaneInput(lane), state) => {
@@ -4576,7 +4695,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
                             // ongoing long note is not graded twice
                             pthru[*lane] = None;
-                            //play_sound(objs[i].index, 0);
+                            for sref.each |&sref| {
+                                self.play_sound(sref, false);
+                            }
                             if !self.update_grade_from_damage(damage) {
                                 // instant death
                                 pcur.seek_to(bms.objs.len());
@@ -4588,19 +4709,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 }
             }
 
-            // used for reference time & positions for rendering
-            self.now = now;
-            self.bottom = bottom;
-            self.top = top;
             self.pfront = pfront;
             self.pcur = pcur;
             self.pcheck = pcheck;
             self.pthru = pthru;
 
-            if bottom > bms.nmeasures as float {
+            if self.bottom > (bms.nmeasures + 1) as float {
                 //if (opt_mode ? Mix_Playing(-1)==Mix_Playing(0) : Mix_GroupNewer(1)==-1) return 0;
                 false
-            } else if bottom < self.infos.originoffset {
+            } else if self.bottom < self.infos.originoffset {
                 false
             } else {
                 true
@@ -4739,14 +4856,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let gray = RGB(0x40,0x40,0x40); // gray used for separators
 
         // render notes and lane backgrounds
-        for styles.each |&(_,style)| {
+        for styles.each |&(_lane,style)| {
             style.render_to_sprite(sprite);
         }
 
         // render panels
         do sprite.with_pixels |&pixels| {
-            let topgrad = Gradient(RGB(0x60,0x60,0x60), RGB(0xc0,0xc0,0xc0));
-            let botgrad = Gradient(RGB(0x40,0x40,0x40), RGB(0xc0,0xc0,0xc0));
+            let topgrad = Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x60,0x60,0x60));
+            let botgrad = Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40));
             for int::range(-244, 556) |j| {
                 for int::range(-10, 20) |i| {
                     let c = (i*2+j*3+750) % 2000;
@@ -4817,8 +4934,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// (C: `poorlimit`)
         poorlimit: Option<uint>,
-        /// (C: `gradetime`)
-        gradelimit: Option<uint>,
+        /// (C: `grademode` and `gradetime`)
+        lastgrade: Option<(Grade,uint)>,
     }
 
     fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
@@ -4832,7 +4949,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let display = GraphicDisplay {
             sprite: sprite, screen: screen, font: font, leftmost: leftmost,
             rightmost: rightmost, lanestyles: styles, bgax: bgax, bgay: bgay,
-            poorlimit: None, gradelimit: None,
+            poorlimit: None, lastgrade: None,
         };
 
         display.screen.fill(RGB(0,0,0));
@@ -4952,9 +5069,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
 
             // render grading text
-            if self.gradelimit.is_some() {
-                let gradelimit = self.gradelimit.get();
-                let (gradename,gradecolor) = GRADES[player.lastgrade as uint];
+            if self.lastgrade.is_some() {
+                let (lastgrade,gradelimit) = self.lastgrade.get();
+                let (gradename,gradecolor) = GRADES[lastgrade as uint];
                 let delta = cmp::max(0, (gradelimit - player.now - 400) / 15);
                 do screen.with_pixels |pixels| {
                     font.print_string(pixels, self.leftmost/2,
@@ -5144,10 +5261,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
             while ticks() < start { check_exit(atexit); }
 
-            // TODO sound_length
-            let duration = bms_duration(bms, infos.originoffset, |_| 0.0);
+            let duration = bms_duration(bms, infos.originoffset,
+                                        |sref| sndres[**sref].duration());
             let mut player = Player(opts, bms, infos, duration,
-                                    keyspec, keymap);
+                                    keyspec, keymap, sndres);
             let display =
                 match screen {
                     Some(screen) =>
