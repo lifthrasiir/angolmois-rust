@@ -493,6 +493,16 @@ pub mod util {
                 }
             }
 
+            pub fn num_playing(channel: Option<c_int>) -> c_int {
+                use sdl::mixer;
+                unsafe {
+                    match channel {
+                        Some(channel) => mixer::ll::Mix_Playing(channel),
+                        None => mixer::ll::Mix_Playing(-1)
+                    }
+                }
+            }
+
             pub fn get_channel_volume(channel: Option<c_int>) -> c_int {
                 unsafe {
                     let ll_channel = channel.get_or_default(-1);
@@ -1004,7 +1014,7 @@ pub mod parser {
     }
 
     /// The number of BGA layers.
-    static NLAYERS: uint = 4;
+    pub static NLAYERS: uint = 4;
 
     /// Beats per minute. Used as a conversion factor between the time
     /// position and actual time in BMS.
@@ -2443,8 +2453,8 @@ pub mod parser {
         }
 
         if *bpm > 0.0 {
-            let delta = bms.adjust_object_position(pos,
-                                                   bms.nmeasures as float);
+            let delta =
+                bms.adjust_object_position(pos, (bms.nmeasures + 1) as float);
             time += bpm.measure_to_msec(delta);
         }
         cmp::max(time, sndtime)
@@ -2759,6 +2769,7 @@ pub mod gfx {
 
     /// A trait for color or color gradient. The color at the particular
     /// position can be calculated with `blend` method.
+    //
     // Rust: `Copy` can't be inherited even when it's specified. (#3984)
     pub trait Blend {
         /// Calculates the color at the position `num/denom`. (C: `blend`)
@@ -3257,7 +3268,7 @@ pub mod player {
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
-                    if opts.preset.is_none() && 
+                    if opts.preset.is_none() &&
                            opts.bmspath.to_lower().ends_with(~".pms") {
                         Some(~"pms")
                     } else {
@@ -3736,8 +3747,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         match Chunk::from_wav(&fullpath) {
             Ok(res) => Sound(@res),
             Err(_) => {
+let fullpath = fullpath.with_filetype("ogg");
+match Chunk::from_wav(&fullpath) {
+    Ok(res) => Sound(@res),
+    Err(_) => {
                 warn!("failed to load sound #WAV%s (%s)", key.to_str(), path);
                 NoSound
+}}
             }
         }
     }
@@ -3769,7 +3785,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             } else {
                 let res = surface.display_format();
                 do res.iter |surface| { // XXX #3224
-                    (*&surface).set_alpha([SrcColorKey, RLEAccel], 0);
+                    (*&surface).set_color_key([SrcColorKey, RLEAccel],
+                                              RGB(0,0,0));
                 }
                 res
             }
@@ -4103,6 +4120,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// The game play options.
         opts: ~Options,
         /// The current BMS data.
+        //
         // Rust: this should have been just `~Bms`, and `Pointer` should have
         //       received a lifetime parameter (for `&'self Bms` things).
         //       in reality, though, a lifetime parameter made borrowck much
@@ -4135,6 +4153,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// `x`, if `sndlastch[x] == Some(y)` then `sndlastchmap[y] ==
         /// Some(x)` and vice versa. (C: `sndlastchmap`)
         lastchsnd: ~[Option<uint>],
+        /// Currently active BGA layers. (C: `bga`)
+        bga: [Option<ImageRef>, ..NLAYERS],
 
         /// The chart expansion rate, or "play speed". One measure has
         /// the length of 400 pixels times the play speed, so higher play
@@ -4189,6 +4209,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pcheck: Pointer,
         /// Pointers to `Obj`s for the start of LN which grading is
         /// in progress. (C: `pthru`)
+        //
         // Rust: this is intended to be `[Option<Pointer>, ..NLANES]` but
         //       a fixed-size vector cannot be cloned.
         pthru: ~[Option<Pointer>],
@@ -4249,7 +4270,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             nograding: vec::from_elem(nobjs, false), sndres: sndres,
             beep: create_beep(), sndlastch: vec::from_elem(nsounds, None),
-            lastchsnd: ~[],
+            lastchsnd: ~[], bga: [None, None, None, Some(ImageRef(Key(0)))],
 
             playspeed: initplayspeed, targetspeed: None, bpm: initbpm,
             now: now, origintime: now, starttime: now, stoptime: None,
@@ -4452,7 +4473,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         //if (bga[type] >= 0 && imgres[bga[type]].movie) {
                         //    SMPEG_stop(imgres[bga[type]].movie);
                         //}
-                        //bga[type] = index;
+                        self.bga[layer as uint] = iref;
                         //if (index >= 0 && imgres[index].movie) {
                         //    SMPEG_rewind(imgres[index].movie);
                         //    SMPEG_play(imgres[index].movie);
@@ -4715,8 +4736,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.pthru = pthru;
 
             if self.bottom > (bms.nmeasures + 1) as float {
-                //if (opt_mode ? Mix_Playing(-1)==Mix_Playing(0) : Mix_GroupNewer(1)==-1) return 0;
-                false
+                if self.opts.is_autoplay() {
+                    num_playing(None) != num_playing(Some(0))
+                } else {
+                    newest_in_group(Some(1)).is_none()
+                }
             } else if self.bottom < self.infos.originoffset {
                 false
             } else {
@@ -4921,6 +4945,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         screen: ~Surface,
         ///
         font: ~Font,
+        /// (C: `imgres`)
+        imgres: ~[ImageResource],
+
         /// (C: `tpanel1`)
         leftmost: uint,
         /// (C: `tpanel2`)
@@ -4939,7 +4966,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
-                      font: ~Font) -> GraphicDisplay {
+                      font: ~Font, imgres: ~[ImageResource])
+                                    -> GraphicDisplay {
         let (leftmost, rightmost, styles) = build_lane_styles(keyspec);
         let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
         let bgax = leftmost + (centerwidth - BGAW) / 2;
@@ -4947,8 +4975,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let sprite = create_sprite(opts, leftmost, rightmost, styles);
 
         let display = GraphicDisplay {
-            sprite: sprite, screen: screen, font: font, leftmost: leftmost,
-            rightmost: rightmost, lanestyles: styles, bgax: bgax, bgay: bgay,
+            sprite: sprite, screen: screen, font: font, imgres: imgres,
+
+            leftmost: leftmost, rightmost: rightmost, lanestyles: styles,
+            bgax: bgax, bgay: bgay,
+
             poorlimit: None, lastgrade: None,
         };
 
@@ -5051,7 +5082,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
 
                     for nextbottom.each |&y| {
-                        style.render_note(screen, sprite, SCREENH-80, y);
+                        style.render_note(screen, sprite, 30, y);
                     }
                 }
             }
@@ -5141,7 +5172,25 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 screen.fill_area((4, SCREENH-12), (width, 8), color);
             }
 
-            // TODO bga
+            // render BGAs
+            if player.opts.has_bga() {
+                let layers = /*if poor {[PoorBGA]}
+                               else*/ {[Layer1, Layer2, Layer3]};
+                screen.fill_area((self.bgax, self.bgay), (256, 256),
+                                 RGB(0,0,0));
+                for layers.each |&layer| {
+                    for player.bga[layer as uint].each |&iref| {
+                        match self.imgres[**iref] {
+                            NoImage => {}
+                            Image(ref surface) | Movie(ref surface) => {
+                                screen.blit_area(**surface, (0, 0),
+                                                 (self.bgax, self.bgay),
+                                                 (256, 256));
+                            }
+                        }
+                    }
+                }
+            }
 
             screen.flip();
         }
@@ -5269,7 +5318,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 match screen {
                     Some(screen) =>
                         @mut GraphicDisplay(player.opts, player.keyspec,
-                                            screen, font),
+                                            screen, font, imgres),
                     None => fail!(~"TODO")
                 };
 
@@ -5412,43 +5461,46 @@ fn main() {
                 };
 
                 match c {
-                    'h' => { usage(); },
-                    'V' => { io::println(version()); return; },
-                    'v' => { mode = AutoPlayMode; },
-                    'x' => { mode = ExclusiveMode; },
-                    'X' => { mode = ExclusiveMode; bga = NoBga; },
-                    'w' => { fullscreen = false; },
-                    'q' => { showinfo = false; },
-                    'm' => { modf = Some(MirrorModf); },
-                    's' => { modf = Some(ShuffleModf); },
-                    'S' => { modf = Some(ShuffleExModf); },
-                    'r' => { modf = Some(RandomModf); },
-                    'R' => { modf = Some(RandomExModf); },
-                    'k' => { preset = Some(fetch_arg('k').to_owned()); },
+                    'h' => { usage(); }
+                    'V' => { io::println(version()); return; }
+                    'v' => { mode = AutoPlayMode; }
+                    'x' => { mode = ExclusiveMode; }
+                    'X' => { mode = ExclusiveMode; bga = NoBga; }
+                    'w' => { fullscreen = false; }
+                    'q' => { showinfo = false; }
+                    'm' => { modf = Some(MirrorModf); }
+                    's' => { modf = Some(ShuffleModf); }
+                    'S' => { modf = Some(ShuffleExModf); }
+                    'r' => { modf = Some(RandomModf); }
+                    'R' => { modf = Some(RandomExModf); }
+                    'k' => { preset = Some(fetch_arg('k').to_owned()); }
                     'K' => {
                         leftkeys = Some(fetch_arg('K').to_owned());
                         rightkeys = Some(fetch_arg('K').to_owned());
-                    },
-                    'a' => match float::from_str(fetch_arg('a')) {
-                        Some(speed) if speed > 0.0 => {
-                            playspeed =
-                                if speed < 0.1 {0.1}
-                                else if speed > 99.0 {99.0}
-                                else {speed};
-                        },
-                        _ => die!("Invalid argument to option -a")
-                    },
-                    'B' => { bga = NoBga; },
-                    'M' => { bga = BgaButNoMovie; },
-                    'j' => match uint::from_str(fetch_arg('j')) {
-                        Some(n) => { joystick = Some(n); },
-                        _ => die!("Invalid argument to option -j")
-                    },
-                    ' ' => {}, // for ignored long options
+                    }
+                    'a' => {
+                        match float::from_str(fetch_arg('a')) {
+                            Some(speed) if speed > 0.0 => {
+                                playspeed = if speed < 0.1 {0.1}
+                                            else if speed > 99.0 {99.0}
+                                            else {speed};
+                            }
+                            _ => die!("Invalid argument to option -a")
+                        }
+                    }
+                    'B' => { bga = NoBga; }
+                    'M' => { bga = BgaButNoMovie; }
+                    'j' => {
+                        match uint::from_str(fetch_arg('j')) {
+                            Some(n) => { joystick = Some(n); }
+                            _ => die!("Invalid argument to option -j")
+                        }
+                    }
+                    ' ' => {} // for ignored long options
                     '1'..'9' => {
                         playspeed = char::to_digit(c, 10).get() as float;
-                    },
-                    _ => die!("Invalid option: -%c", c),
+                    }
+                    _ => die!("Invalid option: -%c", c)
                 }
                 if !inside { break; }
             }
