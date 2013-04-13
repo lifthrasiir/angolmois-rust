@@ -80,7 +80,7 @@ pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> ~str {
     let args = os::args();
-    if args.is_empty() { ~"angolmois" } else { copy args[0] }
+    if args.is_empty() {~"angolmois"} else {copy args[0]}
 }
 
 /// Utility functions.
@@ -302,7 +302,7 @@ pub mod util {
         pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool)
                                         -> Option<T> {
             match opt {
-                Some(t) => if f(t) { Some(t) } else { None },
+                Some(t) => if f(t) {Some(t)} else {None},
                 None => None
             }
         }
@@ -433,7 +433,7 @@ pub mod util {
 
         #[inline(always)]
         pub fn clamp<T:Ord>(low: T, v: T, high: T) -> T {
-            if v < low { low } else if v > high { high } else { v }
+            if v < low {low} else if v > high {high} else {v}
         }
 
     }
@@ -779,8 +779,8 @@ pub mod parser {
         /// to be in hexadecimal).
         fn to_hex(self) -> Option<int> {
             let sixteens = *self / 36, ones = *self % 36;
-            if sixteens < 16 && ones < 16 { Some(sixteens * 16 + ones) }
-            else { None }
+            if sixteens < 16 && ones < 16 {Some(sixteens * 16 + ones)}
+            else {None}
         }
     }
 
@@ -990,6 +990,8 @@ pub mod parser {
     //------------------------------------------------------------------------
     // object
 
+    /// A data for objects (or object-like effects). Does not include the time
+    /// information.
     #[deriving(Eq)]
     pub enum ObjData {
         /// Deleted object. Only used during various processing.
@@ -1033,23 +1035,55 @@ pub mod parser {
         Stop(Duration)
     }
 
-    pub trait ObjImmOps {
+    /// Query operations for objects.
+    pub trait ObjQueryOps {
+        /// Returns true if the object is a visible object (`Visible`).
+        /// (C: `obj->type == NOTE`)
         pub fn is_visible(self) -> bool;
+        /// Returns true if the object is an invisible object (`Invisible`).
+        /// (C: `obj->type == INVNOTE`)
         pub fn is_invisible(self) -> bool;
+        /// Returns true if the object is a start of LN object (`LNStart`).
+        /// (C: `obj->type == LNSTART`)
         pub fn is_lnstart(self) -> bool;
+        /// Returns true if the object is an end of LN object (`LNEnd`).
+        /// (C: `obj->type == LNDONE`)
         pub fn is_lndone(self) -> bool;
+        /// Returns true if the object is either a start or an end of LN
+        /// object. (C: `obj->type < NOTE`)
         pub fn is_ln(self) -> bool;
-        pub fn is_soundable(self) -> bool;
-        pub fn is_gradable(self) -> bool;
-        pub fn is_renderable(self) -> bool;
+        /// Returns true if the object is a bomb (`Bomb`).
+        /// (C: `obj->type == BOMB`)
         pub fn is_bomb(self) -> bool;
+        /// Returns true if the object is soundable when it is the closest
+        /// soundable object from the current position and the player pressed
+        /// the key. Named "soundable" since it may choose not to play
+        /// the associated sound. Note that not every object with sound is
+        /// soundable. (C: `obj->type <= INVNOTE`)
+        pub fn is_soundable(self) -> bool;
+        /// Returns true if the object is subject to grading.
+        /// (C: `obj->type < INVNOTE`)
+        pub fn is_gradable(self) -> bool;
+        /// Returns true if the object has a visible representation.
+        /// (C: `obj->type != INVNOTE`)
+        pub fn is_renderable(self) -> bool;
+        /// Returns true if the data is an object.
+        /// (C: `IS_NOTE_CHANNEL(obj->chan)`)
         pub fn is_object(self) -> bool;
+        /// Returns true if the data is a BGM. (C: `obj->chan == BGM_CHANNEL`)
         pub fn is_bgm(self) -> bool;
+        /// Returns true if the data is a BGA. (C: `obj->chan == BGA_CHANNEL`)
         pub fn is_setbga(self) -> bool;
+        /// Returns true if the data is a BPM change.
+        /// (C: `obj->chan == BPM_CHANNEL`)
         pub fn is_setbpm(self) -> bool;
+        /// Returns true if the data is a scroll stopper.
+        /// (C: `obj->chan == STOP_CHANNEL`)
         pub fn is_stop(self) -> bool;
 
+        /// Returns an associated lane if the data is an object.
         pub fn object_lane(self) -> Option<Lane>;
+        /// Returns all sounds associated to the data.
         pub fn sounds(self) -> ~[SoundRef];
         pub fn keydown_sound(self) -> Option<SoundRef>;
         pub fn keyup_sound(self) -> Option<SoundRef>;
@@ -1058,14 +1092,23 @@ pub mod parser {
         pub fn through_damage(self) -> Option<Damage>;
     }
 
-    pub trait ObjOps: ObjImmOps {
+    /// Conversion operations for objects.
+    pub trait ObjConvOps: ObjQueryOps {
+        /// Returns a visible object with the same time, lane and sound as
+        /// given object.
         pub fn to_visible(self) -> Self;
+        /// Returns an invisible object with the same time, lane and sound as
+        /// given object.
         pub fn to_invisible(self) -> Self;
+        /// Returns a start of LN object with the same time, lane and sound as
+        /// given object.
         pub fn to_lnstart(self) -> Self;
+        /// Returns an end of LN object with the same time, lane and sound as
+        /// given object.
         pub fn to_lndone(self) -> Self;
     }
 
-    impl ObjImmOps for ObjData {
+    impl ObjQueryOps for ObjData {
         pub fn is_visible(self) -> bool {
             match self { Visible(*) => true, _ => false }
         }
@@ -1084,6 +1127,10 @@ pub mod parser {
 
         pub fn is_ln(self) -> bool {
             match self { LNStart(*)|LNDone(*) => true, _ => false }
+        }
+
+        pub fn is_bomb(self) -> bool {
+            match self { Bomb(*) => true, _ => false }
         }
 
         pub fn is_soundable(self) -> bool {
@@ -1105,10 +1152,6 @@ pub mod parser {
                 Visible(*) | LNStart(*) | LNDone(*) | Bomb(*) => true,
                 _ => false
             }
-        }
-
-        pub fn is_bomb(self) -> bool {
-            match self { Bomb(*) => true, _ => false }
         }
 
         pub fn is_object(self) -> bool {
@@ -1191,7 +1234,7 @@ pub mod parser {
         }
     }
 
-    impl ObjOps for ObjData {
+    impl ObjConvOps for ObjData {
         pub fn to_visible(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
@@ -1225,10 +1268,8 @@ pub mod parser {
         }
     }
 
-    /// Game play data associated to the time axis. Contrary to its name (I
-    /// don't like naming this to `Data`) it is not limited to the objects
-    /// (which are also associated to lanes) but also various effects that
-    /// causes a BGM played, a BGA updated etc.
+    /// Game play data associated to the time axis. It contains both objects
+    /// (which are also associated to lanes) and object-like effects.
     #[deriving(Eq)]
     pub struct Obj {
         /// Time position in measures.
@@ -1301,16 +1342,16 @@ pub mod parser {
         fn gt(&self, other: &Obj) -> bool { self.time > other.time }
     }
 
-    impl ObjImmOps for Obj {
+    impl ObjQueryOps for Obj {
         pub fn is_visible(self) -> bool { self.data.is_visible() }
         pub fn is_invisible(self) -> bool { self.data.is_invisible() }
         pub fn is_lnstart(self) -> bool { self.data.is_lnstart() }
         pub fn is_lndone(self) -> bool { self.data.is_lndone() }
         pub fn is_ln(self) -> bool { self.data.is_ln() }
+        pub fn is_bomb(self) -> bool { self.data.is_bomb() }
         pub fn is_soundable(self) -> bool { self.data.is_soundable() }
         pub fn is_gradable(self) -> bool { self.data.is_gradable() }
         pub fn is_renderable(self) -> bool { self.data.is_renderable() }
-        pub fn is_bomb(self) -> bool { self.data.is_bomb() }
         pub fn is_object(self) -> bool { self.data.is_object() }
         pub fn is_bgm(self) -> bool { self.data.is_bgm() }
         pub fn is_setbga(self) -> bool { self.data.is_setbga() }
@@ -1340,7 +1381,7 @@ pub mod parser {
         }
     }
 
-    impl ObjOps for Obj {
+    impl ObjConvOps for Obj {
         pub fn to_visible(self) -> Obj {
             Obj { time: self.time, data: self.data.to_visible() }
         }
@@ -1639,8 +1680,8 @@ pub mod parser {
             // Rust: mutable loan and immutable loan cannot coexist
             //       in the same block (although it's safe). (#4666)
             assert!(!rnd.is_empty());
-            let state = { if rnd.last().skip { Ignore }
-                          else { rnd.last().state } }; // XXX #4666
+            let state = { if rnd.last().skip {Ignore}
+                          else {rnd.last().state} }; // XXX #4666
 
             match (prefix, state) {
                 // #TITLE|#GENRE|#ARTIST|#STAGEFILE|#PATH_WAV <string>
@@ -1723,7 +1764,7 @@ pub mod parser {
                 ("SETRANDOM", _) => {
                     let mut val = 0;
                     if lex!(line; ws, int -> val) {
-                        let val = if val <= 0 { None } else { Some(val) };
+                        let val = if val <= 0 {None} else {Some(val)};
 
                         // do not generate a random value if the entire block
                         // is skipped (but it still marks the start of block)
@@ -1757,7 +1798,7 @@ pub mod parser {
                 ("ELSEIF", _) => {
                     let mut val = 0;
                     if lex!(line; ws, int -> val) {
-                        let val = if val <= 0 { None } else { Some(val) };
+                        let val = if val <= 0 {None} else {Some(val)};
 
                         // Rust: `rnd.last_ref()` may be useful?
                         let last = &mut rnd[rnd.len() - 1];
@@ -1779,8 +1820,8 @@ pub mod parser {
                 ("ELSE", _) => {
                     let last = &mut rnd[rnd.len() - 1];
                     last.inside = true;
-                    last.state = if last.state == Ignore { Process }
-                                 else { NoFurther };
+                    last.state = if last.state == Ignore {Process}
+                                 else {NoFurther};
                 }
 
                 // #END(IF)
@@ -1806,7 +1847,7 @@ pub mod parser {
                     }
                 }
 
-                (_, _) => ()
+                (_, _) => {}
             }
         }
 
@@ -1962,7 +2003,7 @@ pub mod parser {
                 // #97/98 (sound volume), #99 (text), #A0 (dynamic #RANK),
                 // #A1/A2/A3/A4 (BGA color key update), #A5 (BGA on keypress),
                 // #A6 (player-specific option)
-                _ => ()
+                _ => {}
             }
         };
 
@@ -2107,15 +2148,15 @@ pub mod parser {
                                  present[36+8] || present[36+9]);
                     let haspedal = (present[7] || present[36+7]);
                     let nkeys = match bms.player {
-                        2 | 3 => if isbme { ~"14" } else { ~"10" },
-                        _     => if isbme { ~"7"  } else { ~"5"  }
+                        2 | 3 => if isbme {~"14"} else {~"10"},
+                        _     => if isbme {~"7" } else {~"5" }
                     };
-                    if haspedal { nkeys + ~"/fp" } else { nkeys }
+                    if haspedal {nkeys + ~"/fp"} else {nkeys}
                 },
                 Some(~"pms") => {
                     let isbme = (present[6] || present[7] ||
                                  present[8] || present[9]);
-                    if isbme { ~"9-bme" } else { ~"9" }
+                    if isbme {~"9-bme"} else {~"9"}
                 },
                 Some(preset) => preset
             };
@@ -2239,7 +2280,7 @@ pub mod parser {
                 match bms.objs.rposition(|obj| to_type(obj).is_some()) {
                     Some(pos) if bms.objs[pos].is_lnstart() =>
                         remove_or_replace_note(&mut bms.objs[pos]),
-                    _ => ()
+                    _ => {}
                 }
             }
         }
@@ -2327,9 +2368,10 @@ pub mod parser {
             let delta = bms.adjust_object_position(pos, obj.time);
             time += bpm.measure_to_msec(delta);
             match obj.data {
-                Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) =>
-                    sndtime = cmp::max(sndtime, time + sound_length(sref)),
-                SetBPM(BPM(newbpm)) =>
+                Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) => {
+                    sndtime = cmp::max(sndtime, time + sound_length(sref));
+                }
+                SetBPM(BPM(newbpm)) => {
                     if newbpm > 0.0 {
                         bpm = BPM(newbpm);
                     } else if newbpm < 0.0 {
@@ -2338,12 +2380,15 @@ pub mod parser {
                             bms.adjust_object_position(originoffset, pos);
                         time += BPM(-newbpm).measure_to_msec(delta);
                         break;
-                    },
-                Stop(Seconds(secs)) =>
-                    time += secs * 1000.0,
-                Stop(Measures(measures)) =>
-                    time += bpm.measure_to_msec(measures),
-                _ => (),
+                    }
+                }
+                Stop(Seconds(secs)) => {
+                    time += secs * 1000.0;
+                }
+                Stop(Measures(measures)) => {
+                    time += bpm.measure_to_msec(measures);
+                }
+                _ => {}
             }
             pos = obj.time;
         }
@@ -2440,19 +2485,29 @@ pub mod gfx {
     //------------------------------------------------------------------------
     // `Rect` additions
 
+    /// A trait that can be translated to point coordinates (`x` and `y`
+    /// fields in `sdl::Rect`, hence the name). Also contains `()`.
     pub trait XyOpt {
+        /// Returns point coordinates if any.
         fn xy_opt(&self) -> Option<(i16,i16)>;
     }
 
+    /// Same as `XyOpt` but does not contain `()`.
     pub trait Xy: XyOpt {
+        /// Returns point coordinates.
         fn xy(&self) -> (i16,i16);
     }
 
+    /// A trait that can be translated to a rectangular area (`w` and `h`
+    /// fields in `sdl::Rect`, hence the name). Also contains `()`.
     pub trait WhOpt {
+        /// Returns a rectangular area if any.
         fn wh_opt(&self) -> Option<(u16,u16)>;
     }
 
+    /// Same as `WhOpt` but does not contain `()`.
     pub trait Wh {
+        /// Returns a rectangular area.
         fn wh(&self) -> (u16,u16);
     }
 
@@ -2518,8 +2573,12 @@ pub mod gfx {
         fn wh(&self) -> (u16,u16) { (*self).wh() }
     }
 
+    /// A helper trait for defining every implementations for types `(T1,T2)`
+    /// where `T1` and `T2` is convertible to an integer.
     trait ToInt16 {
+        /// Converts to `i16`.
         fn to_i16(&self) -> i16;
+        /// Converts to `u16`.
         fn to_u16(&self) -> u16;
     }
 
@@ -2571,26 +2630,37 @@ pub mod gfx {
         }
     }
 
+    /// Constructs an `sdl::Rect` from given point coordinates. Fills `w` and
+    /// `h` fields to 0 as expected by the second `sdl::Rect` argument from
+    /// `SDL_BlitSurface`.
     fn rect_from_xy<XY:Xy>(xy: XY) -> Rect {
         let (x, y) = xy.xy();
         Rect { x: x, y: y, w: 0, h: 0 }
     }
 
+    /// Constructs an `sdl::Rect` from given point coordinates and optional
+    /// rectangular area. `rect_from_xywh(xy, ())` equals to
+    /// `rect_from_xy(xy)`.
     fn rect_from_xywh<XY:Xy,WH:WhOpt>(xy: XY, wh: WH) -> Rect {
         let (x, y) = xy.xy();
         let (w, h) = wh.wh_opt().get_or_default((0, 0));
         Rect { x: x, y: y, w: w, h: h }
     }
 
-    pub trait SurfaceUtils {
+    /// Additions to `sdl::video::Surface`. They replace their `_rect`
+    /// suffixed counterparts, which are generally annoying to work with.
+    pub trait SurfaceAreaUtil {
+        /// An alternative interface to `set_clip_rect`.
         fn set_clip_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH);
+        /// An alternative interface to `blit_rect`.
         fn blit_area<SrcXY:Xy,DstXY:XyOpt,WH:WhOpt>(&self, src: &Surface,
                 srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool;
+        /// An alternative interface to `fill_rect`.
         fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH,
                                      color: Color) -> bool;
     }
 
-    impl SurfaceUtils for Surface {
+    impl SurfaceAreaUtil for Surface {
         fn set_clip_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH) {
             let rect = rect_from_xywh(xy, wh);
             self.set_clip_rect(&rect)
@@ -2614,29 +2684,38 @@ pub mod gfx {
     //------------------------------------------------------------------------
     // color
 
+    /// Extracts a red, green, blue components from given color.
     fn to_rgb(c: Color) -> (u8, u8, u8) {
         match c { RGB(r, g, b) | RGBA(r, g, b, _) => (r, g, b) }
     }
 
+    /// Linear color gradient.
     pub struct Gradient {
-        top: Color, bottom: Color
+        /// A color at the position 1.0 (!). This is because the gradient was
+        /// historically intended for lane backgrounds only.
+        top: Color,
+        /// A color at the position 0.0.
+        bottom: Color
     }
 
+    /// Creates a new color gradient.
     pub fn Gradient(top: Color, bottom: Color) -> Gradient {
         Gradient { top: top, bottom: bottom }
     }
 
+    /// A trait for color or color gradient. The color at the particular
+    /// position can be calculated with `blend` method.
     // Rust: `Copy` can't be inherited even when it's specified. (#3984)
-    pub trait Blendable {
-        /// (C: `blend`)
+    pub trait Blend {
+        /// Calculates the color at the position `num/denom`. (C: `blend`)
         fn blend(&self, num: int, denom: int) -> Color;
     }
 
-    impl Blendable for Color {
+    impl Blend for Color {
         fn blend(&self, _num: int, _denom: int) -> Color { *self }
     }
 
-    impl Blendable for Gradient {
+    impl Blend for Gradient {
         fn blend(&self, num: int, denom: int) -> Color {
             fn mix(x: u8, y: u8, num: int, denom: int) -> u8 {
                 let x = x as int, y = y as int;
@@ -2653,7 +2732,8 @@ pub mod gfx {
     //------------------------------------------------------------------------
     // surface utilities
 
-    /// (C: `newsurface`)
+    /// Creates a new RAM-backed surface. By design, Angolmois does not use
+    /// a VRAM-backed surface except for the screen. (C: `newsurface`)
     pub fn new_surface(w: uint, h: uint) -> ~Surface {
         match Surface::new([SWSurface], w as int, h as int, 32,
                            0xff0000, 0xff00, 0xff, 0) {
@@ -2662,42 +2742,58 @@ pub mod gfx {
         }
     }
 
-    /// (C: `getpixel`)
-    pub fn get_pixel(surface: &Surface, x: uint, y: uint) -> Color {
-        // TODO Angolmois doesn't really lock the surface since it assumes
-        // SW surface or double-buffered HW surface...
-        unsafe {
-            let fmt = (*surface.raw).format;
-            let pitch = (*surface.raw).pitch as uint;
-            let len = (*surface.raw).h as uint * pitch;
-            let pixels: &mut [u32] =
-                cast::transmute(((*surface.raw).pixels, len));
-            Color::from_mapped(pixels[x + y * pitch / 4], fmt)
+    /// A proxy to `sdl::video::Surface` for the direct access to pixels.
+    /// For now, it is for 32 bits per pixel only.
+    pub struct SurfacePixels<'self> {
+        fmt: *ll::SDL_PixelFormat,
+        width: uint,
+        height: uint,
+        pitch: uint,
+        pixels: &'self mut [u32]
+    }
+
+    /// A trait for the direct access to pixels.
+    pub trait SurfacePixelsUtil {
+        /// Grants the direct access to pixels. Also locks the surface
+        /// as needed.
+        fn with_pixels<R>(&self, f: &fn(pixels: &SurfacePixels) -> R) -> R;
+    }
+
+    impl SurfacePixelsUtil for Surface {
+        fn with_pixels<R>(&self, f: &fn(pixels: &SurfacePixels) -> R) -> R {
+            do self.with_lock |pixels| {
+                let fmt = unsafe {(*self.raw).format};
+                let pitch = unsafe {(*self.raw).pitch / 4 as uint};
+                let pixels = unsafe {cast::transmute(pixels)};
+                f(&SurfacePixels { fmt: fmt,
+                                   width: self.get_width() as uint,
+                                   height: self.get_height() as uint,
+                                   pitch: pitch, pixels: pixels })
+            }
         }
     }
 
-    /// (C: `putpixel`)
-    pub fn put_pixel(surface: &Surface, x: uint, y: uint, c: Color) {
-        // TODO Angolmois doesn't really lock the surface since it assumes
-        // SW surface or double-buffered HW surface...
-        unsafe {
-            let fmt = (*surface.raw).format;
-            let pitch = (*surface.raw).pitch as uint;
-            let len = (*surface.raw).h as uint * pitch;
-            let pixels: &mut [u32] =
-                cast::transmute(((*surface.raw).pixels, len));
-            pixels[x + y * pitch / 4] = c.to_mapped(fmt);
+    impl<'self> SurfacePixels<'self> {
+        /// Returns a pixel at given position. (C: `getpixel`)
+        pub fn get_pixel(&self, x: uint, y: uint) -> Color {
+            Color::from_mapped(self.pixels[x + y * self.pitch], self.fmt)
         }
-    }
 
-    /// (C: `putblendedpixel`)
-    pub fn put_blended_pixel(surface: &Surface, x: uint, y: uint, c: Color) {
-        match c {
-            RGB(*) => put_pixel(surface, x, y, c),
-            RGBA(r,g,b,a) => match get_pixel(surface, x, y) {
-                RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
-                    let grad = Gradient(RGB(r2,g2,b2), RGB(r,g,b));
-                    put_pixel(surface, x, y, grad.blend(a as int, 255));
+        /// Sets a pixel to given position. (C: `putpixel`)
+        pub fn put_pixel(&self, x: uint, y: uint, c: Color) {
+            self.pixels[x + y * self.pitch] = c.to_mapped(self.fmt);
+        }
+
+        /// Sets or blends (if `c` is `RGBA`) a pixel to given position.
+        /// (C: `putblendedpixel`)
+        pub fn put_blended_pixel(&self, x: uint, y: uint, c: Color) {
+            match c {
+                RGB(*) => self.put_pixel(x, y, c),
+                RGBA(r,g,b,a) => match self.get_pixel(x, y) {
+                    RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
+                        let grad = Gradient(RGB(r2,g2,b2), RGB(r,g,b));
+                        self.put_pixel(x, y, grad.blend(a as int, 255));
+                    }
                 }
             }
         }
@@ -2719,11 +2815,11 @@ pub mod gfx {
     }
 
     /// (C: `bicubic_interpolation`)
-    pub fn bicubic_interpolation(src: &Surface, dest: &Surface) {
-        let w = dest.get_width() as int - 1;
-        let h = dest.get_height() as int - 1;
-        let ww = src.get_width() as int - 1;
-        let hh = src.get_height() as int - 1;
+    pub fn bicubic_interpolation(src: &SurfacePixels, dest: &SurfacePixels) {
+        let w = dest.width as int - 1;
+        let h = dest.height as int - 1;
+        let ww = src.width as int - 1;
+        let hh = src.height as int - 1;
 
         let mut dx = 0, x = 0;
         for int::range(0, w + 1) |i| {
@@ -2742,8 +2838,8 @@ pub mod gfx {
                     for int::range(0, 4) |k1| {
                         let xx = x + k0 - 1, yy = y + k1 - 1;
                         if 0 <= xx && xx <= ww && 0 <= yy && yy <= hh {
-                            let (r2,g2,b2) = to_rgb(get_pixel(src, xx as uint,
-                                                              yy as uint));
+                            let (r2,g2,b2) =
+                                to_rgb(src.get_pixel(xx as uint, yy as uint));
                             let d = (a0[k0] * a1[k1]) >> (FP_SHIFT1*2 -
                                                           FP_SHIFT2);
                             r += r2 as int * d;
@@ -2756,7 +2852,7 @@ pub mod gfx {
                 let r = ::util::cmp::clamp(0, r >> FP_SHIFT2, 255) as u8;
                 let g = ::util::cmp::clamp(0, g >> FP_SHIFT2, 255) as u8;
                 let b = ::util::cmp::clamp(0, b >> FP_SHIFT2, 255) as u8;
-                put_pixel(dest, i as uint, j as uint, RGB(r, g, b));
+                dest.put_pixel(i as uint, j as uint, RGB(r, g, b));
 
                 dy += hh;
                 if dy > h {
@@ -2945,8 +3041,8 @@ pub mod gfx {
         /// Prints a glyph with given position and top/bottom color. This
         /// method is distinct from `print_glyph` since the glyph #95 is used
         /// for the tick marker (character code -1 in C).
-        pub fn print_glyph<ColorT:Blendable+Copy>(&self, // XXX #3984
-                surface: &Surface, x: uint, y: uint, zoom: uint,
+        pub fn print_glyph<ColorT:Blend+Copy>(&self, // XXX #3984
+                pixels: &SurfacePixels, x: uint, y: uint, zoom: uint,
                 glyph: uint, color: ColorT) {
             assert!(!self.pixels[zoom].is_empty());
             for uint::range(0, 16 * zoom) |iy| {
@@ -2954,26 +3050,26 @@ pub mod gfx {
                 let rowcolor = color.blend(iy as int, 16 * zoom as int);
                 for uint::range(0, 8 * zoom) |ix| {
                     if ((row >> ix) & 1) != 0 {
-                        put_pixel(surface, x + ix, y + iy, rowcolor);
+                        pixels.put_pixel(x + ix, y + iy, rowcolor);
                     }
                 }
             }
         }
 
         /// (C: `printchar`)
-        pub fn print_char<ColorT:Blendable+Copy>(&self, // XXX #3984
-                surface: &Surface, x: uint, y: uint, zoom: uint,
+        pub fn print_char<ColorT:Blend+Copy>(&self, // XXX #3984
+                pixels: &SurfacePixels, x: uint, y: uint, zoom: uint,
                 c: char, color: ColorT) {
             if !char::is_whitespace(c) {
                 let c = c as uint;
-                let glyph = if 32 <= c && c < 126 { c - 32 } else { 0 };
-                self.print_glyph(surface, x, y, zoom, glyph, color);
+                let glyph = if 32 <= c && c < 126 {c-32} else {0};
+                self.print_glyph(pixels, x, y, zoom, glyph, color);
             }
         }
 
         /// (C: `printstr`)
-        pub fn print_string<ColorT:Blendable+Copy>(&self, // XXX #3984
-                surface: &Surface, x: uint, y: uint, zoom: uint,
+        pub fn print_string<ColorT:Blend+Copy>(&self, // XXX #3984
+                pixels: &SurfacePixels, x: uint, y: uint, zoom: uint,
                 align: Alignment, s: &str, color: ColorT) {
             let mut x = match align {
                 LeftAligned  => x,
@@ -2983,8 +3079,8 @@ pub mod gfx {
             // Rust: `s.each_char` is ambiguous here.
             for str::each_char(s) |c| {
                 let nextx = x + 8 * zoom;
-                if nextx >= surface.get_width() as uint { break; }
-                self.print_char(surface, x, y, zoom, c, color);
+                if nextx >= pixels.width { break; }
+                self.print_char(pixels, x, y, zoom, c, color);
                 x = nextx;
             }
         }
@@ -3193,8 +3289,8 @@ pub mod player {
                     atexit();
                     ::util::exit(0);
                 },
-                NoEvent => break,
-                _ => ()
+                NoEvent => { break; },
+                _ => {}
             }
         }
     }
@@ -3474,11 +3570,11 @@ pub mod player {
                                     -> (~str, ~str, ~str, ~str) {
         let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
                         bms.playlevel, *bms.initbpm,
-                        if infos.hasbpmchange { ~"?" } else { ~"" },
+                        if infos.hasbpmchange {~"?"} else {~""},
                         infos.nnotes,
-                        if infos.nnotes == 1 { ~"" } else { ~"s" },
+                        if infos.nnotes == 1 {~""} else {~"s"},
                         keyspec.nkeys(),
-                        if infos.haslongnote { ~"-LN" } else { ~"" });
+                        if infos.haslongnote {~"-LN"} else {~""});
         let title = (copy bms.title).get_or_default(~"");
         let genre = (copy bms.genre).get_or_default(~"");
         let artist = (copy bms.artist).get_or_default(~"");
@@ -3491,35 +3587,47 @@ pub mod player {
         let (meta, title, genre, artist) =
             displayed_info(bms, infos, keyspec);
 
-        font.print_string(screen, SCREENW/2, SCREENH/2-16, 2, Centered,
-                          ~"loading bms file...",
-                          Gradient(RGB(0x20,0x20,0x20), RGB(0x80,0x80,0x80)));
+        do screen.with_pixels |pixels| {
+            font.print_string(pixels, SCREENW/2, SCREENH/2-16,
+                              2, Centered, ~"loading bms file...",
+                              Gradient(RGB(0x20,0x20,0x20),
+                                       RGB(0x80,0x80,0x80)));
+        }
         screen.flip();
 
-        for bms.stagefile.each |&path| {
-            let path = opts.rel_path(path);
-            match img::load(&path).chain(|s| s.display_format()) {
-                Ok(surface) => bicubic_interpolation(surface, screen),
-                Err(_) => ()
+        do screen.with_pixels |pixels| {
+            for bms.stagefile.each |&path| {
+                let path = opts.rel_path(path);
+                match img::load(&path).chain(|s| s.display_format()) {
+                    Ok(surface) => {
+                        do surface.with_pixels |srcpixels| {
+                            bicubic_interpolation(srcpixels, pixels);
+                        }
+                    }
+                    Err(_) => {}
+                }
             }
-        }
 
-        if opts.showinfo {
-            let bg = RGBA(0x10,0x10,0x10,0x40);
-            let fg = Gradient(RGB(0x80,0x80,0x80), RGB(0xff,0xff,0xff));
-            for uint::range(0, SCREENW) |i| {
-                for uint::range(0, 42) |j| {
-                    put_blended_pixel(screen, i, j, bg);
+            if opts.showinfo {
+                let bg = RGBA(0x10,0x10,0x10,0x40);
+                let fg = Gradient(RGB(0x80,0x80,0x80), RGB(0xff,0xff,0xff));
+                for uint::range(0, SCREENW) |i| {
+                    for uint::range(0, 42) |j| {
+                        pixels.put_blended_pixel(i, j, bg);
+                    }
+                    for uint::range(SCREENH-20, SCREENH) |j| {
+                        pixels.put_blended_pixel(i, j, bg);
+                    }
                 }
-                for uint::range(SCREENH-20, SCREENH) |j| {
-                    put_blended_pixel(screen, i, j, bg);
-                }
+                let right = SCREENW-8, bottom = SCREENH-18;
+                font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
+                font.print_string(pixels, right, 4, 1,
+                                  RightAligned, genre, fg);
+                font.print_string(pixels, right, 20, 1,
+                                  RightAligned, artist, fg);
+                font.print_string(pixels, 3, bottom, 1,
+                                  LeftAligned, meta, fg);
             }
-            let right = SCREENW-8, bottom = SCREENH-18;
-            font.print_string(screen, 6, 4, 2, LeftAligned, title, fg);
-            font.print_string(screen, right, 4, 1, RightAligned, genre, fg);
-            font.print_string(screen, right, 20, 1, RightAligned, artist, fg);
-            font.print_string(screen, 3, bottom, 1, LeftAligned, meta, fg);
         }
 
         screen.flip();
@@ -3723,7 +3831,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pos: uint
     }
 
-    impl ObjImmOps for Pointer {
+    impl ObjQueryOps for Pointer {
         pub fn is_visible(self) -> bool {
             self.bms.objs[self.pos].is_visible()
         }
@@ -3739,6 +3847,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pub fn is_ln(self) -> bool {
             self.bms.objs[self.pos].is_ln()
         }
+        pub fn is_bomb(self) -> bool {
+            self.bms.objs[self.pos].is_bomb()
+        }
         pub fn is_soundable(self) -> bool {
             self.bms.objs[self.pos].is_soundable()
         }
@@ -3747,9 +3858,6 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
         pub fn is_renderable(self) -> bool {
             self.bms.objs[self.pos].is_renderable()
-        }
-        pub fn is_bomb(self) -> bool {
-            self.bms.objs[self.pos].is_bomb()
         }
         pub fn is_object(self) -> bool {
             self.bms.objs[self.pos].is_object()
@@ -4117,7 +4225,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     let weight = if grade == GREAT {2} else {3};
                     let cmbbonus = cmp::min(self.lastcombo as int, 100) / 50;
                     self.lastcombo += 1;
-                    self.gauge += weight + cmbbonus;
+                    self.gauge = cmp::min(self.gauge + weight + cmbbonus,
+                                          MAXGAUGE);
                 }
             }
             self.bestcombo = cmp::max(self.bestcombo, self.lastcombo);
@@ -4246,7 +4355,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             self.update_grade_from_distance(0.0);
                         }
                     }
-                    _ => ()
+                    _ => {}
                 }
             }
 
@@ -4427,7 +4536,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             self.targetspeed = Some(newspeed);
                             //Mix_PlayChannel(0, beep, 0);
                         }
-                    },
+                    }
                     (SpeedUpInput, Positive) |
                     (SpeedUpInput, Negative) => {
                         let current =
@@ -4436,7 +4545,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             self.targetspeed = Some(newspeed);
                             //Mix_PlayChannel(0, beep, 0);
                         }
-                    },
+                    }
                     (LaneInput(lane), state) => {
                         if !self.opts.is_autoplay() {
                             if is_unpressed(lane, continuous, state) {
@@ -4447,7 +4556,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             }
                         }
                     }
-                    (_, _) => ()
+                    (_, _) => {}
                 }
 
             }
@@ -4608,8 +4717,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             rightmost -= style.width + 1;
         }
 
-        let rightmost = if rightmost == SCREENW { None }
-                        else { Some(rightmost) };
+        let rightmost = if rightmost == SCREENW {None}
+                        else {Some(rightmost)};
         (leftmost, rightmost, styles)
     }
 
@@ -4626,19 +4735,21 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         // render panels
-        let topgrad = Gradient(RGB(0x60,0x60,0x60), RGB(0xc0,0xc0,0xc0));
-        let bottomgrad = Gradient(RGB(0x40,0x40,0x40), RGB(0xc0,0xc0,0xc0));
-        for int::range(-244, 556) |j| {
-            for int::range(-10, 20) |i| {
-                let c = (i*2+j*3+750) % 2000;
-                put_pixel(sprite, (j+244) as uint, (i+10) as uint,
-                          topgrad.blend(850 - num::abs(c-1000), 700));
-            }
-            for int::range(-20, 60) |i| {
-                let c = (i*3+j*2+750) % 2000;
-                let bottom = (SCREENH - 60) as int;
-                put_pixel(sprite, (j+244) as uint, (i+bottom) as uint,
-                          bottomgrad.blend(850 - num::abs(c-1000), 700));
+        do sprite.with_pixels |&pixels| {
+            let topgrad = Gradient(RGB(0x60,0x60,0x60), RGB(0xc0,0xc0,0xc0));
+            let botgrad = Gradient(RGB(0x40,0x40,0x40), RGB(0xc0,0xc0,0xc0));
+            for int::range(-244, 556) |j| {
+                for int::range(-10, 20) |i| {
+                    let c = (i*2+j*3+750) % 2000;
+                    pixels.put_pixel((j+244) as uint, (i+10) as uint,
+                        topgrad.blend(850 - num::abs(c-1000), 700));
+                }
+                for int::range(-20, 60) |i| {
+                    let c = (i*3+j*2+750) % 2000;
+                    let bottom = (SCREENH - 60) as int;
+                    pixels.put_pixel((j+244) as uint, (i+bottom) as uint,
+                        botgrad.blend(850 - num::abs(c-1000), 700));
+                }
             }
         }
         sprite.fill_area((10, SCREENH-36), (leftmost, 1), gray);
@@ -4649,14 +4760,17 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let gapwidth = rightgap - leftgap;
         sprite.fill_area((leftgap, 0), (gapwidth, 30), black);
         sprite.fill_area((leftgap, SCREENH-80), (gapwidth, 80), black);
-        for uint::range(0, 20) |i| {
-            for uint::range_rev(20, 0) |j| {
-                if i*i + j*j <= 400 { break; } // circled border
-                put_pixel(sprite, leftmost + j, 10 + i, black);
-                put_pixel(sprite, leftmost + j, (SCREENH-61) - i, black);
-                for rightmost.each |&right| {
-                    put_pixel(sprite, (right-j) - 1, 10 + i, black);
-                    put_pixel(sprite, (right-j) - 1, (SCREENH-61) - i, black);
+        do sprite.with_pixels |&pixels| {
+            for uint::range(0, 20) |i| {
+                for uint::range_rev(20, 0) |j| {
+                    if i*i + j*j <= 400 { break; } // circled border
+                    pixels.put_pixel(leftmost + j, 10 + i, black);
+                    pixels.put_pixel(leftmost + j, (SCREENH-61) - i, black);
+                    for rightmost.each |&right| {
+                        pixels.put_pixel((right-j) - 1, 10 + i, black);
+                        pixels.put_pixel((right-j) - 1, (SCREENH-61) - i,
+                                         black);
+                    }
                 }
             }
         }
@@ -4792,19 +4906,20 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                 nextbottom = Some(y);
                             }
                             LNDone(lane0,_) if lane0 == lane => {
-                                style.render_note(screen, sprite,
-                                    y, nextbottom.get_or_default(SCREENH-80));
+                                let bottom = SCREENH-80;
+                                style.render_note(screen, sprite, y,
+                                    nextbottom.get_or_default(bottom));
                                 nextbottom = None;
                             }
                             Visible(lane0,_) if lane0 == lane => {
                                 assert!(nextbottom.is_none());
-                                style.render_note(screen, sprite, y - 5, y);
+                                style.render_note(screen, sprite, y-5, y);
                             }
                             Bomb(lane0,_,_) if lane0 == lane => {
                                 assert!(nextbottom.is_none());
-                                style.render_bomb(screen, sprite, y - 5, y);
+                                style.render_bomb(screen, sprite, y-5, y);
                             }
-                            _ => ()
+                            _ => {}
                         }
                         i += 1;
                     }
@@ -4832,52 +4947,58 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let gradelimit = self.gradelimit.get();
                 let (gradename,gradecolor) = GRADES[player.lastgrade as uint];
                 let delta = cmp::max(0, (gradelimit - player.now - 400) / 15);
-                font.print_string(screen, self.leftmost/2,
-                                  SCREENH/2 - 40 - delta, 2, Centered,
-                                  gradename, gradecolor);
-                if player.lastcombo > 1 {
-                    font.print_string(screen, self.leftmost/2,
-                                      SCREENH/2 - 12 - delta, 1, Centered,
-                                      fmt!("%u COMBO", player.lastcombo),
-                                      Gradient(RGB(0x80,0x80,0x80),
-                                               RGB(0xff,0xff,0xff)));
-                }
-                if player.opts.is_autoplay() {
-                    font.print_string(screen, self.leftmost/2,
-                                      SCREENH/2 + 2 - delta, 1,
-                                      Centered, "(AUTO)",
-                                      Gradient(RGB(0x40,0x40,0x40),
-                                               RGB(0xc0,0xc0,0xc0)));
+                do screen.with_pixels |pixels| {
+                    font.print_string(pixels, self.leftmost/2,
+                                      SCREENH/2 - 40 - delta, 2, Centered,
+                                      gradename, gradecolor);
+                    if player.lastcombo > 1 {
+                        font.print_string(pixels, self.leftmost/2,
+                                          SCREENH/2 - 12 - delta, 1, Centered,
+                                          fmt!("%u COMBO", player.lastcombo),
+                                          Gradient(RGB(0x80,0x80,0x80),
+                                                   RGB(0xff,0xff,0xff)));
+                    }
+                    if player.opts.is_autoplay() {
+                        font.print_string(pixels, self.leftmost/2,
+                                          SCREENH/2 + 2 - delta, 1,
+                                          Centered, "(AUTO)",
+                                          Gradient(RGB(0x40,0x40,0x40),
+                                                   RGB(0xc0,0xc0,0xc0)));
+                    }
                 }
             }
 
             screen.set_clip_rect(&screen.get_rect());
 
+            self.restore_panel();
+
             // render panel
             let elapsed = (player.now - player.origintime) / 1000;
             let duration = (player.duration / 1000.0) as uint;
             let durationmsec = player.duration as uint;
-            self.restore_panel();
-            font.print_string(screen, 10, 8, 1, LeftAligned,
-                              fmt!("SCORE %07u", player.score), RGB(0,0,0));
-            let nominalplayspeed =
-                player.targetspeed.get_or_default(player.playspeed);
-            font.print_string(screen, 5, SCREENH-78, 2, LeftAligned,
-                              fmt!("%4.1fx", nominalplayspeed), RGB(0,0,0));
-            font.print_string(screen, self.leftmost-94, SCREENH-35,
-                              1, LeftAligned,
-                              fmt!("%02u:%02u / %02u:%02u",
-                                   elapsed/60, elapsed%60,
-                                   duration/60, duration%60), RGB(0,0,0));
-            font.print_string(screen, 95, SCREENH-62, 1, LeftAligned,
-                              fmt!("@%9.4f", player.bottom), RGB(0,0,0));
-            font.print_string(screen, 95, SCREENH-78, 1, LeftAligned,
-                              fmt!("BPM %6.2f", *player.bpm), RGB(0,0,0));
-            let timetick =
-                cmp::min(self.leftmost, (player.now - player.origintime) *
-                                        self.leftmost / durationmsec);
-            font.print_glyph(screen, 6 + timetick, SCREENH-52, 1,
-                             95, RGB(0x40,0x40,0x40)); // glyph #95 for tick
+            do screen.with_pixels |pixels| {
+                let black = RGB(0,0,0);
+                font.print_string(pixels, 10, 8, 1, LeftAligned,
+                                  fmt!("SCORE %07u", player.score), black);
+                let nominalplayspeed =
+                    player.targetspeed.get_or_default(player.playspeed);
+                font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
+                                  fmt!("%4.1fx", nominalplayspeed), black);
+                font.print_string(pixels, self.leftmost-94, SCREENH-35,
+                                  1, LeftAligned,
+                                  fmt!("%02u:%02u / %02u:%02u",
+                                       elapsed/60, elapsed%60,
+                                       duration/60, duration%60), black);
+                font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
+                                  fmt!("@%9.4f", player.bottom), black);
+                font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
+                                  fmt!("BPM %6.2f", *player.bpm), black);
+                let timetick =
+                    cmp::min(self.leftmost, (player.now - player.origintime) *
+                                            self.leftmost / durationmsec);
+                font.print_glyph(pixels, 6 + timetick, SCREENH-52, 1,
+                                 95, RGB(0x40,0x40,0x40)); // glyph #95: tick
+            }
 
             // render gauge
             if !player.opts.is_autoplay() {
@@ -4885,12 +5006,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let cycle = (160.0 * player.startshorten *
                              player.bottom).floor() % 40.0;
                 let width =
-                    if player.gauge < 0 { 0 }
-                    else { player.gauge * 400 / MAXGAUGE - (cycle as int) };
+                    if player.gauge < 0 {0}
+                    else {player.gauge * 400 / MAXGAUGE - (cycle as int)};
                 let width = ::util::cmp::clamp(5, width, 360);
                 let color =
-                    if player.gauge >= player.survival { RGB(0xc0,0,0) }
-                    else { RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0) };
+                    if player.gauge >= player.survival {RGB(0xc0,0,0)}
+                    else {RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0)};
                 screen.fill_area((4, SCREENH-12), (width, 8), color);
             }
 
@@ -4980,18 +5101,21 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             let screen: &Surface = *screen.get_ref();
                             let msg = path.get_or_default(~"loading...");
                             screen.blit_at(*saved, 0, (SCREENH-20) as i16);
-                            font.print_string(screen, SCREENW-3, SCREENH-18,
-                                              1, RightAligned, msg,
-                                              Gradient(RGB(0x80,0x80,0x80),
-                                                       RGB(0xc0,0xc0,0xc0)));
+                            do screen.with_pixels |pixels| {
+                                font.print_string(
+                                    pixels, SCREENW-3, SCREENH-18,
+                                    1, RightAligned, msg,
+                                    Gradient(RGB(0x80,0x80,0x80),
+                                             RGB(0xc0,0xc0,0xc0)));
+                            }
                             screen.flip();
                         }
                         None => {
                             match path {
                                 Some(path) => {
                                     let path =
-                                        if path.len() > 63 { path }
-                                        else { path.slice(0, 63).to_owned() };
+                                        if path.len() > 63 {path}
+                                        else {path.slice(0, 63).to_owned()};
                                     update_line(~"Loading: " + path);
                                 }
                                 None => update_line(~"Loading done.")
@@ -5144,7 +5268,7 @@ fn main() {
             let mut inside = true;
             for shortargs.each_chari_byte |j, c| {
                 let fetch_arg = |opt| {
-                    let off = if inside { j + 1 } else { j };
+                    let off = if inside {j+1} else {j};
                     let nextarg =
                         if inside && off < nshortargs {
                             shortargs.slice_to_end(off)
@@ -5182,9 +5306,9 @@ fn main() {
                     'a' => match float::from_str(fetch_arg('a')) {
                         Some(speed) if speed > 0.0 => {
                             playspeed =
-                                if speed < 0.1 { 0.1 }
-                                else if speed > 99.0 { 99.0 }
-                                else { speed };
+                                if speed < 0.1 {0.1}
+                                else if speed > 99.0 {99.0}
+                                else {speed};
                         },
                         _ => die!("Invalid argument to option -a")
                     },
