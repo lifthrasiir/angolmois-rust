@@ -297,16 +297,28 @@ pub mod util {
      */
     pub mod option {
         #[inline(always)]
-        pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool)
-                                        -> Option<T> {
+        pub fn filter<T:Copy>(opt: Option<T>,
+                              f: &fn(t: T) -> bool) -> Option<T> {
             match opt {
                 Some(t) => if f(t) {Some(t)} else {None},
                 None => None
             }
         }
 
+        #[inline(always)]
+        pub fn merge<T:Copy>(lhs: Option<T>, rhs: Option<T>,
+                             f: &fn(T, T) -> T) -> Option<T> {
+            match (lhs, rhs) {
+                (None, None) => None,
+                (_,    None) => lhs,
+                (None, _   ) => rhs,
+                (Some(ref lhs), Some(ref rhs)) => Some(f(*lhs, *rhs))
+            }
+        }
+
         pub trait CopyableOptionUtil<T:Copy> {
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
+            fn merge(self, other: Option<T>, f: &fn(T, T) -> T) -> Option<T>;
         }
 
         impl<T:Copy> CopyableOptionUtil<T> for Option<T> {
@@ -314,8 +326,12 @@ pub mod util {
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T> {
                 filter(self, f)
             }
-        }
 
+            #[inline(always)]
+            fn merge(self, other: Option<T>, f: &fn(T, T) -> T) -> Option<T> {
+                merge(self, other, f)
+            }
+        }
     }
 
     /**
@@ -784,9 +800,10 @@ mod core_compat {
  * The BMS format is a plain text format with most directives start with
  * optional whitespace followed by `#`. Besides the metadata (title, artist
  * etc.), a BMS file is a map from the time position to various game play
- * elements (henceforth "objects") and other effects including BGM and BGA
- * changes. It also contains preprocessor directives used to randomize some or
- * all parts of the BMS file, which would only make sense in the loading time.
+ * elements (henceforth "objects") and other object-like effects including BGM
+ * and BGA changes. It also contains preprocessor directives used to randomize
+ * some or all parts of the BMS file, which would only make sense in
+ * the loading time.
  *
  * The time position is a virtual time divided by an unit of (musical)
  * measure. It is related to the actual time by the current Beats Per Minute
@@ -1548,18 +1565,18 @@ pub mod parser {
             let baseshorten = self.shorten_factor(basemeasure);
             let basefrac = base - basemeasure as float;
             let tonextmeasure = (1.0 - basefrac) * baseshorten;
-            if tonextmeasure > offset {
+            if offset < tonextmeasure {
                 base + offset / baseshorten
             } else {
                 let mut offset = offset - tonextmeasure;
                 let mut i = basemeasure + 1;
-                let mut curmeasure = self.shorten_factor(i);
-                while curmeasure <= offset {
-                    offset -= curmeasure;
+                let mut curshorten = self.shorten_factor(i);
+                while offset >= curshorten {
+                    offset -= curshorten;
                     i += 1;
-                    curmeasure = self.shorten_factor(i);
+                    curshorten = self.shorten_factor(i);
                 }
-                i as float + offset / baseshorten
+                i as float + offset / curshorten
             }
         }
 
@@ -1572,10 +1589,8 @@ pub mod parser {
             let timefrac = time - timemeasure as float;
             let mut pos = timefrac * self.shorten_factor(timemeasure) -
                           basefrac * self.shorten_factor(basemeasure);
-            let mut i = basemeasure;
-            while i < timemeasure {
+            for int::range(basemeasure, timemeasure) |i| {
                 pos += self.shorten_factor(i);
-                i += 1;
             }
             pos
         }
@@ -2755,16 +2770,15 @@ pub mod gfx {
 
     /// Linear color gradient.
     pub struct Gradient {
-        /// A color at the position 1.0 (!). This is because the gradient was
-        /// historically intended for lane backgrounds only.
-        top: Color,
-        /// A color at the position 0.0.
-        bottom: Color
+        /// A color at the position 0.0. Normally used as a topmost value.
+        zero: Color,
+        /// A color at the position 1.0. Normally used as a bottommost value.
+        one: Color
     }
 
-    /// Creates a new color gradient.
+    /// Creates a new color gradient (for text printing).
     pub fn Gradient(top: Color, bottom: Color) -> Gradient {
-        Gradient { top: top, bottom: bottom }
+        Gradient { zero: top, one: bottom }
     }
 
     /// A trait for color or color gradient. The color at the particular
@@ -2787,10 +2801,10 @@ pub mod gfx {
                 (y + ((x - y) * num / denom)) as u8
             }
 
-            let (r1, g1, b1) = to_rgb(self.top);
-            let (r2, g2, b2) = to_rgb(self.bottom);
-            RGB(mix(r1, r2, num, denom), mix(g1, g2, num, denom),
-                mix(b1, b2, num, denom))
+            let (r0, g0, b0) = to_rgb(self.zero);
+            let (r1, g1, b1) = to_rgb(self.one);
+            RGB(mix(r1, r0, num, denom), mix(g1, g0, num, denom),
+                mix(b1, b0, num, denom))
         }
     }
 
@@ -2856,7 +2870,8 @@ pub mod gfx {
                 RGB(*) => self.put_pixel(x, y, c),
                 RGBA(r,g,b,a) => match self.get_pixel(x, y) {
                     RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
-                        let grad = Gradient(RGB(r2,g2,b2), RGB(r,g,b));
+                        let grad = Gradient { zero: RGB(r,g,b),
+                                              one:  RGB(r2,g2,b2) };
                         self.put_pixel(x, y, grad.blend(a as int, 255));
                     }
                 }
@@ -3658,8 +3673,8 @@ pub mod player {
         do screen.with_pixels |pixels| {
             font.print_string(pixels, SCREENW/2, SCREENH/2-16,
                               2, Centered, ~"loading bms file...",
-                              Gradient(RGB(0x20,0x20,0x20),
-                                       RGB(0x80,0x80,0x80)));
+                              Gradient(RGB(0x80,0x80,0x80),
+                                       RGB(0x20,0x20,0x20)));
         }
         screen.flip();
 
@@ -3678,7 +3693,7 @@ pub mod player {
 
             if opts.showinfo {
                 let bg = RGBA(0x10,0x10,0x10,0x40);
-                let fg = Gradient(RGB(0x80,0x80,0x80), RGB(0xff,0xff,0xff));
+                let fg = Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
                 for uint::range(0, SCREENW) |i| {
                     for uint::range(0, 42) |j| {
                         pixels.put_blended_pixel(i, j, bg);
@@ -4302,17 +4317,12 @@ match Chunk::from_wav(&fullpath) {
                         damage: Option<Damage>) -> bool {
             self.gradecounts[grade as uint] += 1;
             self.lastgrade = Some((grade, self.now));
-            //gradetime = now + 700; /* disappears after 700ms */
             self.score += (scoredelta * SCOREPERNOTE *
                            (1.0 + (self.lastcombo as float) /
                                   (self.infos.nnotes as float))) as uint;
 
             match grade {
-                MISS => {
-                    self.lastcombo = 0;
-                    //poorlimit = now + 600; /* switches to the normal BGA after 600ms */
-                }
-                BAD => { self.lastcombo = 0; }
+                MISS | BAD => { self.lastcombo = 0; }
                 GOOD => {}
                 GREAT | COOL => {
                     // at most 5/512(1%) recover when the combo is topped
@@ -4782,18 +4792,6 @@ match Chunk::from_wav(&fullpath) {
                         width: width, basecolor: color }
         }
 
-        fn note_color(&self) -> Gradient {
-            Gradient(self.basecolor, RGB(0xff,0xff,0xff))
-        }
-
-        fn bomb_color(&self) -> Gradient {
-            Gradient(RGB(0xc0,0,0), RGB(0,0,0))
-        }
-
-        fn back_color(&self) -> Gradient {
-            Gradient(self.basecolor, RGB(0,0,0))
-        }
-
         fn render_to_sprite(&self, sprite: &Surface) {
             let left = self.spriteleft;
             let noteleft = self.spriteleft + SCREENW;
@@ -4801,18 +4799,20 @@ match Chunk::from_wav(&fullpath) {
             assert!(sprite.get_width() as uint >=
                     cmp::max(noteleft, bombleft) + self.width);
 
-            let notecolor = self.note_color();
-            let bombcolor = self.bomb_color();
-            let backcolor = self.back_color();
-
-            // render a background sprite
+            // render a background sprite (0 at top, <1 at bottom)
+            let backcolor = Gradient { zero: RGB(0,0,0),
+                                       one:  self.basecolor };
             for uint::range(140, SCREENH - 80) |i| {
                 sprite.fill_area((left, i), (self.width, 1),
                                  backcolor.blend(i as int - 140, 1000));
             }
 
-            // render note and bomb sprites
+            // render note and bomb sprites (1/2 at middle, 1 at border)
             let denom = self.width as int;
+            let notecolor = Gradient { zero: RGB(0xff,0xff,0xff),
+                                       one:  self.basecolor };
+            let bombcolor = Gradient { zero: RGB(0,0,0),
+                                       one:  RGB(0xc0,0,0) };
             for uint::range(0, self.width / 2) |i| {
                 let num = (self.width - i) as int;
                 sprite.fill_area((noteleft+i, 0), (self.width-i*2, SCREENH),
@@ -4886,8 +4886,10 @@ match Chunk::from_wav(&fullpath) {
 
         // render panels
         do sprite.with_pixels |&pixels| {
-            let topgrad = Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x60,0x60,0x60));
-            let botgrad = Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40));
+            let topgrad = Gradient { zero: RGB(0x60,0x60,0x60),
+                                     one:  RGB(0xc0,0xc0,0xc0) };
+            let botgrad = Gradient { zero: RGB(0x40,0x40,0x40),
+                                     one:  RGB(0xc0,0xc0,0xc0) };
             for int::range(-244, 556) |j| {
                 for int::range(-10, 20) |i| {
                     let c = (i*2+j*3+750) % 2000;
@@ -4961,8 +4963,8 @@ match Chunk::from_wav(&fullpath) {
 
         /// (C: `poorlimit`)
         poorlimit: Option<uint>,
-        /// (C: `grademode` and `gradetime`)
-        lastgrade: Option<(Grade,uint)>,
+        /// (C: `gradetime`)
+        gradelimit: Option<uint>,
     }
 
     fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
@@ -4980,7 +4982,7 @@ match Chunk::from_wav(&fullpath) {
             leftmost: leftmost, rightmost: rightmost, lanestyles: styles,
             bgax: bgax, bgay: bgay,
 
-            poorlimit: None, lastgrade: None,
+            poorlimit: None, gradelimit: None,
         };
 
         display.screen.fill(RGB(0,0,0));
@@ -4993,16 +4995,16 @@ match Chunk::from_wav(&fullpath) {
     /// (C: `tgradestr` and `tgradecolor`)
     static GRADES: &'static [(&'static str,Gradient)] = &[
         // Rust: can we just use `Gradient()`???
-        ("MISS",  Gradient { top:    RGB(0xff,0x80,0x80),
-                             bottom: RGB(0xff,0x40,0x40) }),
-        ("BAD",   Gradient { top:    RGB(0xff,0x80,0xff),
-                             bottom: RGB(0xff,0x40,0xff) }),
-        ("GOOD",  Gradient { top:    RGB(0xff,0xff,0x80),
-                             bottom: RGB(0xff,0xff,0x40) }),
-        ("GREAT", Gradient { top:    RGB(0x80,0xff,0x80),
-                             bottom: RGB(0x40,0xff,0x40) }),
-        ("COOL",  Gradient { top:    RGB(0x80,0x80,0xff),
-                             bottom: RGB(0x40,0x40,0xff) }),
+        ("MISS",  Gradient { zero: RGB(0xff,0xc0,0xc0),
+                             one:  RGB(0xff,0x40,0x40) }),
+        ("BAD",   Gradient { zero: RGB(0xff,0xc0,0xff),
+                             one:  RGB(0xff,0x40,0xff) }),
+        ("GOOD",  Gradient { zero: RGB(0xff,0xff,0xc0),
+                             one:  RGB(0xff,0xff,0x40) }),
+        ("GREAT", Gradient { zero: RGB(0xc0,0xff,0xc0),
+                             one:  RGB(0x40,0xff,0x40) }),
+        ("COOL",  Gradient { zero: RGB(0xc0,0xc0,0xff),
+                             one:  RGB(0x40,0x40,0xff) }),
     ];
 
     impl GraphicDisplay {
@@ -5021,6 +5023,22 @@ match Chunk::from_wav(&fullpath) {
             let sprite = &*self.sprite;
             let font = &*self.font;
             let bms = &*player.bms;
+
+            // update display states
+            let mut poorlimit = self.poorlimit;
+            let mut gradelimit = self.gradelimit;
+            for player.lastgrade.each |&(grade,when)| {
+                if grade == MISS {
+                    // switches to the normal BGA after 600ms
+                    poorlimit = poorlimit.merge(Some(when + 600), cmp::max);
+                }
+                // grade disappears after 700ms
+                gradelimit = gradelimit.merge(Some(when + 700), cmp::max);
+            }
+            if poorlimit < Some(player.now) { poorlimit = None; }
+            if gradelimit < Some(player.now) { gradelimit = None; }
+            *&mut self.poorlimit = poorlimit;
+            *&mut self.gradelimit = gradelimit;
 
             // fill the lanes to the border color
             screen.fill_area((0, 30), (self.leftmost, SCREENH-110),
@@ -5100,10 +5118,12 @@ match Chunk::from_wav(&fullpath) {
             }
 
             // render grading text
-            if self.lastgrade.is_some() {
-                let (lastgrade,gradelimit) = self.lastgrade.get();
+            if gradelimit.is_some() && player.lastgrade.is_some() {
+                let gradelimit = gradelimit.get();
+                let (lastgrade,_) = player.lastgrade.get();
                 let (gradename,gradecolor) = GRADES[lastgrade as uint];
-                let delta = cmp::max(0, (gradelimit - player.now - 400) / 15);
+                let delta =
+                    (cmp::max(gradelimit - player.now, 400) - 400) / 15;
                 do screen.with_pixels |pixels| {
                     font.print_string(pixels, self.leftmost/2,
                                       SCREENH/2 - 40 - delta, 2, Centered,
@@ -5112,15 +5132,15 @@ match Chunk::from_wav(&fullpath) {
                         font.print_string(pixels, self.leftmost/2,
                                           SCREENH/2 - 12 - delta, 1, Centered,
                                           fmt!("%u COMBO", player.lastcombo),
-                                          Gradient(RGB(0x80,0x80,0x80),
-                                                   RGB(0xff,0xff,0xff)));
+                                          Gradient(RGB(0xff,0xff,0xff),
+                                                   RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
                         font.print_string(pixels, self.leftmost/2,
                                           SCREENH/2 + 2 - delta, 1,
                                           Centered, "(AUTO)",
-                                          Gradient(RGB(0x40,0x40,0x40),
-                                                   RGB(0xc0,0xc0,0xc0)));
+                                          Gradient(RGB(0xc0,0xc0,0xc0),
+                                                   RGB(0x40,0x40,0x40)));
                     }
                 }
             }
@@ -5174,8 +5194,8 @@ match Chunk::from_wav(&fullpath) {
 
             // render BGAs
             if player.opts.has_bga() {
-                let layers = /*if poor {[PoorBGA]}
-                               else*/ {[Layer1, Layer2, Layer3]};
+                let layers = if poorlimit.is_some() {&[PoorBGA]}
+                             else {&[Layer1, Layer2, Layer3]};
                 screen.fill_area((self.bgax, self.bgay), (256, 256),
                                  RGB(0,0,0));
                 for layers.each |&layer| {
@@ -5280,8 +5300,8 @@ match Chunk::from_wav(&fullpath) {
                                 font.print_string(
                                     pixels, SCREENW-3, SCREENH-18,
                                     1, RightAligned, msg,
-                                    Gradient(RGB(0x80,0x80,0x80),
-                                             RGB(0xc0,0xc0,0xc0)));
+                                    Gradient(RGB(0xc0,0xc0,0xc0),
+                                             RGB(0x80,0x80,0x80)));
                             }
                             screen.flip();
                         }
