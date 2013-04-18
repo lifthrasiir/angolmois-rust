@@ -3906,6 +3906,10 @@ match Chunk::from_wav(&fullpath) {
         pos: uint
     }
 
+    priv fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
+        ::core::managed::mut_ptr_eq(lhs.bms, rhs.bms)
+    }
+
     impl Clone for Pointer {
         pub fn clone(&self) -> Pointer {
             Pointer { bms: self.bms, pos: self.pos }
@@ -4004,16 +4008,33 @@ match Chunk::from_wav(&fullpath) {
             }
         }
 
-        fn seek_to(&mut self, limit: uint) {
+        fn seek_to(&mut self, limit: Pointer) {
+            assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
-            assert!(limit <= bms.objs.len());
-            self.pos = limit;
+            assert!(limit.pos <= bms.objs.len());
+            self.pos = limit.pos;
         }
 
-        fn iter_to(&mut self, limit: uint, f: &fn(&Obj) -> bool) {
+        fn iter_to(&mut self, limit: Pointer, f: &fn(&Obj) -> bool) {
+            assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
-            assert!(limit <= bms.objs.len());
-            while self.pos < limit {
+            assert!(limit.pos <= bms.objs.len());
+            while self.pos < limit.pos {
+                let current = &bms.objs[self.pos];
+                if !f(current) { break; }
+                self.pos += 1;
+            }
+        }
+
+        fn seek_to_end(&mut self) {
+            let bms = &*self.bms;
+            self.pos = bms.objs.len();
+        }
+
+        fn iter_to_end(&mut self, f: &fn(&Obj) -> bool) {
+            let bms = &*self.bms;
+            let nobjs = bms.objs.len();
+            while self.pos < nobjs {
                 let current = &bms.objs[self.pos];
                 if !f(current) { break; }
                 self.pos += 1;
@@ -4071,10 +4092,6 @@ match Chunk::from_wav(&fullpath) {
 
     fn pointer_with_pos(bms: @mut ~Bms, pos: uint) -> Pointer {
         Pointer { bms: bms, pos: pos }
-    }
-
-    priv fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
-        ::core::managed::mut_ptr_eq(lhs.bms, rhs.bms)
     }
 
     impl Eq for Pointer {
@@ -4428,6 +4445,7 @@ match Chunk::from_wav(&fullpath) {
             let mut pcheck = self.pcheck.clone();
             let mut pthru = self.pthru.clone();
 
+            // smoothly change the play speed
             if self.targetspeed.is_some() {
                 let target = self.targetspeed.get();
                 let delta = target - self.playspeed;
@@ -4439,6 +4457,7 @@ match Chunk::from_wav(&fullpath) {
                 }
             }
 
+            // process the ongoing scroll stopper if any
             self.now = ticks();
             self.bottom = match self.stoptime {
                 Some(t) => {
@@ -4455,6 +4474,7 @@ match Chunk::from_wav(&fullpath) {
                 }
             };
 
+            // process the measure scale factor change
             let bottommeasure = self.bottom.floor();
             let curshorten = bms.shorten_factor(bottommeasure as int);
             if bottommeasure >= -1.0 && self.startshorten != curshorten {
@@ -4472,6 +4492,7 @@ match Chunk::from_wav(&fullpath) {
                                               1.25 / self.playspeed);
             let lineshorten = bms.shorten_factor(self.line.floor() as int);
 
+            // apply object-like effects while advancing to new `pcur`
             pfront.seek_until(self.bottom);
             let mut prevpcur = pointer_with_pos(self.bms, pcur.pos);
             for pcur.iter_until(self.line) |&obj| {
@@ -4518,8 +4539,9 @@ match Chunk::from_wav(&fullpath) {
                 }
             }
 
+            // grade objects that have escaped the grading area
             if !self.opts.is_autoplay() {
-                for pcheck.iter_to(pcur.pos) |&obj| {
+                for pcheck.iter_to(pcur) |&obj| {
                     let dist =
                         self.bpm.measure_to_msec(self.line - obj.time) *
                         bms.shorten_factor(obj.measure()) * self.gradefactor;
@@ -4541,6 +4563,7 @@ match Chunk::from_wav(&fullpath) {
                 }
             }
 
+            // process inputs
             loop {
                 let (key, state) = match poll_event() {
                     NoEvent => break,
@@ -4608,7 +4631,7 @@ match Chunk::from_wav(&fullpath) {
                             if (self.keymultiplicity[*lane] > 0) {
                                 self.keymultiplicity[*lane] -= 1;
                             }
-                            (self.keymultiplicity[*lane] > 0)
+                            (self.keymultiplicity[*lane] == 0)
                         }
                     } else {
                         false
@@ -4720,8 +4743,9 @@ match Chunk::from_wav(&fullpath) {
 
             }
 
+            // process bombs
             if !self.opts.is_autoplay() {
-                for prevpcur.iter_to(pcur.pos) |&obj| {
+                for prevpcur.iter_to(pcur) |&obj| {
                     match obj.data {
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
                             // ongoing long note is not graded twice
@@ -4731,7 +4755,7 @@ match Chunk::from_wav(&fullpath) {
                             }
                             if !self.update_grade_from_damage(damage) {
                                 // instant death
-                                pcur.seek_to(bms.objs.len());
+                                pcur.seek_to_end();
                                 return false;
                             }
                         }
@@ -4749,7 +4773,7 @@ match Chunk::from_wav(&fullpath) {
                 if self.opts.is_autoplay() {
                     num_playing(None) != num_playing(Some(0))
                 } else {
-                    newest_in_group(Some(1)).is_none()
+                    newest_in_group(Some(1)).is_some()
                 }
             } else if self.bottom < self.infos.originoffset {
                 false
