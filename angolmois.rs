@@ -213,7 +213,7 @@ pub mod util {
         }
 
         /// Extensions to `str`.
-        pub trait StrUtil {
+        pub trait StrUtil<'self> {
             /// Returns a slice of the given string starting from `begin`.
             ///
             /// # Failure
@@ -242,7 +242,7 @@ pub mod util {
             fn scan_float(&self) -> Option<uint>;
         }
 
-        impl<'self> StrUtil for &'self str {
+        impl<'self> StrUtil<'self> for &'self str {
             fn slice_to_end(&self, begin: uint) -> &'self str {
                 self.slice(begin, self.len())
             }
@@ -372,21 +372,21 @@ pub mod util {
 
         impl<'self,A> ::util::iter::OptionalIter<A> for &'self [Option<A>] {
             #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) {
                 each_some(*self, blk)
             }
         }
 
         impl<A> ::util::iter::OptionalIter<A> for ~[Option<A>] {
             #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) {
                 each_some(*self, blk)
             }
         }
 
         impl<A> ::util::iter::OptionalIter<A> for @[Option<A>] {
             #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &'self A) -> bool) {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) {
                 each_some(*self, blk)
             }
         }
@@ -511,11 +511,9 @@ pub mod util {
 
             pub fn num_playing(channel: Option<c_int>) -> c_int {
                 use sdl::mixer;
-                unsafe {
-                    match channel {
-                        Some(channel) => mixer::ll::Mix_Playing(channel),
-                        None => mixer::ll::Mix_Playing(-1)
-                    }
+                match channel {
+                    Some(channel) => mixer::ll::Mix_Playing(channel),
+                    None => mixer::ll::Mix_Playing(-1)
                 }
             }
 
@@ -2157,14 +2155,14 @@ pub mod parser {
             nkeys
         }
 
-        fn left_lanes(&self) -> &'self [Lane] {
+        fn each_left_lanes(&self, f: &fn(&Lane) -> bool) {
             assert!(self.split <= self.order.len());
-            self.order.slice(0, self.split)
+            self.order.slice(0, self.split).each(f)
         }
 
-        fn right_lanes(&self) -> &'self [Lane] {
+        fn each_right_lanes(&self, f: &fn(&Lane) -> bool) {
             assert!(self.split <= self.order.len());
-            self.order.slice(self.split, self.order.len())
+            self.order.slice(self.split, self.order.len()).each(f)
         }
     }
 
@@ -3425,8 +3423,7 @@ pub mod player {
     }
 
     fn init_joystick(joyidx: uint) -> ~joy::Joystick {
-        // TODO rust-sdl patch
-        unsafe { joy::ll::SDL_JoystickEventState(1); }
+        joy::ll::SDL_JoystickEventState(1); // TODO rust-sdl patch
         match joy::Joystick::open(joyidx as int) {
             Ok(joy) => joy,
             Err(err) => die!("SDL Joystick Initialization Failure: %s", err)
@@ -4874,7 +4871,7 @@ match Chunk::from_wav(&fullpath) {
                                                 ~[(Lane,LaneStyle)]) {
         let mut leftmost = 0, rightmost = SCREENW;
         let mut styles = ~[];
-        for keyspec.left_lanes().each |&lane| {
+        for keyspec.each_left_lanes |&lane| {
             let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.get();
@@ -4882,7 +4879,7 @@ match Chunk::from_wav(&fullpath) {
             styles.push((lane, style));
             leftmost += style.width + 1;
         }
-        for keyspec.right_lanes().each |&lane| {
+        for keyspec.each_right_lanes |&lane| {
             let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.get();
