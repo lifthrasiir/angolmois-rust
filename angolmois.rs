@@ -179,6 +179,24 @@ pub mod util {
             unsafe { raw::from_bytes(bytes) }
         }
 
+        /// Counts the number of bytes in the complete UTF-8 sequences up to
+        /// `limit` bytes in `s` starting from `start`.
+        pub fn count_bytes_upto<'b>(s: &'b str, start: uint,
+                                    limit: uint) -> uint {
+            assert!(is_char_boundary(s, start));
+            let limit = start + limit;
+            let l = len(s);
+            assert!(limit < l);
+            let mut end = start;
+            loop {
+                assert!(end < l);
+                let next = char_range_at(s, end).next;
+                if next > limit { break; }
+                end = next;
+            }
+            end - start
+        }
+
         /// Returns a length of the longest prefix of given string, which
         /// `uint::from_str` accepts without a failure, if any.
         pub fn scan_uint(s: &str) -> Option<uint> {
@@ -222,12 +240,27 @@ pub mod util {
             /// the last character of the string
             fn slice_to_end(&self, begin: uint) -> &'self str;
 
+            /// Returns a slice of the given string starting from `begin` and
+            /// up to the byte position `end`. `end` doesn't have to point to
+            /// valid characters.
+            ///
+            /// # Failure
+            ///
+            /// If `begin` does not point to valid characters or beyond
+            /// the last character of the string, or `end` points beyond
+            /// the last character of the string
+            fn slice_upto(&self, begin: uint, end: uint) -> &'self str;
+
             /// Iterates over the chars in a string, with byte indices.
             fn each_chari_byte(&self, it: &fn(uint, char) -> bool);
 
             /// Given a potentially invalid UTF-8 string, fixes an invalid
             /// UTF-8 string with given error handler.
             fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str;
+
+            /// Counts the number of bytes in the complete UTF-8 sequences
+            /// up to `limit` bytes in `s` starting from `start`.
+            fn count_bytes_upto(&self, start: uint, limit: uint) -> uint;
 
             /// Returns a length of the longest prefix of given string, which
             /// `uint::from_str` accepts without a failure, if any.
@@ -244,13 +277,20 @@ pub mod util {
 
         impl<'self> StrUtil for &'self str {
             fn slice_to_end(&self, begin: uint) -> &'self str {
-                self.slice(begin, self.len())
+                slice(*self, begin, len(*self))
+            }
+            fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
+                slice(*self, begin, begin + count_bytes_upto(*self, begin,
+                                                             end))
             }
             fn each_chari_byte(&self, it: &fn(uint, char) -> bool) {
                 each_chari_byte(*self, it)
             }
             fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str {
                 fix_utf8_str(*self, handler)
+            }
+            fn count_bytes_upto(&self, start: uint, limit: uint) -> uint {
+                count_bytes_upto(*self, start, limit)
             }
             fn scan_uint(&self) -> Option<uint> { scan_uint(*self) }
             fn scan_int(&self) -> Option<uint> { scan_int(*self) }
@@ -1264,6 +1304,15 @@ pub mod parser {
     /// or seconds. Used in the `Stop` object.
     #[deriving(Eq)]
     pub enum Duration { Seconds(float), Measures(float) }
+
+    pub impl Duration {
+        fn to_msec(&self, bpm: BPM) -> float {
+            match *self {
+                Seconds(secs) => secs * 1000.0,
+                Measures(measures) => bpm.measure_to_msec(measures)
+            }
+        }
+    }
 
     /// A damage value upon the MISS grade. Normally it is specified in
     /// percents of the full gauge (as in `MAXGAUGE`), but sometimes it may
@@ -2666,11 +2715,8 @@ pub mod parser {
                         break;
                     }
                 }
-                Stop(Seconds(secs)) => {
-                    time += secs * 1000.0;
-                }
-                Stop(Measures(measures)) => {
-                    time += bpm.measure_to_msec(measures);
+                Stop(duration) => {
+                    time = duration.to_msec(bpm);
                 }
                 _ => {}
             }
@@ -3990,7 +4036,7 @@ match Chunk::from_wav(&fullpath) {
     }
 
     pub impl ImageResource {
-        fn surface(&'r self) -> Option<@~Surface> {
+        fn surface(&self) -> Option<@~Surface> {
             match *self {
                 NoImage => None,
                 Image(surface) | Movie(surface, _) => Some(surface)
@@ -4042,8 +4088,10 @@ match Chunk::from_wav(&fullpath) {
                         movie.set_display(*surface);
                         return Movie(surface, @movie);
                     }
-                    Err(_) => { warn!("failed to load image #BMP%s (%s)",
-                                      key.to_str(), path); }
+                    Err(_) => {
+                        warn!("failed to load image #BMP%s (%s)",
+                              key.to_str(), path);
+                    }
                 }
             }
         } else if opts.has_bga() {
@@ -4055,8 +4103,10 @@ match Chunk::from_wav(&fullpath) {
             };
             match res {
                 Ok(res) => { return res; },
-                Err(_) => { warn!("failed to load image #BMP%s (%s)",
-                                  key.to_str(), path); }
+                Err(_) => {
+                    warn!("failed to load image #BMP%s (%s)",
+                          key.to_str(), path);
+                }
             }
         }
         NoImage
@@ -4559,6 +4609,10 @@ match Chunk::from_wav(&fullpath) {
             self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
         }
 
+        fn nominal_playspeed(&self) -> float {
+            self.targetspeed.get_or_default(self.playspeed)
+        }
+
         /// (C: `update_grade`)
         fn update_grade(&mut self, grade: Grade, scoredelta: float,
                         damage: Option<Damage>) -> bool {
@@ -4738,16 +4792,11 @@ match Chunk::from_wav(&fullpath) {
                         self.startoffset = self.bottom;
                         self.bpm = newbpm;
                     }
-                    Stop(dur) => {
-                        let msecs = match dur {
-                            Seconds(t) => t * 1000.0,
-                            Measures(t) => self.bpm.measure_to_msec(t)
-                        };
-                        let newstoptime = msecs as uint + self.now;
-                        self.stoptime = match self.stoptime {
-                            None => Some(newstoptime),
-                            Some(t) => Some(cmp::max(t, newstoptime))
-                        };
+                    Stop(duration) => {
+                        let msecs = duration.to_msec(self.bpm);
+                        let newstoptime = Some(msecs as uint + self.now);
+                        self.stoptime = self.stoptime.merge(newstoptime,
+                                                            cmp::max);
                         self.startoffset = obj.time;
                     }
                     Visible(_,sref) | LNStart(_,sref) => {
@@ -5183,6 +5232,18 @@ match Chunk::from_wav(&fullpath) {
         sprite
     }
 
+    fn render_bgas(player: &Player, screen: &Surface, layers: &[BGALayer],
+                   imgres: &[ImageResource], x: uint, y: uint) {
+        screen.fill_area((x,y), (256,256), RGB(0,0,0));
+        for layers.each |&layer| {
+            for player.bga[layer as uint].each |&iref| {
+                for imgres[**iref].surface().each |&surface| {
+                    screen.blit_area(&**surface, (0,0), (x,y), (256,256));
+                }
+            }
+        }
+    }
+
     trait Display {
         pub fn render(&mut self, player: &Player);
     }
@@ -5418,8 +5479,7 @@ match Chunk::from_wav(&fullpath) {
                 let black = RGB(0,0,0);
                 font.print_string(pixels, 10, 8, 1, LeftAligned,
                                   fmt!("SCORE %07u", player.score), black);
-                let nominalplayspeed =
-                    player.targetspeed.get_or_default(player.playspeed);
+                let nominalplayspeed = player.nominal_playspeed();
                 font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
                                   fmt!("%4.1fx", nominalplayspeed), black);
                 font.print_string(pixels, self.leftmost-94, SCREENH-35,
@@ -5457,20 +5517,41 @@ match Chunk::from_wav(&fullpath) {
             if player.opts.has_bga() {
                 let layers = if poorlimit.is_some() {&[PoorBGA]}
                              else {&[Layer1, Layer2, Layer3]};
-                screen.fill_area((self.bgax, self.bgay), (256, 256),
-                                 RGB(0,0,0));
-                for layers.each |&layer| {
-                    for player.bga[layer as uint].each |&iref| {
-                        for self.imgres[**iref].surface().each |&surface| {
-                            screen.blit_area(&**surface, (0, 0),
-                                             (self.bgax, self.bgay),
-                                             (256, 256));
-                        }
-                    }
-                }
+                render_bgas(player, self.screen, layers, self.imgres,
+                            self.bgax, self.bgay);
             }
 
             screen.flip();
+        }
+    }
+
+    struct TextDisplay {
+        /// (C: `lastinfo`)
+        lastinfo: Option<uint>
+    }
+
+    fn TextDisplay() -> TextDisplay {
+        TextDisplay { lastinfo: None }
+    }
+
+    impl Display for TextDisplay {
+        fn render(&mut self, player: &Player) {
+            if !player.opts.showinfo { return; }
+
+            static INFO_INTERVAL: uint = 47;
+            if self.lastinfo.map_default(true,
+                    |&t| player.now - t >= INFO_INTERVAL) {
+                self.lastinfo = Some(player.now);
+
+                let elapsed = (player.now - player.origintime) / 100;
+                let duration = (player.duration / 100.0) as uint;
+                update_line(fmt!("%02u:%02u.%u / %02u:%02u.%u (@%9.4f) \
+                                  | BPM %6.2f | %u / %d notes",
+                                 elapsed/600, elapsed/10%60, elapsed%10,
+                                 duration/600, duration/10%60, duration%10,
+                                 player.bottom, *player.bpm,
+                                 player.lastcombo, player.infos.nnotes));
+            }
         }
     }
 
@@ -5567,11 +5648,11 @@ match Chunk::from_wav(&fullpath) {
                             match path {
                                 Some(path) => {
                                     let path =
-                                        if path.len() > 63 {path}
+                                        if path.len() < 63 {path}
                                         else {path.slice(0, 63).to_owned()};
                                     update_line(~"Loading: " + path);
                                 }
-                                None => update_line(~"Loading done.")
+                                None => { update_line(~"Loading done."); }
                             }
                         }
                     }
@@ -5592,16 +5673,26 @@ match Chunk::from_wav(&fullpath) {
                                         |sref| sndres[**sref].duration());
             let mut player = Player(opts, bms, infos, duration,
                                     keyspec, keymap, sndres);
-            let display =
-                match screen {
-                    Some(screen) =>
-                        @mut GraphicDisplay(player.opts, player.keyspec,
-                                            screen, font, imgres),
-                    None => fail!(~"TODO")
-                };
 
-            while player.tick() {
-                display.render(&player);
+            // Rust: upcasting is unsupported as of 0.6. (#5725)
+            fn loop_with_display<T:Display>(mut player: Player,
+                                            mut display: T) {
+                while player.tick() {
+                    // Rust: `(*display).render(&player)` causes an ICE.
+                    display.render(&player);
+                }
+            };
+
+            match screen {
+                Some(screen) => {
+                    let mut display =
+                        GraphicDisplay(player.opts, player.keyspec, screen,
+                                       font, imgres);
+                    loop_with_display(player, display);
+                }
+                None => {
+                    loop_with_display(player, TextDisplay());
+                }
             }
 
             atexit();
@@ -5788,7 +5879,7 @@ fn main() {
 
     //if bmspath.is_none() { bmspath = filedialog(); }
     match bmspath {
-        None => usage(),
+        None => { usage(); }
         Some(bmspath) => {
             let opts = ~Options {
                 bmspath: bmspath, mode: mode, modf: modf, bga: bga,
