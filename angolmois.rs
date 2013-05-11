@@ -336,6 +336,7 @@ pub mod util {
      * `libcore/option.rs` and are not subject to the above copyright notice.
      */
     pub mod option {
+
         #[inline(always)]
         pub fn filter<T:Copy>(opt: Option<T>,
                               f: &fn(t: T) -> bool) -> Option<T> {
@@ -521,21 +522,6 @@ pub mod util {
     }
 
     pub mod sdl {
-        pub mod ll {
-            pub extern {
-                fn SDL_Delay(ms: u32);
-                fn SDL_GetTicks() -> u32;
-            }
-        }
-
-        pub fn delay(msec: uint) {
-            unsafe { ll::SDL_Delay(msec as u32); }
-        }
-
-        pub fn ticks() -> uint {
-            unsafe { ll::SDL_GetTicks() as uint }
-        }
-
         pub mod mixer {
             use core::libc::c_int;
 
@@ -2438,9 +2424,10 @@ pub mod parser {
             }
             s = s2;
             match (chan, KeyKind::from_char(kind)) {
-                (Key(1*36..3*36-1), Some(kind)) =>
-                    specs.push((Lane(*chan as uint - 1*36), kind)),
-                (_, _) => return None
+                (Key(1*36..3*36-1), Some(kind)) => {
+                    specs.push((Lane(*chan as uint - 1*36), kind));
+                }
+                (_, _) => { return None; }
             }
         }
         Some(specs)
@@ -3434,7 +3421,6 @@ pub mod player {
     use sdl::video::*;
     use sdl::event::*;
     use sdl::mixer::*;
-    use util::sdl::{delay, ticks};
     use util::sdl::mixer::*;
     use util::sdl::mpeg::*;
     use parser::*;
@@ -3548,9 +3534,11 @@ pub mod player {
                     };
                 match preset_to_key_spec(bms, preset) {
                     Some(leftright) => leftright,
-                    None => return Err(fmt!("Invalid preset name: %s",
-                                            opts.preset.map_default(~"",
-                                                |&v| copy v)))
+                    None => {
+                        return Err(fmt!("Invalid preset name: %s",
+                                        opts.preset.map_default(~"",
+                                            |&v| copy v)));
+                    }
                 }
             } else {
                 // Rust: `Option` of managed pointer is not easy to use due to
@@ -3577,21 +3565,24 @@ pub mod player {
 
         if !leftkeys.is_empty() {
             match parse_and_add(leftkeys) {
-                None =>
+                None => {
                     return Err(fmt!("Invalid key spec for left \
-                                     hand side: %s", leftkeys)),
-                Some(nkeys) => keyspec.split += nkeys
+                                     hand side: %s", leftkeys));
+                }
+                Some(nkeys) => { keyspec.split += nkeys; }
             }
         } else {
             return Err(fmt!("No key model is specified using -k or -K"));
         }
         if !rightkeys.is_empty() {
             match parse_and_add(rightkeys) {
-                None =>
+                None => {
                     return Err(fmt!("Invalid key spec for right \
-                                     hand side: %s", rightkeys)),
-                Some(nkeys) => // no split panes except for #PLAYER 2
+                                     hand side: %s", rightkeys));
+                }
+                Some(nkeys) => { // no split panes except for #PLAYER 2
                     if bms.player != 2 { keyspec.split += nkeys; }
+                }
             }
         }
         Ok(keyspec)
@@ -3832,7 +3823,7 @@ pub mod player {
                 for uint::range(firstkey, lastkey) |keyidx| {
                     let key = cast::transmute(keyidx);
                     let keyname = event::get_key_name(key).to_lower();
-                    if keyname == name { return Some(key) }
+                    if keyname == name { return Some(key); }
                 }
             }
             None
@@ -4039,21 +4030,21 @@ match Chunk::from_wav(&fullpath) {
         fn surface(&self) -> Option<@~Surface> {
             match *self {
                 NoImage => None,
-                Image(surface) | Movie(surface, _) => Some(surface)
+                Image(surface) | Movie(surface,_) => Some(surface)
             }
         }
 
         fn stop_movie(&self) {
             match *self {
                 NoImage | Image(_) => {}
-                Movie(_, mpeg) => { mpeg.stop(); }
+                Movie(_,mpeg) => { mpeg.stop(); }
             }
         }
 
         fn start_movie(&self) {
             match *self {
                 NoImage | Image(_) => {}
-                Movie(_, mpeg) => { mpeg.rewind(); mpeg.play(); }
+                Movie(_,mpeg) => { mpeg.rewind(); mpeg.play(); }
             }
         }
     }
@@ -4115,7 +4106,7 @@ match Chunk::from_wav(&fullpath) {
     fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
         let origin: @~Surface = match imgres[**bc.src] {
             Image(src) => src,
-            _ => return
+            _ => { return; }
         };
         let target: @~Surface = match imgres[**bc.dst] {
             Image(dst) => dst,
@@ -4126,7 +4117,7 @@ match Chunk::from_wav(&fullpath) {
                 imgres[**bc.dst] = Image(surface);
                 surface
             },
-            _ => return
+            _ => { return; }
         };
 
         let x1 = cmp::max(bc.x1, 0);
@@ -4481,7 +4472,7 @@ match Chunk::from_wav(&fullpath) {
         /// scroll backwards. (C: `bpm`)
         bpm: BPM,
         /// The timestamp at the last tick. It is a return value from
-        /// `util::sdl::ticks` and measured in milliseconds. (C: `now`)
+        /// `sdl::get_ticks` and measured in milliseconds. (C: `now`)
         now: uint,
         /// The timestamp at the first tick. (C: `origintime`)
         origintime: uint,
@@ -4563,7 +4554,7 @@ match Chunk::from_wav(&fullpath) {
     fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: float,
               keyspec: ~KeySpec, keymap: ~KeyMap, sndres: ~[SoundResource])
                                     -> Player {
-        let now = ticks();
+        let now = get_ticks();
         let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
         let startshorten = bms.shorten_factor(originoffset as int);
@@ -4742,7 +4733,7 @@ match Chunk::from_wav(&fullpath) {
             }
 
             // process the ongoing scroll stopper if any
-            self.now = ticks();
+            self.now = get_ticks();
             self.bottom = match self.stoptime {
                 Some(t) => {
                     if self.now >= t {
@@ -4817,7 +4808,7 @@ match Chunk::from_wav(&fullpath) {
                     let dist =
                         self.bpm.measure_to_msec(self.line - obj.time) *
                         bms.shorten_factor(obj.measure()) * self.gradefactor;
-                    if dist < 144.0 { break; }
+                    if dist < BAD_CUTOFF { break; }
                     if !self.nograding[pcheck.pos] {
                         for obj.object_lane().each |&Lane(lane)| {
                             let missable =
@@ -4839,7 +4830,7 @@ match Chunk::from_wav(&fullpath) {
             loop {
                 let (key, state) = match poll_event() {
                     NoEvent => break,
-                    QuitEvent | KeyEvent(EscapeKey,_,_,_) => return false,
+                    QuitEvent | KeyEvent(EscapeKey,_,_,_) => { return false; }
                     KeyEvent(key,true,_,_) => (KeyInput(key), Positive),
                     KeyEvent(key,false,_,_) => (KeyInput(key), Neutral),
                     JoyButtonEvent(_which,button,true) =>
@@ -4934,7 +4925,7 @@ match Chunk::from_wav(&fullpath) {
                             let delta = self.bpm.measure_to_msec(p.time() -
                                                                  self.line) *
                                         lineshorten * self.gradefactor;
-                            if num::abs(delta) < 144.0 {
+                            if num::abs(delta) < BAD_CUTOFF {
                                 self.nograding[p.pos] = true;
                             } else {
                                 self.update_grade_to_miss();
@@ -4967,7 +4958,7 @@ match Chunk::from_wav(&fullpath) {
                             let dist = self.bpm.measure_to_msec(p.time() -
                                                                 self.line) *
                                        lineshorten * self.gradefactor;
-                            if num::abs(dist) < 144.0 {
+                            if num::abs(dist) < BAD_CUTOFF {
                                 if p.is_lnstart() {
                                     pthru[*lane] =
                                         Some(pointer_with_pos(self.bms,
@@ -5055,8 +5046,13 @@ match Chunk::from_wav(&fullpath) {
         }
     }
 
+    trait Display {
+        pub fn render(&mut self, player: &Player);
+        pub fn show_result(&self, player: &Player);
+    }
+
     //------------------------------------------------------------------------
-    // display
+    // graphic display
 
     /// (C: `struct tkeykind` and `tkeyleft`)
     struct LaneStyle {
@@ -5242,10 +5238,6 @@ match Chunk::from_wav(&fullpath) {
                 }
             }
         }
-    }
-
-    trait Display {
-        pub fn render(&mut self, player: &Player);
     }
 
     struct GraphicDisplay {
@@ -5523,7 +5515,33 @@ match Chunk::from_wav(&fullpath) {
 
             screen.flip();
         }
+
+        fn show_result(&self, player: &Player) {
+            if player.opts.is_autoplay() { return; }
+
+            // check if the song reached the last gradable object (otherwise
+            // the game play was terminated by the user)
+            let nextgradable =
+                player.pcur.find_next_of_type(|obj| obj.is_gradable());
+            if nextgradable.is_some() { return; }
+
+            if player.gauge >= player.survival {
+                io::println(fmt!("*** CLEARED! ***\n\
+                                  COOL  %4u    GREAT %4u    GOOD  %4u\n\
+                                  BAD   %4u    MISS  %4u    MAX COMBO %u\n\
+                                  SCORE %07u (max %07d)",
+                                 player.gradecounts[4], player.gradecounts[3],
+                                 player.gradecounts[2], player.gradecounts[1],
+                                 player.gradecounts[0], player.bestcombo,
+                                 player.score, player.infos.maxscore));
+            } else {
+                io::println("YOU FAILED!");
+            }
+        }
     }
+
+    //------------------------------------------------------------------------
+    // text display
 
     struct TextDisplay {
         /// (C: `lastinfo`)
@@ -5553,10 +5571,54 @@ match Chunk::from_wav(&fullpath) {
                                  player.lastcombo, player.infos.nnotes));
             }
         }
+
+        fn show_result(&self, _player: &Player) {
+            update_line(~"");
+        }
     }
 
     //------------------------------------------------------------------------
     // driver
+
+    static INFO_INTERVAL: uint = 47;
+
+    // (C: `resource_loaded`)
+    fn graphic_update_status(path: Option<~str>, screen: &Surface,
+                             saved_screen: &Surface, font: &Font,
+                             lastinfo: &mut Option<uint>, atexit: &fn()) {
+        let now = get_ticks();
+        if lastinfo.map_default(true, |&t| now - t >= INFO_INTERVAL) {
+            *lastinfo = Some(now);
+            let msg = path.get_or_default(~"loading...");
+            screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
+            do screen.with_pixels |pixels| {
+                font.print_string(pixels, SCREENW-3, SCREENH-18,
+                                  1, RightAligned, msg,
+                                  Gradient(RGB(0xc0,0xc0,0xc0),
+                                           RGB(0x80,0x80,0x80)));
+            }
+            screen.flip();
+        }
+        check_exit(atexit);
+    }
+
+    // (C: `resource_loaded`)
+    fn text_update_status(path: Option<~str>, lastinfo: &mut Option<uint>,
+                          atexit: &fn()) {
+        let now = get_ticks();
+        if lastinfo.map_default(true, |&t| now - t >= INFO_INTERVAL) {
+            *lastinfo = Some(now);
+            match path {
+                Some(path) => {
+                    let path = if path.len() < 63 {path}
+                               else {path.slice(0, 63).to_owned()};
+                    update_line(~"Loading: " + path);
+                }
+                None => { update_line(~"Loading done."); }
+            }
+        }
+        check_exit(atexit);
+    }
 
     pub fn play(opts: ~Options) {
         let r = rand::task_rng();
@@ -5604,70 +5666,52 @@ match Chunk::from_wav(&fullpath) {
                                          opts.fullscreen));
             }
 
-            // show stagefile
-            let mut saved_screen = None;
-            if !opts.is_exclusive() {
-                let screen: &Surface = *screen.get_ref();
-                show_stagefile_screen(bms, infos, keyspec, opts,
-                                      screen, font);
-                let surface = new_surface(SCREENW, 20);
-                surface.blit_area(screen,
-                                  (0,SCREENH-20), (0,0), (SCREENW,20));
-                saved_screen = Some(surface);
-            } else if opts.showinfo {
-                show_stagefile_noscreen(bms, infos, keyspec, opts);
-            }
-
-            // wait for resources
             let atexit = || {
                 if opts.is_exclusive() { update_line(~""); }
             };
-            let mut lastinfo = None;
-            // (C: `resource_loaded`)
-            let update_status = |path: Option<~str>| {
-                let now = ticks();
-                static INFO_INTERVAL: uint = 47;
-                if opts.showinfo && lastinfo.map_default(true,
-                                        |&t| now - t >= INFO_INTERVAL) {
-                    lastinfo = Some(now);
-                    match saved_screen {
-                        Some(ref saved) => {
-                            let screen: &Surface = *screen.get_ref();
-                            let msg = path.get_or_default(~"loading...");
-                            screen.blit_at(*saved, 0, (SCREENH-20) as i16);
-                            do screen.with_pixels |pixels| {
-                                font.print_string(
-                                    pixels, SCREENW-3, SCREENH-18,
-                                    1, RightAligned, msg,
-                                    Gradient(RGB(0xc0,0xc0,0xc0),
-                                             RGB(0x80,0x80,0x80)));
-                            }
-                            screen.flip();
-                        }
-                        None => {
-                            match path {
-                                Some(path) => {
-                                    let path =
-                                        if path.len() < 63 {path}
-                                        else {path.slice(0, 63).to_owned()};
-                                    update_line(~"Loading: " + path);
-                                }
-                                None => { update_line(~"Loading done."); }
-                            }
-                        }
-                    }
-                }
-                check_exit(atexit);
-            };
 
-            let start = ticks() + 3000;
+            // show stagefile
+            let mut lastinfo = None;
+            let mut saved_screen = None; // XXX should be in a trait actually
+            let _ = saved_screen; // XXX #3796
+            let update_status;
+            if !opts.is_exclusive() {
+                let screen_: &Surface = *screen.get_ref();
+                show_stagefile_screen(bms, infos, keyspec, opts,
+                                      screen_, font);
+                if opts.showinfo {
+                    let saved_screen_ = new_surface(SCREENW, 20);
+                    saved_screen_.blit_area(screen_, (0,SCREENH-20), (0,0),
+                                            (SCREENW,20));
+                    saved_screen = Some(saved_screen_);
+
+                    update_status = |path| {
+                        let screen: &Surface = *screen.get_ref();
+                        let saved_screen: &Surface = *saved_screen.get_ref();
+                        graphic_update_status(path, screen, saved_screen,
+                                              font, &mut lastinfo, atexit)
+                    };
+                } else {
+                    update_status = |_path| {};
+                }
+            } else if opts.showinfo {
+                show_stagefile_noscreen(bms, infos, keyspec, opts);
+                update_status = |path| {
+                    text_update_status(path, &mut lastinfo, atexit)
+                };
+            } else {
+                update_status = |_path| {};
+            }
+
+            // wait for resources
+            let start = get_ticks() + 3000;
             let (sndres, imgres) = load_resource(bms, opts, update_status);
             if opts.showinfo {
                 lastinfo = None; // force update
                 let _ = lastinfo; // Rust: avoids incorrect warning. (#3796)
                 update_status(None);
             }
-            while ticks() < start { check_exit(atexit); }
+            while get_ticks() < start { check_exit(atexit); }
 
             let duration = bms_duration(bms, infos.originoffset,
                                         |sref| sndres[**sref].duration());
@@ -5678,9 +5722,13 @@ match Chunk::from_wav(&fullpath) {
             fn loop_with_display<T:Display>(mut player: Player,
                                             mut display: T) {
                 while player.tick() {
-                    // Rust: `(*display).render(&player)` causes an ICE.
                     display.render(&player);
                 }
+                display.show_result(&player);
+
+                // remove all channels before sound resources are deallocated.
+                // halting alone is not sufficient due to rust-sdl's bug.
+                allocate_channels(0 as libc::c_int);
             };
 
             match screen {
