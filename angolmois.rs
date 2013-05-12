@@ -70,6 +70,7 @@ use self::util::str::*;
 use self::util::option::*;
 use self::util::iter::*;
 use self::util::io::*;
+use self::core_compat::str::*;
 
 /// Returns a version string. (C: `VERSION`)
 pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
@@ -230,8 +231,9 @@ pub mod util {
             }
         }
 
-        /// Extensions to `str`.
-        pub trait StrUtil<'self> {
+        /// Region-dependent extensions to `str`. (Separated from `StrUtil` for
+        /// the compatibility reason.)
+        pub trait StrRegionUtil<'self> {
             /// Returns a slice of the given string starting from `begin`.
             ///
             /// # Failure
@@ -250,7 +252,35 @@ pub mod util {
             /// the last character of the string, or `end` points beyond
             /// the last character of the string
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str;
+        }
 
+        // Rust: 0.6 and pre-0.7 differs from the implicitness/explicitness of
+        //       trait region parameters, and the syntax is mutually exclusive.
+        //       this is thus the last available workaround.
+        #[cfg(legacy)]
+        impl<'self> StrRegionUtil for &'self str {
+            fn slice_to_end(&self, begin: uint) -> &'self str {
+                slice(*self, begin, len(*self))
+            }
+            fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
+                slice(*self, begin, begin + count_bytes_upto(*self, begin,
+                                                             end))
+            }
+        }
+
+        #[cfg(not(legacy))]
+        impl<'self> StrRegionUtil<'self> for &'self str {
+            fn slice_to_end(&self, begin: uint) -> &'self str {
+                slice(*self, begin, len(*self))
+            }
+            fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
+                slice(*self, begin, begin + count_bytes_upto(*self, begin,
+                                                             end))
+            }
+        }
+
+        /// Remaining extensions to `str`.
+        pub trait StrUtil {
             /// Iterates over the chars in a string, with byte indices.
             fn each_chari_byte(&self, it: &fn(uint, char) -> bool);
 
@@ -276,13 +306,6 @@ pub mod util {
         }
 
         impl<'self> StrUtil for &'self str {
-            fn slice_to_end(&self, begin: uint) -> &'self str {
-                slice(*self, begin, len(*self))
-            }
-            fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
-                slice(*self, begin, begin + count_bytes_upto(*self, begin,
-                                                             end))
-            }
             fn each_chari_byte(&self, it: &fn(uint, char) -> bool) {
                 each_chari_byte(*self, it)
             }
@@ -500,7 +523,6 @@ pub mod util {
      * `libcore/hashmap.rs` and are not subject to the above copyright notice.
      */
     pub mod hashmap {
-        use core::hashmap::*;
         use core_compat::hashmap::*;
 
         // TODO make this constructible from any suitable iterator
@@ -785,7 +807,7 @@ pub mod util {
                 fn get_error(&self) -> ~str {
                     unsafe {
                         let cstr = ll::SMPEG_error(self.raw);
-                        str::raw::from_c_str(cast::reinterpret_cast(&cstr))
+                        str::raw::from_c_str(cast::transmute(&cstr))
                     }
                 }
             }
@@ -1023,6 +1045,26 @@ mod core_compat {
         #[cfg(legacy)] pub use HashMap = core::hashmap::linear::LinearMap;
         #[cfg(legacy)] pub use HashSet = core::hashmap::linear::LinearSet;
     }
+
+    pub mod str {
+        #[cfg(not(legacy))] pub trait StrLegacyUtil {
+            fn to_upper(&self) -> ~str;
+            fn to_lower(&self) -> ~str;
+        }
+        #[cfg(not(legacy))] impl<'self> StrLegacyUtil for &'self str {
+            fn to_upper(&self) -> ~str {
+                self.to_ascii().to_upper().to_str_ascii()
+            }
+            fn to_lower(&self) -> ~str {
+                self.to_ascii().to_lower().to_str_ascii()
+            }
+        }
+    }
+
+    pub mod rand {
+        pub use core::rand::*;
+        #[cfg(not(legacy))] pub fn Rng() -> IsaacRng { rng() }
+    }
 }
 
 //============================================================================
@@ -1168,9 +1210,9 @@ pub mod parser {
         /// scratch. The choice of color follows that of EZ2DJ, one of
         /// the first games that used this game element.
         FootPedal,
-        /// White button. This and following "button"s come from Pop'n Music,
+        /// White button. This and following "buttons" come from Pop'n Music,
         /// which has nine colored buttons. (White buttons constitute 1st and
-        /// 9th of Pop'n Music buttons.) The "button"s are wider than
+        /// 9th of Pop'n Music buttons.) The "buttons" are wider than
         /// aforementioned "keys" but narrower than scratch and foot pedal.
         Button1,
         /// Yellow button (2nd and 8th of Pop'n Music buttons).
@@ -1877,9 +1919,9 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
-    pub fn parse_bms_from_reader(f: @io::Reader, r: @rand::Rng)
-                                    -> Result<Bms,~str> {
-        // (C: `bmsheader`)
+    pub fn parse_bms_from_reader<R:RngUtil>(f: @io::Reader,
+                                            r: &R) -> Result<Bms,~str> {
+        /// (C: `bmsheader`)
         static bmsheader: &'static [&'static str] = &[
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
             "PLAYER", "PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP",
@@ -2370,7 +2412,7 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
-    pub fn parse_bms(bmspath: &str, r: @rand::Rng) -> Result<Bms,~str> {
+    pub fn parse_bms<R:RngUtil>(bmspath: &str, r: &R) -> Result<Bms,~str> {
         do io::file_reader(&Path(bmspath)).chain |f| {
             parse_bms_from_reader(f, r)
         }
@@ -2746,7 +2788,7 @@ pub mod parser {
     }
 
     /// (C: `shuffle_bms` with `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
-    pub fn apply_shuffle_modf(bms: &mut Bms, r: @rand::Rng, lanes: &[Lane]) {
+    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
         for vec::zip_slice(lanes, shuffled).each |&(Lane(from), to)| {
@@ -2759,7 +2801,7 @@ pub mod parser {
     }
 
     /// (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
-    pub fn apply_random_modf(bms: &mut Bms, r: @rand::Rng, lanes: &[Lane]) {
+    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
         let mut movable = vec::from_slice(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
 
@@ -3416,6 +3458,10 @@ pub mod gfx {
 //============================================================================
 // game play
 
+/**
+ * Game play logics. This module contains whooping 2000+ lines of code, reflecting
+ * the fact that Angolmois is not well refactored.
+ */
 pub mod player {
     use sdl::*;
     use sdl::video::*;
@@ -3589,8 +3635,9 @@ pub mod player {
     }
 
     /// (C: `shuffle_bms`)
-    fn apply_modf(bms: &mut Bms, modf: Modf, r: @rand::Rng,
-                   keyspec: &KeySpec, begin: uint, end: uint) {
+    fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf,
+                                            r: &R, keyspec: &KeySpec,
+                                            begin: uint, end: uint) {
         let mut lanes = ~[];
         for uint::range(begin, end) |i| {
             let lane = keyspec.order[i];
@@ -3626,6 +3673,32 @@ pub mod player {
 
     fn update_line(s: &str) {
         io::stderr().write_str(fmt!("\r%s\r%s", str::repeat(~" ", 72), s));
+    }
+
+    struct Ticker {
+        ///
+        interval: uint,
+        /// (C: `lastinfo`)
+        lastinfo: Option<uint>
+    }
+
+    fn Ticker() -> Ticker {
+        /// (C: `INFO_INTERVAL`)
+        static INFO_INTERVAL: uint = 47;
+        Ticker { interval: INFO_INTERVAL, lastinfo: None }
+    }
+
+    impl Ticker {
+        fn on_tick(&mut self, now: uint, f: &fn()) {
+            if self.lastinfo.map_default(true, |&t| now - t >= self.interval) {
+                self.lastinfo = Some(now);
+                f();
+            }
+        }
+
+        fn reset(&mut self) {
+            self.lastinfo = None;
+        }
     }
 
     //------------------------------------------------------------------------
@@ -3894,88 +3967,7 @@ pub mod player {
     }
 
     //------------------------------------------------------------------------
-    // loading
-
-    fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec)
-                                    -> (~str, ~str, ~str, ~str) {
-        let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
-                        bms.playlevel, *bms.initbpm,
-                        if infos.hasbpmchange {~"?"} else {~""},
-                        infos.nnotes,
-                        if infos.nnotes == 1 {~""} else {~"s"},
-                        keyspec.nkeys(),
-                        if infos.haslongnote {~"-LN"} else {~""});
-        let title = (copy bms.title).get_or_default(~"");
-        let genre = (copy bms.genre).get_or_default(~"");
-        let artist = (copy bms.artist).get_or_default(~"");
-        (meta, title, genre, artist)
-    }
-
-    /// (C: `play_show_stagefile` when `opt_mode < EXCLUSIVE_MODE`)
-    fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec,
-                             opts: &Options, screen: &Surface, font: &Font) {
-        let (meta, title, genre, artist) =
-            displayed_info(bms, infos, keyspec);
-
-        do screen.with_pixels |pixels| {
-            font.print_string(pixels, SCREENW/2, SCREENH/2-16,
-                              2, Centered, ~"loading bms file...",
-                              Gradient(RGB(0x80,0x80,0x80),
-                                       RGB(0x20,0x20,0x20)));
-        }
-        screen.flip();
-
-        do screen.with_pixels |pixels| {
-            for bms.stagefile.each |&path| {
-                let path = opts.rel_path(path);
-                match img::load(&path).chain(|s| s.display_format()) {
-                    Ok(surface) => {
-                        do surface.with_pixels |srcpixels| {
-                            bicubic_interpolation(srcpixels, pixels);
-                        }
-                    }
-                    Err(_) => {}
-                }
-            }
-
-            if opts.showinfo {
-                let bg = RGBA(0x10,0x10,0x10,0x40);
-                let fg = Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
-                for uint::range(0, SCREENW) |i| {
-                    for uint::range(0, 42) |j| {
-                        pixels.put_blended_pixel(i, j, bg);
-                    }
-                    for uint::range(SCREENH-20, SCREENH) |j| {
-                        pixels.put_blended_pixel(i, j, bg);
-                    }
-                }
-                let right = SCREENW-8, bottom = SCREENH-18;
-                font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
-                font.print_string(pixels, right, 4, 1,
-                                  RightAligned, genre, fg);
-                font.print_string(pixels, right, 20, 1,
-                                  RightAligned, artist, fg);
-                font.print_string(pixels, 3, bottom, 1,
-                                  LeftAligned, meta, fg);
-            }
-        }
-
-        screen.flip();
-    }
-
-    /// (C: `play_show_stagefile` when `opt_mode >= EXCLUSIVE_MODE`)
-    fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo,
-                               keyspec: &KeySpec, opts: &Options) {
-        if opts.showinfo {
-            let (meta, title, genre, artist) =
-                displayed_info(bms, infos, keyspec);
-            io::stderr().write_line(fmt!("\
-------------------------------------------------------------------------
-Title:    %s\nGenre:    %s\nArtist:   %s\n%s
-------------------------------------------------------------------------",
-                title, genre, artist, meta));
-        }
-    }
+    // resource management
 
     enum SoundResource {
         NoSound,
@@ -4127,6 +4119,130 @@ match Chunk::from_wav(&fullpath) {
         target.blit_area(*origin, (x1,y1), (x2,y2), (x2-x1,y2-y1));
     }
 
+    type BGAState = [Option<ImageRef>, ..NLAYERS];
+
+    fn initial_bga_state() -> BGAState {
+        [None, None, None, Some(ImageRef(Key(0)))]
+    }
+
+    trait BGAStateOps {
+        fn update(&mut self, current: &BGAState, imgres: &[ImageResource]);
+        fn render(&self, screen: &Surface, layers: &[BGALayer],
+                  imgres: &[ImageResource], x: uint, y: uint);
+    }
+
+    impl BGAStateOps for BGAState {
+        fn update(&mut self, current: &BGAState, imgres: &[ImageResource]) {
+            for uint::range(0, NLAYERS) |layer| {
+                if self[layer] != current[layer] {
+                    for self[layer].each |&iref| {
+                        imgres[**iref].stop_movie();
+                    }
+                    for current[layer].each |&iref| {
+                        imgres[**iref].start_movie();
+                    }
+                }
+            }
+            *self = *current;
+        }
+
+        fn render(&self, screen: &Surface, layers: &[BGALayer],
+                  imgres: &[ImageResource], x: uint, y: uint) {
+            screen.fill_area((x,y), (256,256), RGB(0,0,0));
+            for layers.each |&layer| {
+                for self[layer as uint].each |&iref| {
+                    for imgres[**iref].surface().each |&surface| {
+                        screen.blit_area(&**surface, (0,0), (x,y), (256,256));
+                    }
+                }
+            }
+        }
+    }
+
+    //------------------------------------------------------------------------
+    // loading
+
+    fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec)
+                                    -> (~str, ~str, ~str, ~str) {
+        let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
+                        bms.playlevel, *bms.initbpm,
+                        if infos.hasbpmchange {~"?"} else {~""},
+                        infos.nnotes,
+                        if infos.nnotes == 1 {~""} else {~"s"},
+                        keyspec.nkeys(),
+                        if infos.haslongnote {~"-LN"} else {~""});
+        let title = (copy bms.title).get_or_default(~"");
+        let genre = (copy bms.genre).get_or_default(~"");
+        let artist = (copy bms.artist).get_or_default(~"");
+        (meta, title, genre, artist)
+    }
+
+    /// (C: `play_show_stagefile` when `opt_mode < EXCLUSIVE_MODE`)
+    fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec,
+                             opts: &Options, screen: &Surface, font: &Font) {
+        let (meta, title, genre, artist) =
+            displayed_info(bms, infos, keyspec);
+
+        do screen.with_pixels |pixels| {
+            font.print_string(pixels, SCREENW/2, SCREENH/2-16,
+                              2, Centered, ~"loading bms file...",
+                              Gradient(RGB(0x80,0x80,0x80),
+                                       RGB(0x20,0x20,0x20)));
+        }
+        screen.flip();
+
+        do screen.with_pixels |pixels| {
+            for bms.stagefile.each |&path| {
+                let path = opts.rel_path(path);
+                match img::load(&path).chain(|s| s.display_format()) {
+                    Ok(surface) => {
+                        do surface.with_pixels |srcpixels| {
+                            bicubic_interpolation(srcpixels, pixels);
+                        }
+                    }
+                    Err(_) => {}
+                }
+            }
+
+            if opts.showinfo {
+                let bg = RGBA(0x10,0x10,0x10,0x40);
+                let fg = Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
+                for uint::range(0, SCREENW) |i| {
+                    for uint::range(0, 42) |j| {
+                        pixels.put_blended_pixel(i, j, bg);
+                    }
+                    for uint::range(SCREENH-20, SCREENH) |j| {
+                        pixels.put_blended_pixel(i, j, bg);
+                    }
+                }
+                let right = SCREENW-8, bottom = SCREENH-18;
+                font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
+                font.print_string(pixels, right, 4, 1,
+                                  RightAligned, genre, fg);
+                font.print_string(pixels, right, 20, 1,
+                                  RightAligned, artist, fg);
+                font.print_string(pixels, 3, bottom, 1,
+                                  LeftAligned, meta, fg);
+            }
+        }
+
+        screen.flip();
+    }
+
+    /// (C: `play_show_stagefile` when `opt_mode >= EXCLUSIVE_MODE`)
+    fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo,
+                               keyspec: &KeySpec, opts: &Options) {
+        if opts.showinfo {
+            let (meta, title, genre, artist) =
+                displayed_info(bms, infos, keyspec);
+            io::stderr().write_line(fmt!("\
+------------------------------------------------------------------------
+Title:    %s\nGenre:    %s\nArtist:   %s\n%s
+------------------------------------------------------------------------",
+                title, genre, artist, meta));
+        }
+    }
+
     /// (C: `load_resource`)
     fn load_resource(bms: &Bms, opts: &Options, callback: &fn(Option<~str>))
             -> (~[SoundResource], ~[ImageResource]) {
@@ -4155,18 +4271,6 @@ match Chunk::from_wav(&fullpath) {
             apply_blitcmd(imgres, bc);
         }
         (sndres, imgres)
-    }
-
-    //------------------------------------------------------------------------
-    // sound management
-
-    /// (C: `create_beep`)
-    fn create_beep() -> ~Chunk {
-        let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
-            // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
-            |i| { let i = i as i32;
-                  (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
-        Chunk::new(unsafe { cast::transmute(samples) }, 128)
     }
 
     //------------------------------------------------------------------------
@@ -4457,7 +4561,7 @@ match Chunk::from_wav(&fullpath) {
         /// Some(x)` and vice versa. (C: `sndlastchmap`)
         lastchsnd: ~[Option<uint>],
         /// Currently active BGA layers. (C: `bga`)
-        bga: [Option<ImageRef>, ..NLAYERS],
+        bga: BGAState,
 
         /// The chart expansion rate, or "play speed". One measure has
         /// the length of 400 pixels times the play speed, so higher play
@@ -4554,6 +4658,15 @@ match Chunk::from_wav(&fullpath) {
     fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: float,
               keyspec: ~KeySpec, keymap: ~KeyMap, sndres: ~[SoundResource])
                                     -> Player {
+        /// (C: `create_beep`)
+        fn create_beep() -> ~Chunk {
+            let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
+                // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
+                |i| { let i = i as i32;
+                      (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
+            Chunk::new(unsafe { cast::transmute(samples) }, 128)
+        }
+
         let now = get_ticks();
         let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
@@ -4573,7 +4686,7 @@ match Chunk::from_wav(&fullpath) {
 
             nograding: vec::from_elem(nobjs, false), sndres: sndres,
             beep: create_beep(), sndlastch: vec::from_elem(nsounds, None),
-            lastchsnd: ~[], bga: [None, None, None, Some(ImageRef(Key(0)))],
+            lastchsnd: ~[], bga: initial_bga_state(),
 
             playspeed: initplayspeed, targetspeed: None, bpm: initbpm,
             now: now, origintime: now, starttime: now, stoptime: None,
@@ -5228,18 +5341,6 @@ match Chunk::from_wav(&fullpath) {
         sprite
     }
 
-    fn render_bgas(player: &Player, screen: &Surface, layers: &[BGALayer],
-                   imgres: &[ImageResource], x: uint, y: uint) {
-        screen.fill_area((x,y), (256,256), RGB(0,0,0));
-        for layers.each |&layer| {
-            for player.bga[layer as uint].each |&iref| {
-                for imgres[**iref].surface().each |&surface| {
-                    screen.blit_area(&**surface, (0,0), (x,y), (256,256));
-                }
-            }
-        }
-    }
-
     struct GraphicDisplay {
         /// (C: `sprite`)
         sprite: ~Surface,
@@ -5266,7 +5367,7 @@ match Chunk::from_wav(&fullpath) {
         /// (C: `gradetime`)
         gradelimit: Option<uint>,
         ///
-        lastbga: [Option<ImageRef>, ..NLAYERS],
+        lastbga: BGAState,
     }
 
     fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
@@ -5284,8 +5385,7 @@ match Chunk::from_wav(&fullpath) {
             leftmost: leftmost, rightmost: rightmost, lanestyles: styles,
             bgax: bgax, bgay: bgay,
 
-            poorlimit: None, gradelimit: None,
-            lastbga: [None, None, None, Some(ImageRef(Key(0)))],
+            poorlimit: None, gradelimit: None, lastbga: initial_bga_state(),
         };
 
         display.screen.fill(RGB(0,0,0));
@@ -5340,19 +5440,9 @@ match Chunk::from_wav(&fullpath) {
             }
             if poorlimit < Some(player.now) { poorlimit = None; }
             if gradelimit < Some(player.now) { gradelimit = None; }
-            for uint::range(0, NLAYERS) |layer| {
-                if self.lastbga[layer] != player.bga[layer] {
-                    for self.lastbga[layer].each |&iref| {
-                        self.imgres[**iref].stop_movie();
-                    }
-                    for player.bga[layer].each |&iref| {
-                        self.imgres[**iref].start_movie();
-                    }
-                }
-            }
+            self.lastbga.update(&player.bga, self.imgres);
             *&mut self.poorlimit = poorlimit;
             *&mut self.gradelimit = gradelimit;
-            *&mut self.lastbga = player.bga;
 
             // fill the lanes to the border color
             screen.fill_area((0, 30), (self.leftmost, SCREENH-110),
@@ -5509,8 +5599,8 @@ match Chunk::from_wav(&fullpath) {
             if player.opts.has_bga() {
                 let layers = if poorlimit.is_some() {&[PoorBGA]}
                              else {&[Layer1, Layer2, Layer3]};
-                render_bgas(player, self.screen, layers, self.imgres,
-                            self.bgax, self.bgay);
+                self.lastbga.render(self.screen, layers, self.imgres,
+                                    self.bgax, self.bgay);
             }
 
             screen.flip();
@@ -5544,23 +5634,18 @@ match Chunk::from_wav(&fullpath) {
     // text display
 
     struct TextDisplay {
-        /// (C: `lastinfo`)
-        lastinfo: Option<uint>
+        ticker: Ticker
     }
 
     fn TextDisplay() -> TextDisplay {
-        TextDisplay { lastinfo: None }
+        TextDisplay { ticker: Ticker() }
     }
 
     impl Display for TextDisplay {
         fn render(&mut self, player: &Player) {
             if !player.opts.showinfo { return; }
 
-            static INFO_INTERVAL: uint = 47;
-            if self.lastinfo.map_default(true,
-                    |&t| player.now - t >= INFO_INTERVAL) {
-                self.lastinfo = Some(player.now);
-
+            do self.ticker.on_tick(player.now) {
                 let elapsed = (player.now - player.origintime) / 100;
                 let duration = (player.duration / 100.0) as uint;
                 update_line(fmt!("%02u:%02u.%u / %02u:%02u.%u (@%9.4f) \
@@ -5578,17 +5663,55 @@ match Chunk::from_wav(&fullpath) {
     }
 
     //------------------------------------------------------------------------
+    // BGA-only display
+
+    struct BGAOnlyDisplay {
+        ///
+        textdisplay: TextDisplay,
+        /// (C: `screen`)
+        screen: ~Surface,
+        /// (C: `imgres`)
+        imgres: ~[ImageResource],
+        ///
+        lastbga: BGAState,
+    }
+
+    fn BGAOnlyDisplay(screen: ~Surface,
+                      imgres: ~[ImageResource]) -> BGAOnlyDisplay {
+        BGAOnlyDisplay { textdisplay: TextDisplay(), screen: screen,
+                         imgres: imgres, lastbga: initial_bga_state() }
+    }
+
+    impl Display for BGAOnlyDisplay {
+        fn render(&mut self, player: &Player) {
+            self.lastbga.update(&player.bga, self.imgres);
+
+            let layers = &[Layer1, Layer2, Layer3];
+            self.lastbga.render(self.screen, layers, self.imgres, 0, 0);
+            self.screen.flip();
+
+            self.textdisplay.render(player);
+        }
+
+        fn show_result(&self, player: &Player) {
+            self.textdisplay.show_result(player);
+        }
+    }
+
+    //------------------------------------------------------------------------
     // driver
 
-    static INFO_INTERVAL: uint = 47;
-
-    // (C: `resource_loaded`)
+    /// (C: `resource_loaded`)
     fn graphic_update_status(path: Option<~str>, screen: &Surface,
                              saved_screen: &Surface, font: &Font,
-                             lastinfo: &mut Option<uint>, atexit: &fn()) {
-        let now = get_ticks();
-        if lastinfo.map_default(true, |&t| now - t >= INFO_INTERVAL) {
-            *lastinfo = Some(now);
+                             ticker: &mut Ticker, atexit: &fn()) {
+        // Rust: `on_tick` calls the closure at most once so `path` won't be
+        //       referenced twice, but the analysis can't reason that. (#4654)
+        //       an "option dance" via `Option<T>::swap_unwrap` is not helpful here
+        //       since `path` can be `None`.
+        let mut path = path; // XXX #4654
+        do ticker.on_tick(get_ticks()) {
+            let path = ::core::util::replace(&mut path, None); // XXX #4654
             let msg = path.get_or_default(~"loading...");
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             do screen.with_pixels |pixels| {
@@ -5602,13 +5725,11 @@ match Chunk::from_wav(&fullpath) {
         check_exit(atexit);
     }
 
-    // (C: `resource_loaded`)
-    fn text_update_status(path: Option<~str>, lastinfo: &mut Option<uint>,
-                          atexit: &fn()) {
-        let now = get_ticks();
-        if lastinfo.map_default(true, |&t| now - t >= INFO_INTERVAL) {
-            *lastinfo = Some(now);
-            match path {
+    /// (C: `resource_loaded`)
+    fn text_update_status(path: Option<~str>, ticker: &mut Ticker, atexit: &fn()) {
+        let mut path = path; // XXX #4654
+        do ticker.on_tick(get_ticks()) {
+            match ::core::util::replace(&mut path, None) { // XXX #4654
                 Some(path) => {
                     let path = if path.len() < 63 {path}
                                else {path.slice(0, 63).to_owned()};
@@ -5621,8 +5742,8 @@ match Chunk::from_wav(&fullpath) {
     }
 
     pub fn play(opts: ~Options) {
-        let r = rand::task_rng();
-        let mut bms: ~Bms = match parse_bms(opts.bmspath, r) {
+        let r = ::core_compat::rand::Rng();
+        let mut bms: ~Bms = match parse_bms(opts.bmspath, &r) {
             Ok(bms) => ~bms,
             Err(err) => die!("Couldn't load BMS file: %s", err)
         };
@@ -5636,9 +5757,9 @@ match Chunk::from_wav(&fullpath) {
         let infos: ~BmsInfo = ~analyze_bms(bms);
 
         for opts.modf.each |&modf| {
-            apply_modf(bms, modf, r, keyspec, 0, keyspec.split);
+            apply_modf(bms, modf, &r, keyspec, 0, keyspec.split);
             if keyspec.split < keyspec.order.len() {
-                apply_modf(bms, modf, r, keyspec,
+                apply_modf(bms, modf, &r, keyspec,
                            keyspec.split, keyspec.order.len());
             }
         }
@@ -5671,9 +5792,9 @@ match Chunk::from_wav(&fullpath) {
             };
 
             // show stagefile
-            let mut lastinfo = None;
+            let mut ticker = Ticker();
             let mut saved_screen = None; // XXX should be in a trait actually
-            let _ = saved_screen; // XXX #3796
+            let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
             let update_status;
             if !opts.is_exclusive() {
                 let screen_: &Surface = *screen.get_ref();
@@ -5689,7 +5810,7 @@ match Chunk::from_wav(&fullpath) {
                         let screen: &Surface = *screen.get_ref();
                         let saved_screen: &Surface = *saved_screen.get_ref();
                         graphic_update_status(path, screen, saved_screen,
-                                              font, &mut lastinfo, atexit)
+                                              font, &mut ticker, atexit)
                     };
                 } else {
                     update_status = |_path| {};
@@ -5697,7 +5818,7 @@ match Chunk::from_wav(&fullpath) {
             } else if opts.showinfo {
                 show_stagefile_noscreen(bms, infos, keyspec, opts);
                 update_status = |path| {
-                    text_update_status(path, &mut lastinfo, atexit)
+                    text_update_status(path, &mut ticker, atexit)
                 };
             } else {
                 update_status = |_path| {};
@@ -5707,8 +5828,7 @@ match Chunk::from_wav(&fullpath) {
             let start = get_ticks() + 3000;
             let (sndres, imgres) = load_resource(bms, opts, update_status);
             if opts.showinfo {
-                lastinfo = None; // force update
-                let _ = lastinfo; // Rust: avoids incorrect warning. (#3796)
+                ticker.reset(); // force update
                 update_status(None);
             }
             while get_ticks() < start { check_exit(atexit); }
@@ -5718,7 +5838,7 @@ match Chunk::from_wav(&fullpath) {
             let mut player = Player(opts, bms, infos, duration,
                                     keyspec, keymap, sndres);
 
-            // Rust: upcasting is unsupported as of 0.6. (#5725)
+            // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
             fn loop_with_display<T:Display>(mut player: Player,
                                             mut display: T) {
                 while player.tick() {
@@ -5728,15 +5848,18 @@ match Chunk::from_wav(&fullpath) {
 
                 // remove all channels before sound resources are deallocated.
                 // halting alone is not sufficient due to rust-sdl's bug.
-                allocate_channels(0 as libc::c_int);
+                allocate_channels(0);
             };
 
             match screen {
                 Some(screen) => {
-                    let mut display =
-                        GraphicDisplay(player.opts, player.keyspec, screen,
-                                       font, imgres);
-                    loop_with_display(player, display);
+                    if player.opts.is_exclusive() {
+                        loop_with_display(player, BGAOnlyDisplay(screen, imgres));
+                    } else {
+                        let display = GraphicDisplay(player.opts, player.keyspec,
+                                                     screen, font, imgres);
+                        loop_with_display(player, display);
+                    }
                 }
                 None => {
                     loop_with_display(player, TextDisplay());
