@@ -231,8 +231,8 @@ pub mod util {
             }
         }
 
-        /// Region-dependent extensions to `str`. (Separated from `StrUtil` for
-        /// the compatibility reason.)
+        /// Region-dependent extensions to `str`. (Separated from `StrUtil`
+        /// for the compatibility reason.)
         pub trait StrRegionUtil<'self> {
             /// Returns a slice of the given string starting from `begin`.
             ///
@@ -255,8 +255,8 @@ pub mod util {
         }
 
         // Rust: 0.6 and pre-0.7 differs from the implicitness/explicitness of
-        //       trait region parameters, and the syntax is mutually exclusive.
-        //       this is thus the last available workaround.
+        //       trait region parameters, and the syntax is mutually
+        //       exclusive. this is thus the last available workaround.
         #[cfg(legacy)]
         impl<'self> StrRegionUtil for &'self str {
             fn slice_to_end(&self, begin: uint) -> &'self str {
@@ -360,6 +360,8 @@ pub mod util {
      */
     pub mod option {
 
+        /// Filters the value inside the option using the function. Returns
+        /// `None` if the original option didn't contain a value.
         #[inline(always)]
         pub fn filter<T:Copy>(opt: Option<T>,
                               f: &fn(t: T) -> bool) -> Option<T> {
@@ -369,6 +371,9 @@ pub mod util {
             }
         }
 
+        /// Merges two options. When one of options is `None` returns
+        /// the other option. When both options contain a value the function
+        /// is called to get the merged value.
         #[inline(always)]
         pub fn merge<T:Copy>(lhs: Option<T>, rhs: Option<T>,
                              f: &fn(T, T) -> T) -> Option<T> {
@@ -381,7 +386,13 @@ pub mod util {
         }
 
         pub trait CopyableOptionUtil<T:Copy> {
+            /// Filters the value inside the option using the function.
+            /// Returns `None` if the original option didn't contain a value.
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
+
+            /// Merges two options. When one of options is `None` returns
+            /// the other option. When both options contain a value
+            /// the function is called to get the merged value.
             fn merge(self, other: Option<T>, f: &fn(T, T) -> T) -> Option<T>;
         }
 
@@ -509,6 +520,8 @@ pub mod util {
      */
     pub mod cmp {
 
+        /// Returns `v`, unless it is not between `low` and `high` in which
+        /// cases returns whichever is the closest to `v`.
         #[inline(always)]
         pub fn clamp<T:Ord>(low: T, v: T, high: T) -> T {
             if v < low {low} else if v > high {high} else {v}
@@ -525,6 +538,8 @@ pub mod util {
     pub mod hashmap {
         use core_compat::hashmap::*;
 
+        /// Constructs a new map from a vector of key-value pairs.
+        //
         // TODO make this constructible from any suitable iterator
         pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)])
                                         -> HashMap<K,V> {
@@ -534,6 +549,8 @@ pub mod util {
             map
         }
 
+        /// Constructs a new set from a vector of key-value pairs.
+        //
         // TODO make this constructible from any suitable iterator
         pub fn set_from_vec<V:Eq+Hash+IterBytes>(items: &[V]) -> HashSet<V> {
             let mut set = HashSet::new();
@@ -1334,6 +1351,7 @@ pub mod parser {
     pub enum Duration { Seconds(float), Measures(float) }
 
     pub impl Duration {
+        /// Calculates the actual milliseconds from the current BPM.
         fn to_msec(&self, bpm: BPM) -> float {
             match *self {
                 Seconds(secs) => secs * 1000.0,
@@ -1447,10 +1465,17 @@ pub mod parser {
         pub fn object_lane(self) -> Option<Lane>;
         /// Returns all sounds associated to the data.
         pub fn sounds(self) -> ~[SoundRef];
+        /// Returns all sounds played when key is pressed.
         pub fn keydown_sound(self) -> Option<SoundRef>;
+        /// Returns all sounds played when key is unpressed.
         pub fn keyup_sound(self) -> Option<SoundRef>;
+        /// Returns all sounds played when the object is activated while
+        /// the corresponding key is currently pressed. Bombs are the only
+        /// instance of this kind of sounds.
         pub fn through_sound(self) -> Option<SoundRef>;
+        /// Returns all images associated to the data.
         pub fn images(self) -> ~[ImageRef];
+        /// Returns an associated damage value when the object is activated.
         pub fn through_damage(self) -> Option<Damage>;
     }
 
@@ -1654,13 +1679,13 @@ pub mod parser {
             Obj { time: time, data: Invisible(lane, sref) }
         }
 
-        /// Creates a `LNStart` object.
+        /// Creates an `LNStart` object.
         fn LNStart(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNStart(lane, sref) }
         }
 
-        /// Creates a `LNDone` object.
+        /// Creates an `LNDone` object.
         fn LNDone(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNDone(lane, sref) }
@@ -1668,7 +1693,7 @@ pub mod parser {
 
         /// Creates a `Bomb` object.
         fn Bomb(time: float, lane: Lane, sref: Option<Key>,
-                       damage: Damage) -> Obj {
+                damage: Damage) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Bomb(lane, sref, damage) }
         }
@@ -1694,7 +1719,7 @@ pub mod parser {
             Obj { time: time, data: Stop(duration) }
         }
 
-        /// Returns a measure number containing this object.
+        /// Returns the number of a measure containing this object.
         fn measure(&self) -> int { self.time.floor() as int }
     }
 
@@ -1762,17 +1787,23 @@ pub mod parser {
     //------------------------------------------------------------------------
     // BMS data
 
+    /// Default BPM. This value comes from the original BMS specification.
     pub static DefaultBPM: BPM = BPM(130.0);
 
-    /// Blit commands, which manipulate the image after the image had been
-    /// loaded. This maps to BMS #BGA command. (C: `struct blitcmd`)
+    /**
+     * Blit commands, which manipulate the image after the image had been
+     * loaded. This maps to BMS #BGA command. (C: `struct blitcmd`)
+     *
+     * Blitting occurs from the region `(x1,y1)-(x2,y2)` in the source surface
+     * to the region `(dx,dy)-(dx+(x2-x1),dy+(y2-y1))` in the destination
+     * surface. The rectangular region contains the upper-left corner but not
+     * the lower-right corner. The region is clipped to make the upper-left
+     * corner has non-negative coordinates and the size of the region doesn't
+     * exceed 256 by 256 pixels.
+     */
     pub struct BlitCmd {
-        /// Destination surface
-        dst: ImageRef,
-        /// Source surface
-        src: ImageRef,
-        x1: int, y1: int,
-        x2: int, y2: int, dx: int, dy: int,
+        dst: ImageRef, src: ImageRef,
+        x1: int, y1: int, x2: int, y2: int, dx: int, dy: int
     }
 
     pub static SinglePlay: int = 1;
@@ -1921,7 +1952,9 @@ pub mod parser {
     /// Reads and parses the BMS file with given RNG from given reader.
     pub fn parse_bms_from_reader<R:RngUtil>(f: @io::Reader,
                                             r: &R) -> Result<Bms,~str> {
-        /// (C: `bmsheader`)
+        /// The list of recognized prefixes of directives. The longest prefix
+        /// should come first. Also note that not all recognized prefixes are
+        /// processed (counterexample being `ENDSW`). (C: `bmsheader`)
         static bmsheader: &'static [&'static str] = &[
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
             "PLAYER", "PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP",
@@ -2250,36 +2283,37 @@ pub mod parser {
 
             match *chan {
                 // channel #01: BGM
-                1 => add(Obj::BGM(t, v)),
+                1 => { add(Obj::BGM(t, v)); }
 
                 // channel #03: BPM as an hexadecimal key
-                3 =>
+                3 => {
                     for v.to_hex().each |&v| {
                         add(Obj::SetBPM(t, BPM(v as float)))
-                    },
+                    }
+                }
 
                 // channel #04: BGA layer 1
-                4 => add(Obj::SetBGA(t, Layer1, Some(v))),
+                4 => { add(Obj::SetBGA(t, Layer1, Some(v))); }
 
                 // channel #06: POOR BGA
                 6 => {
                     add(Obj::SetBGA(t, PoorBGA, Some(v)));
                     poorbgafix = false; // we don't add artificial BGA
-                },
+                }
 
                 // channel #07: BGA layer 2
-                7 => add(Obj::SetBGA(t, Layer2, Some(v))),
+                7 => { add(Obj::SetBGA(t, Layer2, Some(v))); }
 
                 // channel #08: BPM defined by #BPMxx
                 // TODO bpmtab validity check
-                8 => add(Obj::SetBPM(t, bpmtab[*v])),
+                8 => { add(Obj::SetBPM(t, bpmtab[*v])); }
 
                 // channel #09: scroll stopper defined by #STOPxx
                 // TODO stoptab validity check
-                9 => add(Obj::Stop(t, stoptab[*v])),
+                9 => { add(Obj::Stop(t, stoptab[*v])); }
 
                 // channel #0A: BGA layer 3
-                10 => add(Obj::SetBGA(t, Layer3, Some(v))),
+                10 => { add(Obj::SetBGA(t, Layer3, Some(v))); }
 
                 // channels #1x/2x: visible object, possibly LNs when #LNOBJ
                 // is in active
@@ -2297,13 +2331,13 @@ pub mod parser {
                     } else {
                         lastvis[*lane] = mark(Obj::Visible(t, lane, Some(v)));
                     }
-                },
+                }
 
                 // channels #3x/4x: invisible object
                 3*36..5*36-1 => {
                     let lane = Lane::from_channel(chan);
                     add(Obj::Invisible(t, lane, Some(v)));
-                },
+                }
 
                 // channels #5x/6x, #LNTYPE 1: LN endpoints
                 5*36..7*36-1 if !consecutiveln => {
@@ -2318,7 +2352,7 @@ pub mod parser {
                     } else {
                         lastln[*lane] = mark(Obj::LNStart(t, lane, Some(v)));
                     }
-                },
+                }
 
                 // channels #5x/6x, #LNTYPE 2: LN areas
                 5*36..7*36-1 if consecutiveln => {
@@ -2344,7 +2378,7 @@ pub mod parser {
                                 mark(Obj::LNDone(t2, lane, Some(v)));
                         }
                     }
-                },
+                }
 
                 // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5%
                 // of the full gauge) or instant death (ZZ)
@@ -2358,7 +2392,7 @@ pub mod parser {
                     for damage.each |&damage| {
                         add(Obj::Bomb(t, lane, Some(Key(0)), damage));
                     }
-                },
+                }
 
                 // unsupported: channels #0B/0C/0D/0E (BGA opacity),
                 // #97/98 (sound volume), #99 (text), #A0 (dynamic #RANK),
@@ -2510,8 +2544,9 @@ pub mod parser {
                                  present[36+8] || present[36+9]);
                     let haspedal = (present[7] || present[36+7]);
                     let nkeys = match bms.player {
-                        2 | 3 => if isbme {~"14"} else {~"10"},
-                        _     => if isbme {~"7" } else {~"5" }
+                        CouplePlay|DoublePlay =>
+                             if isbme {~"14"} else {~"10"},
+                        _ => if isbme {~"7" } else {~"5" }
                     };
                     if haspedal {nkeys + ~"/fp"} else {nkeys}
                 },
@@ -2788,7 +2823,8 @@ pub mod parser {
     }
 
     /// (C: `shuffle_bms` with `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
-    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
+    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &R,
+                                         lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
         for vec::zip_slice(lanes, shuffled).each |&(Lane(from), to)| {
@@ -2801,7 +2837,8 @@ pub mod parser {
     }
 
     /// (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
-    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
+    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &R,
+                                        lanes: &[Lane]) {
         let mut movable = vec::from_slice(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
 
@@ -3459,8 +3496,8 @@ pub mod gfx {
 // game play
 
 /**
- * Game play logics. This module contains whooping 2000+ lines of code, reflecting
- * the fact that Angolmois is not well refactored.
+ * Game play logics. This module contains whooping 2000+ lines of code,
+ * reflecting the fact that Angolmois is not well refactored.
  */
 pub mod player {
     use sdl::*;
@@ -3551,14 +3588,23 @@ pub mod player {
             Path(self.bmspath).dir_path().push_rel(&Path(path))
         }
 
-        /// (C: `opt_mode >= EXCLUSIVE_MODE`)
+        /// Returns true if the exclusive mode is enabled. This enables
+        /// a text-based interface. (C: `opt_mode >= EXCLUSIVE_MODE`)
         fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
-        /// (C: `!!opt_mode`)
+
+        /// Returns true if the input is ignored. Escape key or speed-changing
+        /// keys are still available as long as the graphical screen is
+        /// enabled. (C: `!!opt_mode`)
         fn is_autoplay(&self) -> bool { self.mode != PlayMode }
-        /// (C: `opt_bga < NO_BGA`)
+
+        /// Returns true if the BGA is displayed. (C: `opt_bga < NO_BGA`)
         fn has_bga(&self) -> bool { self.bga != NoBga }
+
+        /// Returns true if the BGA movie is enabled.
         /// (C: `opt_bga < BGA_BUT_NO_MOVIE`)
         fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
+
+        /// Returns true if the graphical screen is enabled.
         /// (C: `opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA`)
         fn has_screen(&self) -> bool {
             !self.is_exclusive() || self.has_bga()
@@ -3627,7 +3673,7 @@ pub mod player {
                                      hand side: %s", rightkeys));
                 }
                 Some(nkeys) => { // no split panes except for #PLAYER 2
-                    if bms.player != 2 { keyspec.split += nkeys; }
+                    if bms.player != CouplePlay { keyspec.split += nkeys; }
                 }
             }
         }
@@ -3658,6 +3704,8 @@ pub mod player {
     //------------------------------------------------------------------------
     // utilities
 
+    /// Checks if the user pressed the escape key or the quit button. `atexit`
+    /// is called before the program is terminated. (C: `check_exit`)
     fn check_exit(atexit: &fn()) {
         loop {
             match poll_event() {
@@ -3690,7 +3738,8 @@ pub mod player {
 
     impl Ticker {
         fn on_tick(&mut self, now: uint, f: &fn()) {
-            if self.lastinfo.map_default(true, |&t| now - t >= self.interval) {
+            if self.lastinfo.map_default(true,
+                                         |&t| now - t >= self.interval) {
                 self.lastinfo = Some(now);
                 f();
             }
@@ -3823,6 +3872,7 @@ pub mod player {
     }
 
     /// An information about an environment variable for multiple keys.
+    //
     // Rust: static struct seems not working somehow... (#5688)
     /*
     struct KeySet {
@@ -3969,8 +4019,13 @@ pub mod player {
     //------------------------------------------------------------------------
     // resource management
 
+    /// Sound resource associated to `SoundRef`. It contains the actual
+    /// SDL_mixer chunk that can be readily played. (C: the type of `sndres`)
     enum SoundResource {
+        /// No sound resource is associated, or error occurred while loading.
         NoSound,
+        /// Sound resource is associated.
+        //
         // Rust: ideally this should be just a ~-ptr, but the current borrowck
         //       is very constrained in this aspect. after several attempts
         //       I finally sticked to delegate the ownership to a managed box.
@@ -3978,6 +4033,7 @@ pub mod player {
     }
 
     pub impl SoundResource {
+        /// Returns the associated chunk if any.
         fn chunk(&self) -> Option<@~Chunk> {
             match *self {
                 NoSound => None,
@@ -3985,6 +4041,10 @@ pub mod player {
             }
         }
 
+        /// Returns the length of associated sound chunk in seconds. This is
+        /// used for determining the actual duration of the song in presence
+        /// of key and background sounds, so it may return 0 seconds if no
+        /// sound is present.
         fn duration(&self) -> float {
             match *self {
                 NoSound => 0.0,
@@ -4012,9 +4072,16 @@ match Chunk::from_wav(&fullpath) {
         }
     }
 
+    /// Image resource associated to `ImageRef`. It can be either a static
+    /// image or a movie, and both contains an SDL surface that can be blitted
+    /// to the screen. (C: the type of `imgres`)
     enum ImageResource {
+        /// No image resource is associated, or error occurred while loading.
         NoImage,
+        /// A static image is associated. The surface may have a transparency
+        /// which is already handled by `load_image`.
         Image(@~Surface), // XXX borrowck
+        /// A movie is associated. TODO doc
         Movie(@~Surface, @~MPEG) // XXX borrowck
     }
 
@@ -4661,9 +4728,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// (C: `create_beep`)
         fn create_beep() -> ~Chunk {
             let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
-                // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
-                |i| { let i = i as i32;
-                      (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
+                // sawtooth wave at 3150 Hz, quadratic decay after 20 msecs.
+                |i| {
+                    let i = i as i32;
+                    (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000)
+                });
             Chunk::new(unsafe { cast::transmute(samples) }, 128)
         }
 
@@ -5707,8 +5776,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                              ticker: &mut Ticker, atexit: &fn()) {
         // Rust: `on_tick` calls the closure at most once so `path` won't be
         //       referenced twice, but the analysis can't reason that. (#4654)
-        //       an "option dance" via `Option<T>::swap_unwrap` is not helpful here
-        //       since `path` can be `None`.
+        //       an "option dance" via `Option<T>::swap_unwrap` is not helpful
+        //       here since `path` can be `None`.
         let mut path = path; // XXX #4654
         do ticker.on_tick(get_ticks()) {
             let path = ::core::util::replace(&mut path, None); // XXX #4654
@@ -5726,7 +5795,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     /// (C: `resource_loaded`)
-    fn text_update_status(path: Option<~str>, ticker: &mut Ticker, atexit: &fn()) {
+    fn text_update_status(path: Option<~str>, ticker: &mut Ticker,
+                          atexit: &fn()) {
         let mut path = path; // XXX #4654
         do ticker.on_tick(get_ticks()) {
             match ::core::util::replace(&mut path, None) { // XXX #4654
@@ -5787,9 +5857,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                          opts.fullscreen));
             }
 
-            let atexit = || {
-                if opts.is_exclusive() { update_line(~""); }
-            };
+            // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }`
+            //       segfaults due to the moved `opts`. (#????)
+            let atexit = if opts.is_exclusive() { || update_line(~"") }
+                         else { || {} };
 
             // show stagefile
             let mut ticker = Ticker();
@@ -5854,10 +5925,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             match screen {
                 Some(screen) => {
                     if player.opts.is_exclusive() {
-                        loop_with_display(player, BGAOnlyDisplay(screen, imgres));
+                        loop_with_display(player,
+                                          BGAOnlyDisplay(screen, imgres));
                     } else {
-                        let display = GraphicDisplay(player.opts, player.keyspec,
-                                                     screen, font, imgres);
+                        let display =
+                            GraphicDisplay(player.opts, player.keyspec,
+                                           screen, font, imgres);
                         loop_with_display(player, display);
                     }
                 }
