@@ -1806,8 +1806,18 @@ pub mod parser {
         x1: int, y1: int, x2: int, y2: int, dx: int, dy: int
     }
 
+    /// A value of BMS #PLAYER command signifying Single Play (SP), where only
+    /// channels #1x are used for the game play.
     pub static SinglePlay: int = 1;
+    /// A value of BMS #PLAYER command signifying Couple Play, where channels
+    /// #1x and #2x renders to the different panels. They are originally meant
+    /// to be played by different players with separate gauges and scores, but
+    /// this mode of game play is increasingly unsupported by modern
+    /// implementations. Angolmois has only a limited support for Couple Play.
     pub static CouplePlay: int = 2;
+    /// A value of BMS #PLAYER command signifying Double Play (DP), where both
+    /// channels #1x and #2x renders to a single wide panel. The chart is
+    /// still meant to be played by one person.
     pub static DoublePlay: int = 3;
 
     /// Loaded BMS data. It is not a global state unlike C.
@@ -1869,6 +1879,9 @@ pub mod parser {
     }
 
     pub impl Bms {
+        /// Returns a scaling factor of given measure number. The default
+        /// scaling factor is 1.0, and that value applies to any out-of-bound
+        /// measures.
         fn shorten_factor(&self, measure: int) -> float {
             if measure < 0 || measure as uint >= self.shorten.len() {
                 1.0
@@ -1877,6 +1890,10 @@ pub mod parser {
             }
         }
 
+        /// Calculates the virtual time that is `offset` measures away from
+        /// the virtual time `base`. This takes account of the scaling factor,
+        /// so if first four measures are scaled by 1/4, then
+        /// `adjust_object_time(0.0, 2.0)` results in `5.0`.
         /// (C: `adjust_object_time`)
         fn adjust_object_time(&self, base: float, offset: float) -> float {
             let basemeasure = base.floor() as int;
@@ -1898,7 +1915,11 @@ pub mod parser {
             }
         }
 
-        /// (C: `adjust_object_position`)
+        /// Calculates an adjusted offset between the virtual time `base` and
+        /// `base + offset`. This takes account of the measure scaling factor,
+        /// so for example, the adjusted offset between the virtual time 0.0
+        /// and 2.0 is, if the measure #000 is scaled by 1.2x, 2.2 measures
+        /// instead of 2.0 measures. (C: `adjust_object_position`)
         pub fn adjust_object_position(&self, base: float, time: float)
                                         -> float {
             let basemeasure = base.floor() as int;
@@ -2245,8 +2266,6 @@ pub mod parser {
             }
         }
 
-        ::std::sort::tim_sort(bmsline);
-
         // Poor BGA defined by #BMP00 wouldn't be played if it is a movie.
         // We can't just let it played at the beginning of the chart as the
         // "beginning" is not always 0.0 (actually, `originoffset`). Thus
@@ -2402,6 +2421,8 @@ pub mod parser {
             }
         };
 
+        // loops over the sorted bmslines
+        ::std::sort::tim_sort(bmsline);
         for bmsline.each |line| {
             if *line.chan == 2 {
                 let mut shorten = 0.0;
@@ -2455,6 +2476,9 @@ pub mod parser {
     //------------------------------------------------------------------------
     // key specification
 
+    /// The key specification. Specifies the order and apperance of lanes.
+    /// Once determined from the options and BMS file, the key specification
+    /// is fixed and independent of other data (e.g. `#PLAYER` value).
     pub struct KeySpec {
         /// The number of lanes on the left side. This number is significant
         /// only when Couple Play is used. (C: `nleftkeys`)
@@ -2478,18 +2502,20 @@ pub mod parser {
             nkeys
         }
 
+        /// Iterates over lanes on the left side, from left to right.
         fn each_left_lanes(&self, f: &fn(&Lane) -> bool) {
             assert!(self.split <= self.order.len());
             self.order.slice(0, self.split).each(f)
         }
 
+        /// Iterates over lanes on the right side if any, from left to right.
         fn each_right_lanes(&self, f: &fn(&Lane) -> bool) {
             assert!(self.split <= self.order.len());
             self.order.slice(self.split, self.order.len()).each(f)
         }
     }
 
-    /// (C: `parse_key_spec`)
+    /// Parses the key specification from the string. (C: `parse_key_spec`)
     pub fn parse_key_spec(s: &str) -> Option<~[(Lane, KeyKind)]> {
         let mut specs = ~[];
         let mut s = s.trim_left().to_owned();
@@ -2509,25 +2535,41 @@ pub mod parser {
         Some(specs)
     }
 
-    /// (C: `presets`)
+    /// A list of well-known key specifications. (C: `presets`)
     static PRESETS: &'static [(&'static str, &'static str, &'static str)] = &[
+        // 5-key BMS, SP/DP
         ("5",     "16s 11a 12b 13a 14b 15a", ""),
         ("10",    "16s 11a 12b 13a 14b 15a",
                   "21a 22b 23a 24b 25a 26s"),
+        // 5-key BMS with a foot pedal, SP/DP
         ("5/fp",  "16s 11a 12b 13a 14b 15a 17p", ""),
         ("10/fp", "16s 11a 12b 13a 14b 15a 17p",
                   "27p 21a 22b 23a 24b 25a 26s"),
+        // 7-key BME, SP/DP
         ("7",     "16s 11a 12b 13a 14b 15a 18b 19a", ""),
         ("14",    "16s 11a 12b 13a 14b 15a 18b 19a",
                   "21a 22b 23a 24b 25a 28b 29a 26s"),
+        // 7-key BME with a foot pedal, SP/DP
         ("7/fp",  "16s 11a 12b 13a 14b 15a 18b 19a 17p", ""),
         ("14/fp", "16s 11a 12b 13a 14b 15a 18b 19a 17p",
                   "27p 21a 22b 23a 24b 25a 28b 29a 26s"),
+        // 9-key PMS (#PLAYER 3)
         ("9",     "11q 12w 13e 14r 15t 22r 23e 24w 25q", ""),
+        // 9-key PMS (BME-compatible)
         ("9-bme", "11q 12w 13e 14r 15t 18r 19e 16w 17q", ""),
     ];
 
-    /// (C: `detect_preset`)
+    /**
+     * Determines the key specification from the preset name, in the absence
+     * of explicit key specification with `-K` option. (C: `detect_preset`)
+     *
+     * Besides from presets specified in `PRESETS`, this function also allows
+     * the following pseudo-presets inferred from the BMS file:
+     *
+     * - `bms`, `bme`, `bml` or no preset: Selects one of eight presets
+     *   `{5,7,10,14}[/fp]`.
+     * - `pms`: Selects one of two presets `9` and `9-bme`.
+     */
     pub fn preset_to_key_spec(bms: &Bms, preset: Option<~str>)
                                     -> Option<(~str, ~str)> {
         let mut present = [false, ..NLANES];
@@ -3510,13 +3552,13 @@ pub mod player {
     use gfx::*;
 
     /// The width of screen, unless the exclusive mode.
-    static SCREENW: uint = 800;
+    pub static SCREENW: uint = 800;
     /// The height of screen, unless the exclusive mode.
-    static SCREENH: uint = 600;
+    pub static SCREENH: uint = 600;
     /// The width of BGA, or the width of screen for the exclusive mode.
-    static BGAW: uint = 256;
+    pub static BGAW: uint = 256;
     /// The height of BGA, or the height of screen for the exclusive mode.
-    static BGAH: uint = 256;
+    pub static BGAH: uint = 256;
 
     //------------------------------------------------------------------------
     // options
@@ -3614,7 +3656,7 @@ pub mod player {
     //------------------------------------------------------------------------
     // bms utilities
 
-    fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
+    pub fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
@@ -3681,9 +3723,9 @@ pub mod player {
     }
 
     /// (C: `shuffle_bms`)
-    fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf,
-                                            r: &R, keyspec: &KeySpec,
-                                            begin: uint, end: uint) {
+    pub fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf,
+                                                r: &R, keyspec: &KeySpec,
+                                                begin: uint, end: uint) {
         let mut lanes = ~[];
         for uint::range(begin, end) |i| {
             let lane = keyspec.order[i];
@@ -3706,7 +3748,7 @@ pub mod player {
 
     /// Checks if the user pressed the escape key or the quit button. `atexit`
     /// is called before the program is terminated. (C: `check_exit`)
-    fn check_exit(atexit: &fn()) {
+    pub fn check_exit(atexit: &fn()) {
         loop {
             match poll_event() {
                 KeyEvent(EscapeKey,_,_,_) | QuitEvent => {
@@ -3719,24 +3761,24 @@ pub mod player {
         }
     }
 
-    fn update_line(s: &str) {
+    pub fn update_line(s: &str) {
         io::stderr().write_str(fmt!("\r%s\r%s", str::repeat(~" ", 72), s));
     }
 
-    struct Ticker {
+    pub struct Ticker {
         ///
         interval: uint,
         /// (C: `lastinfo`)
         lastinfo: Option<uint>
     }
 
-    fn Ticker() -> Ticker {
+    pub fn Ticker() -> Ticker {
         /// (C: `INFO_INTERVAL`)
         static INFO_INTERVAL: uint = 47;
         Ticker { interval: INFO_INTERVAL, lastinfo: None }
     }
 
-    impl Ticker {
+    pub impl Ticker {
         fn on_tick(&mut self, now: uint, f: &fn()) {
             if self.lastinfo.map_default(true,
                                          |&t| now - t >= self.interval) {
@@ -3757,7 +3799,7 @@ pub mod player {
     static BYTESPERSEC: i32 = SAMPLERATE * 2 * 2; // stereo, 16 bits/sample
 
     /// (C: `init_video`)
-    fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
+    pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
         let result =
             if exclusive {
                 set_video_mode(BGAW as int, BGAH as int, 32,
@@ -3782,7 +3824,7 @@ pub mod player {
     }
 
     /// (C: `init_ui`)
-    fn init_sdl() {
+    pub fn init_sdl() {
         if !init([InitVideo, InitAudio, InitJoystick]) {
             die!("SDL Initialization Failure: %s", get_error());
         }
@@ -3794,7 +3836,7 @@ pub mod player {
         }
     }
 
-    fn init_joystick(joyidx: uint) -> ~joy::Joystick {
+    pub fn init_joystick(joyidx: uint) -> ~joy::Joystick {
         joy::ll::SDL_JoystickEventState(1); // TODO rust-sdl patch
         match joy::Joystick::open(joyidx as int) {
             Ok(joy) => joy,
@@ -3805,7 +3847,7 @@ pub mod player {
     //------------------------------------------------------------------------
     // virtual input
 
-    /// Actual input. Mapped to zero or more virtual inputs by keymap.
+    /// Actual input. Mapped to zero or more virtual inputs by input mapping.
     #[deriving(Eq)]
     enum Input {
         /// Keyboard input.
@@ -3830,8 +3872,11 @@ pub mod player {
     /// Virtual input.
     #[deriving(Eq)]
     enum VirtualInput {
+        /// Virtual input mapped to the lane.
         LaneInput(Lane),
+        /// Speed down input (normally F3).
         SpeedDownInput,
+        /// Speed up input (normally F4).
         SpeedUpInput
     }
 
@@ -3862,6 +3907,8 @@ pub mod player {
     }
 
     pub impl VirtualInput {
+        /// Returns true if the virtual input has a specified key kind in
+        /// the key specification.
         fn active_in_key_spec(&self, kind: KeyKind,
                               keyspec: &KeySpec) -> bool {
             match *self {
@@ -3886,6 +3933,8 @@ pub mod player {
         &'static str,
         &'static [(Option<KeyKind>, &'static [VirtualInput])]);
 
+    /// A list of environment variables that set the mapping for multiple
+    /// keys, and corresponding default values and the order of keys.
     /// (C: `envvars`)
     static KEYSETS: &'static [KeySet] = &[
         (/*KeySet { envvar:*/ &"ANGOLMOIS_1P_KEYS",
@@ -3933,11 +3982,11 @@ pub mod player {
                             (None, &[SpeedUpInput])] ),
     ];
 
-    type KeyMap = ::core_compat::hashmap::HashMap<Input,VirtualInput>;
+    pub type KeyMap = ::core_compat::hashmap::HashMap<Input,VirtualInput>;
 
     /// (C: `read_keymap`)
-    fn read_keymap(keyspec: &KeySpec,
-                   getenv: &fn(&str) -> Option<~str>) -> KeyMap {
+    pub fn read_keymap(keyspec: &KeySpec,
+                       getenv: &fn(&str) -> Option<~str>) -> KeyMap {
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
             let name = name.to_lower();
             unsafe {
@@ -4245,8 +4294,9 @@ match Chunk::from_wav(&fullpath) {
     }
 
     /// (C: `play_show_stagefile` when `opt_mode < EXCLUSIVE_MODE`)
-    fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec,
-                             opts: &Options, screen: &Surface, font: &Font) {
+    pub fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo,
+                                 keyspec: &KeySpec, opts: &Options,
+                                 screen: &Surface, font: &Font) {
         let (meta, title, genre, artist) =
             displayed_info(bms, infos, keyspec);
 
@@ -4297,8 +4347,8 @@ match Chunk::from_wav(&fullpath) {
     }
 
     /// (C: `play_show_stagefile` when `opt_mode >= EXCLUSIVE_MODE`)
-    fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo,
-                               keyspec: &KeySpec, opts: &Options) {
+    pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo,
+                                   keyspec: &KeySpec, opts: &Options) {
         if opts.showinfo {
             let (meta, title, genre, artist) =
                 displayed_info(bms, infos, keyspec);
@@ -4311,7 +4361,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     /// (C: `load_resource`)
-    fn load_resource(bms: &Bms, opts: &Options, callback: &fn(Option<~str>))
+    pub fn load_resource(bms: &Bms, opts: &Options,
+                         callback: &fn(Option<~str>))
             -> (~[SoundResource], ~[ImageResource]) {
         let sndres =
             do bms.sndpath.mapi |i, &path| {
@@ -4338,6 +4389,53 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             apply_blitcmd(imgres, bc);
         }
         (sndres, imgres)
+    }
+
+    pub fn save_screen_for_loading(screen: &Surface) -> ~Surface {
+        let saved_screen = new_surface(SCREENW, 20);
+        saved_screen.blit_area(screen, (0,SCREENH-20), (0,0), (SCREENW,20));
+        saved_screen
+    }
+
+    /// (C: `resource_loaded`)
+    pub fn graphic_update_status(path: Option<~str>, screen: &Surface,
+                                 saved_screen: &Surface, font: &Font,
+                                 ticker: &mut Ticker, atexit: &fn()) {
+        // Rust: `on_tick` calls the closure at most once so `path` won't be
+        //       referenced twice, but the analysis can't reason that. (#4654)
+        //       an "option dance" via `Option<T>::swap_unwrap` is not helpful
+        //       here since `path` can be `None`.
+        let mut path = path; // XXX #4654
+        do ticker.on_tick(get_ticks()) {
+            let path = ::core::util::replace(&mut path, None); // XXX #4654
+            let msg = path.get_or_default(~"loading...");
+            screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
+            do screen.with_pixels |pixels| {
+                font.print_string(pixels, SCREENW-3, SCREENH-18,
+                                  1, RightAligned, msg,
+                                  Gradient(RGB(0xc0,0xc0,0xc0),
+                                           RGB(0x80,0x80,0x80)));
+            }
+            screen.flip();
+        }
+        check_exit(atexit);
+    }
+
+    /// (C: `resource_loaded`)
+    pub fn text_update_status(path: Option<~str>, ticker: &mut Ticker,
+                              atexit: &fn()) {
+        let mut path = path; // XXX #4654
+        do ticker.on_tick(get_ticks()) {
+            match ::core::util::replace(&mut path, None) { // XXX #4654
+                Some(path) => {
+                    let path = if path.len() < 63 {path}
+                               else {path.slice(0, 63).to_owned()};
+                    update_line(~"Loading: " + path);
+                }
+                None => { update_line(~"Loading done."); }
+            }
+        }
+        check_exit(atexit);
     }
 
     //------------------------------------------------------------------------
@@ -4590,7 +4688,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     static BAD_DAMAGE: Damage = GaugeDamage(0.030);
 
     /// Game play states independent to the display.
-    struct Player {
+    pub struct Player {
         /// The game play options.
         opts: ~Options,
         /// The current BMS data.
@@ -4722,20 +4820,55 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         joystate: [InputState, ..NLANES],
     }
 
-    fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: float,
-              keyspec: ~KeySpec, keymap: ~KeyMap, sndres: ~[SoundResource])
-                                    -> Player {
-        /// (C: `create_beep`)
-        fn create_beep() -> ~Chunk {
-            let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
-                // sawtooth wave at 3150 Hz, quadratic decay after 20 msecs.
-                |i| {
-                    let i = i as i32;
-                    (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000)
-                });
-            Chunk::new(unsafe { cast::transmute(samples) }, 128)
-        }
+    /// A list of play speed marks. `SpeedUpInput` and `SpeedDownInput`
+    /// changes the play speed to the next/previous nearest mark.
+    /// (C: `speeds`)
+    static SPEED_MARKS: &'static [float] = &[0.1, 0.2, 0.4, 0.6, 0.8, 1.0,
+        1.2, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0,
+        10.0, 15.0, 25.0, 40.0, 60.0, 99.0];
 
+    /// Finds the next nearest play speed mark if any.
+    fn next_speed_mark(current: float) -> Option<float> {
+        let mut prev = None;
+        for SPEED_MARKS.each |&speed| {
+            if speed < current - 0.001 {
+                prev = Some(speed);
+            } else {
+                return prev;
+            }
+        }
+        None
+    }
+
+    /// Finds the previous nearest play speed mark if any.
+    fn previous_speed_mark(current: float) -> Option<float> {
+        let mut next = None;
+        for SPEED_MARKS.each_reverse |&speed| {
+            if speed > current + 0.001 {
+                next = Some(speed);
+            } else {
+                return next;
+            }
+        }
+        None
+    }
+
+    /// Creates a beep sound played on the play speed change.
+    /// (C: `create_beep`)
+    fn create_beep() -> ~Chunk {
+        let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
+            // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
+            |i| { let i = i as i32;
+                  (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
+        Chunk::new(unsafe { cast::transmute(samples) }, 128)
+    }
+
+    /// Creates a new player object. The player object owns other related
+    /// structures, including the options, BMS file, key specification, input
+    /// mapping and sound resources.
+    pub fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo,
+                  duration: float, keyspec: ~KeySpec, keymap: ~KeyMap,
+                  sndres: ~[SoundResource]) -> Player {
         let now = get_ticks();
         let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
@@ -4778,14 +4911,23 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     pub impl Player {
+        /// Returns true if the specified lane is being pressed, either by
+        /// keyboard, joystick buttons or axes.
         fn key_pressed(&self, lane: Lane) -> bool {
             self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
         }
 
+        /// Returns the play speed displayed. Can differ from the actual play
+        /// speed (`self.playspeed`) when the play speed is changing.
         fn nominal_playspeed(&self) -> float {
             self.targetspeed.get_or_default(self.playspeed)
         }
 
+        /// Updates the score and associated statistics according to grading.
+        /// `scoredelta` is an weight normalized to [0,1] that is calculated
+        /// from the distance between the object and the input time, and
+        /// `damage` is an optionally associated `Damage` value for bombs.
+        /// May return true when `Damage` resulted in the instant death.
         /// (C: `update_grade`)
         fn update_grade(&mut self, grade: Grade, scoredelta: float,
                         damage: Option<Damage>) -> bool {
@@ -4820,7 +4962,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
-        /// (C: `update_grade(grade, 0, 0)` where `grade` is pre-calculated
+        /// Same as `update_grade`, but the grade is calculated from
+        /// the normalized difference between the object and input time in
+        /// milliseconds. The normalized distance equals to the actual time
+        /// difference when `gradefactor` is 1.0. (C: `update_grade(grade,
+        /// scoredelta, 0)` where `grade` and `scoredelta` are pre-calculated
         /// from `dist`)
         fn update_grade_from_distance(&mut self, dist: float) {
             let dist = num::abs(dist);
@@ -4835,18 +4981,22 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             assert!(keepgoing);
         }
 
-        /// (C: `update_grade(0, 0, damage)`)
+        /// Same as `update_grade`, but with the predetermined damage value.
+        /// Always results in MISS grade. May return true when the damage
+        /// resulted in the instant death. (C: `update_grade(0, 0, damage)`)
         fn update_grade_from_damage(&mut self, damage: Damage) -> bool {
             self.update_grade(MISS, 0.0, Some(damage))
         }
 
-        /// (C: `update_grade(0, 0, 0)`)
+        /// Same as `update_grade`, but always results in MISS grade with
+        /// the standard damage value. (C: `update_grade(0, 0, 0)`)
         fn update_grade_to_miss(&mut self) {
             let keepgoing = self.update_grade(MISS, 0.0, Some(MISS_DAMAGE));
             assert!(keepgoing);
         }
 
-        /// (C: `allocate_more_channels`)
+        /// Allocate more SDL_mixer channels without stopping already playing
+        /// channels. (C: `allocate_more_channels`)
         fn allocate_more_channels(&mut self, howmany: uint) {
             let howmany = howmany as libc::c_int;
             let nchannels = allocate_channels(-1 as libc::c_int);
@@ -4856,6 +5006,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// Plays a given sound referenced by `sref`. `bgm` indicates that
+        /// the sound is a BGM so should be played with the lower volume and
+        /// should in the different channel group from key sounds.
         /// (C: `play_sound`)
         fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
             let sref = **sref as uint;
@@ -4888,12 +5041,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             if **sref > 0 { self.play_sound(sref, bgm); }
         }
 
+        /// Plays a beep. The beep is always played in the channel 0, which
+        /// is excluded from the uniform key sound and BGM management.
         /// (C: `Mix_PlayChannel(0, beep, 0)`)
         fn play_beep(&self) {
             self.beep.play(Some(0), 0);
         }
 
-        /// (C: `play_process`)
+        /// Updates the player state. (C: `play_process`)
         fn tick(&mut self) -> bool {
             // Rust: this is very extreme case of loan conflict. (#4666)
             let bms = &*self.bms;
@@ -5010,6 +5165,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // process inputs
             loop {
+                // map to the virtual input. results in `vkey` (virtual key),
+                // `state` (input state) and `continuous` (true if the input
+                // is not discrete and `Negative` input state matters).
                 let (key, state) = match poll_event() {
                     NoEvent => break,
                     QuitEvent | KeyEvent(EscapeKey,_,_,_) => { return false; }
@@ -5038,34 +5196,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
                 if self.opts.is_exclusive() { loop; }
 
-                static speeds: &'static [float] = &[0.1, 0.2, 0.4, 0.6, 0.8,
-                    1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5,
-                    6.0, 7.0, 8.0, 10.0, 15.0, 25.0, 40.0, 60.0, 99.0];
-
-                fn next_speed_mark(current: float) -> Option<float> {
-                    let mut prev = None;
-                    for speeds.each |&speed| {
-                        if speed < current - 0.001 {
-                            prev = Some(speed);
-                        } else {
-                            return prev;
-                        }
-                    }
-                    None
-                }
-
-                fn previous_speed_mark(current: float) -> Option<float> {
-                    let mut next = None;
-                    for speeds.each_reverse |&speed| {
-                        if speed > current + 0.001 {
-                            next = Some(speed);
-                        } else {
-                            return next;
-                        }
-                    }
-                    None
-                }
-
+                // Returns true if the given lane is previously pressed and
+                // now unpressed. When the virtual input is mapped to multiple
+                // actual inputs it can update the internal state but still
+                // return false.
                 let is_unpressed = |lane: Lane, continuous: bool,
                                     state: InputState| {
                     if state == Neutral || (continuous &&
@@ -5073,7 +5207,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         if continuous {
                             self.joystate[*lane] = state; true
                         } else {
-                            if (self.keymultiplicity[*lane] > 0) {
+                            if self.keymultiplicity[*lane] > 0 {
                                 self.keymultiplicity[*lane] -= 1;
                             }
                             (self.keymultiplicity[*lane] == 0)
@@ -5083,6 +5217,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
                 };
 
+                // Returns true if the given lane is previously unpressed and
+                // now pressed. When the virtual input is mapped to multiple
+                // actual inputs it can update the internal state but still
+                // return false.
                 let is_pressed = |lane: Lane, continuous: bool,
                                   state: InputState| {
                     if state != Neutral {
@@ -5098,6 +5236,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 };
 
                 let process_unpress = |lane: Lane| {
+                    // if LN grading is in progress and it is not within
+                    // the threshold then MISS grade is issued
                     for pthru[*lane].each |&thru| {
                         let nextlndone = do thru.find_next_of_type |&obj| {
                             obj.object_lane() == Some(lane) &&
@@ -5118,6 +5258,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 };
 
                 let process_press = |lane: Lane| {
+                    // plays the closest key sound
                     let soundable =
                         do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) &&
@@ -5129,6 +5270,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         }
                     }
 
+                    // tries to grade the closest gradable object in
+                    // the grading area
                     let gradable =
                         do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) &&
@@ -5214,6 +5357,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.pcheck = pcheck;
             self.pthru = pthru;
 
+            // determines if we should keep playing
             if self.bottom > (bms.nmeasures + 1) as float {
                 if self.opts.is_autoplay() {
                     num_playing(None) != num_playing(Some(0))
@@ -5221,14 +5365,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     newest_in_group(Some(1)).is_some()
                 }
             } else if self.bottom < self.infos.originoffset {
-                false
+                false // special casing the negative BPM
             } else {
                 true
             }
         }
     }
 
-    trait Display {
+    pub trait Display {
         pub fn render(&mut self, player: &Player);
         pub fn show_result(&self, player: &Player);
     }
@@ -5410,7 +5554,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         sprite
     }
 
-    struct GraphicDisplay {
+    pub struct GraphicDisplay {
         /// (C: `sprite`)
         sprite: ~Surface,
         /// (C: `screen`)
@@ -5439,9 +5583,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         lastbga: BGAState,
     }
 
-    fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface,
-                      font: ~Font, imgres: ~[ImageResource])
-                                    -> GraphicDisplay {
+    pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec,
+                          screen: ~Surface, font: ~Font,
+                          imgres: ~[ImageResource]) -> GraphicDisplay {
         let (leftmost, rightmost, styles) = build_lane_styles(keyspec);
         let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
         let bgax = leftmost + (centerwidth - BGAW) / 2;
@@ -5702,11 +5846,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // text display
 
-    struct TextDisplay {
+    pub struct TextDisplay {
         ticker: Ticker
     }
 
-    fn TextDisplay() -> TextDisplay {
+    pub fn TextDisplay() -> TextDisplay {
         TextDisplay { ticker: Ticker() }
     }
 
@@ -5734,7 +5878,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // BGA-only display
 
-    struct BGAOnlyDisplay {
+    pub struct BGAOnlyDisplay {
         ///
         textdisplay: TextDisplay,
         /// (C: `screen`)
@@ -5745,8 +5889,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         lastbga: BGAState,
     }
 
-    fn BGAOnlyDisplay(screen: ~Surface,
-                      imgres: ~[ImageResource]) -> BGAOnlyDisplay {
+    pub fn BGAOnlyDisplay(screen: ~Surface,
+                          imgres: ~[ImageResource]) -> BGAOnlyDisplay {
         BGAOnlyDisplay { textdisplay: TextDisplay(), screen: screen,
                          imgres: imgres, lastbga: initial_bga_state() }
     }
@@ -5767,191 +5911,143 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    //------------------------------------------------------------------------
-    // driver
-
-    /// (C: `resource_loaded`)
-    fn graphic_update_status(path: Option<~str>, screen: &Surface,
-                             saved_screen: &Surface, font: &Font,
-                             ticker: &mut Ticker, atexit: &fn()) {
-        // Rust: `on_tick` calls the closure at most once so `path` won't be
-        //       referenced twice, but the analysis can't reason that. (#4654)
-        //       an "option dance" via `Option<T>::swap_unwrap` is not helpful
-        //       here since `path` can be `None`.
-        let mut path = path; // XXX #4654
-        do ticker.on_tick(get_ticks()) {
-            let path = ::core::util::replace(&mut path, None); // XXX #4654
-            let msg = path.get_or_default(~"loading...");
-            screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
-            do screen.with_pixels |pixels| {
-                font.print_string(pixels, SCREENW-3, SCREENH-18,
-                                  1, RightAligned, msg,
-                                  Gradient(RGB(0xc0,0xc0,0xc0),
-                                           RGB(0x80,0x80,0x80)));
-            }
-            screen.flip();
-        }
-        check_exit(atexit);
-    }
-
-    /// (C: `resource_loaded`)
-    fn text_update_status(path: Option<~str>, ticker: &mut Ticker,
-                          atexit: &fn()) {
-        let mut path = path; // XXX #4654
-        do ticker.on_tick(get_ticks()) {
-            match ::core::util::replace(&mut path, None) { // XXX #4654
-                Some(path) => {
-                    let path = if path.len() < 63 {path}
-                               else {path.slice(0, 63).to_owned()};
-                    update_line(~"Loading: " + path);
-                }
-                None => { update_line(~"Loading done."); }
-            }
-        }
-        check_exit(atexit);
-    }
-
-    pub fn play(opts: ~Options) {
-        let r = ::core_compat::rand::Rng();
-        let mut bms: ~Bms = match parse_bms(opts.bmspath, &r) {
-            Ok(bms) => ~bms,
-            Err(err) => die!("Couldn't load BMS file: %s", err)
-        };
-        sanitize_bms(bms);
-
-        let keyspec: ~KeySpec = match key_spec(bms, opts) {
-            Ok(keyspec) => keyspec,
-            Err(err) => die!("%s", err)
-        };
-        compact_bms(bms, keyspec);
-        let infos: ~BmsInfo = ~analyze_bms(bms);
-
-        for opts.modf.each |&modf| {
-            apply_modf(bms, modf, &r, keyspec, 0, keyspec.split);
-            if keyspec.split < keyspec.order.len() {
-                apply_modf(bms, modf, &r, keyspec,
-                           keyspec.split, keyspec.order.len());
-            }
-        }
-
-        let (port, chan) = comm::stream();
-        chan.send(~(opts, bms, infos, keyspec));
-
-        do start {
-            let ~(opts, bms, infos, keyspec) = port.recv();
-
-            init_sdl();
-            for opts.joystick.each |&joyidx| { init_joystick(joyidx); }
-
-            // this has to be done after SDL initialization.
-            let keymap = ~read_keymap(keyspec, os::getenv);
-
-            let mut font = ~Font();
-            font.create_zoomed_font(1);
-            font.create_zoomed_font(2);
-            let font = font;
-
-            let mut screen = None;
-            if opts.has_screen() {
-                screen = Some(init_video(opts.is_exclusive(),
-                                         opts.fullscreen));
-            }
-
-            // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }`
-            //       segfaults due to the moved `opts`. (#????)
-            let atexit = if opts.is_exclusive() { || update_line(~"") }
-                         else { || {} };
-
-            // show stagefile
-            let mut ticker = Ticker();
-            let mut saved_screen = None; // XXX should be in a trait actually
-            let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
-            let update_status;
-            if !opts.is_exclusive() {
-                let screen_: &Surface = *screen.get_ref();
-                show_stagefile_screen(bms, infos, keyspec, opts,
-                                      screen_, font);
-                if opts.showinfo {
-                    let saved_screen_ = new_surface(SCREENW, 20);
-                    saved_screen_.blit_area(screen_, (0,SCREENH-20), (0,0),
-                                            (SCREENW,20));
-                    saved_screen = Some(saved_screen_);
-
-                    update_status = |path| {
-                        let screen: &Surface = *screen.get_ref();
-                        let saved_screen: &Surface = *saved_screen.get_ref();
-                        graphic_update_status(path, screen, saved_screen,
-                                              font, &mut ticker, atexit)
-                    };
-                } else {
-                    update_status = |_path| {};
-                }
-            } else if opts.showinfo {
-                show_stagefile_noscreen(bms, infos, keyspec, opts);
-                update_status = |path| {
-                    text_update_status(path, &mut ticker, atexit)
-                };
-            } else {
-                update_status = |_path| {};
-            }
-
-            // wait for resources
-            let start = get_ticks() + 3000;
-            let (sndres, imgres) = load_resource(bms, opts, update_status);
-            if opts.showinfo {
-                ticker.reset(); // force update
-                update_status(None);
-            }
-            while get_ticks() < start { check_exit(atexit); }
-
-            let duration = bms_duration(bms, infos.originoffset,
-                                        |sref| sndres[**sref].duration());
-            let mut player = Player(opts, bms, infos, duration,
-                                    keyspec, keymap, sndres);
-
-            // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
-            fn loop_with_display<T:Display>(mut player: Player,
-                                            mut display: T) {
-                while player.tick() {
-                    display.render(&player);
-                }
-                display.show_result(&player);
-
-                // remove all channels before sound resources are deallocated.
-                // halting alone is not sufficient due to rust-sdl's bug.
-                allocate_channels(0);
-            };
-
-            match screen {
-                Some(screen) => {
-                    if player.opts.is_exclusive() {
-                        loop_with_display(player,
-                                          BGAOnlyDisplay(screen, imgres));
-                    } else {
-                        let display =
-                            GraphicDisplay(player.opts, player.keyspec,
-                                           screen, font, imgres);
-                        loop_with_display(player, display);
-                    }
-                }
-                None => {
-                    loop_with_display(player, TextDisplay());
-                }
-            }
-
-            atexit();
-        }
-    }
-
-    //------------------------------------------------------------------------
-
 }
 
 //============================================================================
 // entry point
 
+pub fn play(opts: ~player::Options) {
+    let r = ::core_compat::rand::Rng();
+    let mut bms = match parser::parse_bms(opts.bmspath, &r) {
+        Ok(bms) => ~bms,
+        Err(err) => die!("Couldn't load BMS file: %s", err)
+    };
+    parser::sanitize_bms(bms);
+
+    let keyspec = match player::key_spec(bms, opts) {
+        Ok(keyspec) => keyspec,
+        Err(err) => die!("%s", err)
+    };
+    parser::compact_bms(bms, keyspec);
+    let infos = ~parser::analyze_bms(bms);
+
+    for opts.modf.each |&modf| {
+        player::apply_modf(bms, modf, &r, keyspec, 0, keyspec.split);
+        if keyspec.split < keyspec.order.len() {
+            player::apply_modf(bms, modf, &r, keyspec,
+                               keyspec.split, keyspec.order.len());
+        }
+    }
+
+    let (port, chan) = comm::stream();
+    chan.send(~(opts, bms, infos, keyspec));
+
+    do ::sdl::start {
+        let ~(opts, bms, infos, keyspec) = port.recv();
+
+        player::init_sdl();
+        for opts.joystick.each |&joyidx| { player::init_joystick(joyidx); }
+
+        // this has to be done after SDL initialization.
+        let keymap = ~player::read_keymap(keyspec, os::getenv);
+
+        let mut font = ~gfx::Font();
+        font.create_zoomed_font(1);
+        font.create_zoomed_font(2);
+        let font = font;
+
+        let mut screen = None;
+        if opts.has_screen() {
+            screen = Some(player::init_video(opts.is_exclusive(),
+                                             opts.fullscreen));
+        }
+
+        // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }`
+        //       segfaults due to the moved `opts`. (#????)
+        let atexit = if opts.is_exclusive() { || player::update_line(~"") }
+                     else { || {} };
+
+        // show stagefile
+        let mut ticker = player::Ticker();
+        let mut saved_screen = None; // XXX should be in a trait actually
+        let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
+        let update_status;
+        if !opts.is_exclusive() {
+            use sdl::video::Surface;
+            let screen_: &Surface = *screen.get_ref();
+            player::show_stagefile_screen(bms, infos, keyspec, opts,
+                                          screen_, font);
+            if opts.showinfo {
+                saved_screen = Some(player::save_screen_for_loading(screen_));
+                update_status = |path| {
+                    let screen: &Surface = *screen.get_ref();
+                    let saved_screen: &Surface = *saved_screen.get_ref();
+                    player::graphic_update_status(path, screen, saved_screen,
+                                                  font, &mut ticker, atexit)
+                };
+            } else {
+                update_status = |_path| {};
+            }
+        } else if opts.showinfo {
+            player::show_stagefile_noscreen(bms, infos, keyspec, opts);
+            update_status = |path| {
+                player::text_update_status(path, &mut ticker, atexit)
+            };
+        } else {
+            update_status = |_path| {};
+        }
+
+        // wait for resources
+        let start = ::sdl::get_ticks() + 3000;
+        let (sndres, imgres) =
+            player::load_resource(bms, opts, update_status);
+        if opts.showinfo {
+            ticker.reset(); // force update
+            update_status(None);
+        }
+        while ::sdl::get_ticks() < start { player::check_exit(atexit); }
+
+        let duration = parser::bms_duration(bms, infos.originoffset,
+                                            |sref| sndres[**sref].duration());
+        let mut player = player::Player(opts, bms, infos, duration,
+                                        keyspec, keymap, sndres);
+
+        // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
+        fn loop_with_display<T:player::Display>(mut player: player::Player,
+                                                mut display: T) {
+            while player.tick() {
+                display.render(&player);
+            }
+            display.show_result(&player);
+
+            // remove all channels before sound resources are deallocated.
+            // halting alone is not sufficient due to rust-sdl's bug.
+            ::sdl::mixer::allocate_channels(0);
+        }
+
+        match screen {
+            Some(screen) => {
+                if player.opts.is_exclusive() {
+                    loop_with_display(player,
+                                      player::BGAOnlyDisplay(screen, imgres));
+                } else {
+                    let display =
+                        player::GraphicDisplay(player.opts, player.keyspec,
+                                               screen, font, imgres);
+                    loop_with_display(player, display);
+                }
+            }
+            None => {
+                loop_with_display(player, player::TextDisplay());
+            }
+        }
+
+        atexit();
+    }
+}
+
 /// Prints the usage. (C: `usage`)
-fn usage() {
+pub fn usage() {
     // Rust: this is actually a good use case of `include_str!`...
     io::stderr().write_str(fmt!("\
 %s -- the simple BMS player
@@ -6002,7 +6098,7 @@ Environment Variables:
 
 /// The entry point. Parses the command line options and delegates other
 /// things to `play`. (C: `main`)
-fn main() {
+pub fn main() {
     use player::*;
 
     let longargs = util::hashmap::map_from_vec([
