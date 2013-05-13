@@ -1270,7 +1270,7 @@ pub mod parser {
         }
 
         /// Converts an appropriate key kind to a mnemonic character. Used
-        /// for environment variables (see also TODO).
+        /// for environment variables (see also `read_keymap`).
         fn to_char(self) -> char {
             match self {
                 WhiteKey    => 'a',
@@ -3563,13 +3563,18 @@ pub mod player {
     //------------------------------------------------------------------------
     // options
 
-    /// (C: `enum mode`)
+    /// Game play modes. (C: `enum mode`)
     #[deriving(Eq)]
     pub enum Mode {
+        /// Normal game play. The graphical display and input is enabled.
         /// (C: `PLAY_MODE`)
         PlayMode,
+        /// Automatic game play. The graphical display is enabled but
+        /// the input is mostly ignored except for the play speed change.
         /// (C: `AUTOPLAY_MODE`)
         AutoPlayMode,
+        /// Exclusive (headless) mode. The graphical display is reduced to
+        /// the BGA or absent at all (when `NoBga` is also set).
         /// (C: `EXCLUSIVE_MODE`)
         ExclusiveMode
     }
@@ -4105,6 +4110,7 @@ pub mod player {
         }
     }
 
+    /// Loads a sound resource.
     fn load_sound(key: Key, path: &str, opts: &Options) -> SoundResource {
         let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
         match Chunk::from_wav(&fullpath) {
@@ -4130,11 +4136,14 @@ match Chunk::from_wav(&fullpath) {
         /// A static image is associated. The surface may have a transparency
         /// which is already handled by `load_image`.
         Image(@~Surface), // XXX borrowck
-        /// A movie is associated. TODO doc
+        /// A movie is associated. A playback starts when `start_movie` method
+        /// is called, and stops when `stop_movie` is called. An associated
+        /// surface is updated from the separate thread during the playback.
         Movie(@~Surface, @~MPEG) // XXX borrowck
     }
 
     pub impl ImageResource {
+        /// Returns an associated surface if any.
         fn surface(&self) -> Option<@~Surface> {
             match *self {
                 NoImage => None,
@@ -4142,6 +4151,7 @@ match Chunk::from_wav(&fullpath) {
             }
         }
 
+        /// Stops the movie playback if possible.
         fn stop_movie(&self) {
             match *self {
                 NoImage | Image(_) => {}
@@ -4149,6 +4159,8 @@ match Chunk::from_wav(&fullpath) {
             }
         }
 
+        /// Starts (or restarts, if the movie was already being played)
+        /// the movie playback if possible.
         fn start_movie(&self) {
             match *self {
                 NoImage | Image(_) => {}
@@ -4157,7 +4169,10 @@ match Chunk::from_wav(&fullpath) {
         }
     }
 
+    /// Loads an image resource.
     fn load_image(key: Key, path: &str, opts: &Options) -> ImageResource {
+        /// Converts a surface to the native display format, while preserving
+        /// a transparency or setting a color key if required.
         fn to_display_format(surface: ~Surface) -> Result<~Surface,~str> {
             if unsafe {(*(*surface.raw).format).Amask} != 0 {
                 let res = surface.display_format_alpha();
@@ -4211,6 +4226,8 @@ match Chunk::from_wav(&fullpath) {
         NoImage
     }
 
+    /// Applies the blit command to given list of image resources.
+    /// (C: a part of `load_resource`)
     fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
         let origin: @~Surface = match imgres[**bc.src] {
             Image(src) => src,
@@ -4235,8 +4252,14 @@ match Chunk::from_wav(&fullpath) {
         target.blit_area(*origin, (x1,y1), (x2,y2), (x2-x1,y2-y1));
     }
 
+    /// A list of image references displayed in BGA layers (henceforth the BGA
+    /// state). Not all image referenced here is directly rendered, but
+    /// the references themselves are kept.
     type BGAState = [Option<ImageRef>, ..NLAYERS];
 
+    /// Returns the initial BGA state. Note that merely setting a particular
+    /// layer doesn't start the movie playback; `poorbgafix` in
+    /// `parser::parse` function handles it.
     fn initial_bga_state() -> BGAState {
         [None, None, None, Some(ImageRef(Key(0)))]
     }
@@ -4250,6 +4273,9 @@ match Chunk::from_wav(&fullpath) {
     impl BGAStateOps for BGAState {
         fn update(&mut self, current: &BGAState, imgres: &[ImageResource]) {
             for uint::range(0, NLAYERS) |layer| {
+                // TODO this design can't handle the case that a BGA layer is
+                // updated to the same image reference, which should rewind
+                // the movie playback. the original Angolmois does handle it.
                 if self[layer] != current[layer] {
                     for self[layer].each |&iref| {
                         imgres[**iref].stop_movie();
@@ -4278,6 +4304,8 @@ match Chunk::from_wav(&fullpath) {
     //------------------------------------------------------------------------
     // loading
 
+    /// Returns the interface string common to the graphical and textual
+    /// loading screen.
     fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec)
                                     -> (~str, ~str, ~str, ~str) {
         let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
@@ -4293,7 +4321,9 @@ match Chunk::from_wav(&fullpath) {
         (meta, title, genre, artist)
     }
 
-    /// (C: `play_show_stagefile` when `opt_mode < EXCLUSIVE_MODE`)
+    /// Renders the graphical loading screen by blitting BMS #STAGEFILE image
+    /// (if any) and showing the metadata. (C: `play_show_stagefile` when
+    /// `opt_mode < EXCLUSIVE_MODE`)
     pub fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo,
                                  keyspec: &KeySpec, opts: &Options,
                                  screen: &Surface, font: &Font) {
@@ -4346,6 +4376,7 @@ match Chunk::from_wav(&fullpath) {
         screen.flip();
     }
 
+    /// Renders the textual loading screen by printing the metadata.
     /// (C: `play_show_stagefile` when `opt_mode >= EXCLUSIVE_MODE`)
     pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo,
                                    keyspec: &KeySpec, opts: &Options) {
@@ -4360,7 +4391,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    /// (C: `load_resource`)
+    /// Loads the image and sound resources and calls a callback whenever
+    /// a new resource has been loaded. (C: `load_resource`)
     pub fn load_resource(bms: &Bms, opts: &Options,
                          callback: &fn(Option<~str>))
             -> (~[SoundResource], ~[ImageResource]) {
@@ -4391,13 +4423,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         (sndres, imgres)
     }
 
+    /// Saves a portion of the screen for the use in `graphic_update_status`.
     pub fn save_screen_for_loading(screen: &Surface) -> ~Surface {
         let saved_screen = new_surface(SCREENW, 20);
         saved_screen.blit_area(screen, (0,SCREENH-20), (0,0), (SCREENW,20));
         saved_screen
     }
 
-    /// (C: `resource_loaded`)
+    /// A callback template for `load_resource` with the graphical loading
+    /// screen. (C: `resource_loaded`)
     pub fn graphic_update_status(path: Option<~str>, screen: &Surface,
                                  saved_screen: &Surface, font: &Font,
                                  ticker: &mut Ticker, atexit: &fn()) {
@@ -4421,7 +4455,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         check_exit(atexit);
     }
 
-    /// (C: `resource_loaded`)
+    /// A callback template for `load_resource` with the textual loading
+    /// screen. (C: `resource_loaded`)
     pub fn text_update_status(path: Option<~str>, ticker: &mut Ticker,
                               atexit: &fn()) {
         let mut path = path; // XXX #4654
@@ -4441,14 +4476,50 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // pointers
 
+    /// A pointer to the object. A pointer is used to implement common
+    /// operations, e.g. iterating until given position, or finding
+    /// the closest object with given condition. A pointer can also be used
+    /// like an object when it points to the valid object.
     struct Pointer {
+        /// A BMS data holding objects.
         bms: @mut ~Bms,
+        /// The current position. Can be the past-the-end value.
         pos: uint
     }
 
+    /// Returns true if two pointers share the common BMS data.
     priv fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
         ::core::managed::mut_ptr_eq(lhs.bms, rhs.bms)
     }
+
+    impl Eq for Pointer {
+        fn eq(&self, other: &Pointer) -> bool {
+            has_same_bms(self, other) && self.pos == other.pos
+        }
+        fn ne(&self, other: &Pointer) -> bool {
+            !has_same_bms(self, other) || self.pos != other.pos
+        }
+    }
+
+    impl Ord for Pointer {
+        fn lt(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
+            self.pos < other.pos
+        }
+        fn le(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
+            self.pos <= other.pos
+        }
+        fn ge(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
+            self.pos >= other.pos
+        }
+        fn gt(&self, other: &Pointer) -> bool {
+            assert!(has_same_bms(self, other));
+            self.pos > other.pos
+        }
+    }
+
 
     impl Clone for Pointer {
         pub fn clone(&self) -> Pointer {
@@ -4524,10 +4595,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     pub impl Pointer {
+        /// Returns the time of pointed object.
         fn time(&self) -> float { self.bms.objs[self.pos].time }
 
+        /// Returns the associated game data of pointed object.
         fn data(&self) -> ObjData { self.bms.objs[self.pos].data }
 
+        /// Seeks to the first object which time is past the limit, if any.
         fn seek_until(&mut self, limit: float) {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
@@ -4537,6 +4611,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// Iterates over objects starting from the current object, until
+        /// the first object which time is past the limit is reached.
         fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
@@ -4548,6 +4624,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// Seeks to the object pointed by the other pointer.
         fn seek_to(&mut self, limit: Pointer) {
             assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
@@ -4555,6 +4632,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.pos = limit.pos;
         }
 
+        /// Iterates over objects starting from the current object, until
+        /// the object pointed by the other pointer is reached.
         fn iter_to(&mut self, limit: Pointer, f: &fn(&Obj) -> bool) {
             assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
@@ -4566,11 +4645,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// Seeks to the end of objects.
         fn seek_to_end(&mut self) {
             let bms = &*self.bms;
             self.pos = bms.objs.len();
         }
 
+        /// Iterates over objects starting from the current object.
         fn iter_to_end(&mut self, f: &fn(&Obj) -> bool) {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
@@ -4581,6 +4662,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// Finds the next object that satisfies given condition if any,
+        /// without updating itself.
         fn find_next_of_type(&self,
                              cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let bms = &*self.bms;
@@ -4596,6 +4679,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             None
         }
 
+        /// Finds the previous object that satisfies given condition if any,
+        /// without updating itself.
         fn find_previous_of_type(&self,
                                  cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let bms = &*self.bms;
@@ -4610,6 +4695,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             None
         }
 
+        /// Finds the closest object from the virtual time `base` that
+        /// satisfies given condition if any. `base` should lie between
+        /// the pointed object and the previous object. The proximity is
+        /// measured in terms of virtual time, which can differ from
+        /// the actual time.
         fn find_closest_of_type(&self, base: float,
                                 cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let previous = self.find_previous_of_type(cond);
@@ -4626,40 +4716,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
+    /// Returns a pointer pointing the first object in `bms`.
     fn Pointer(bms: @mut ~Bms) -> Pointer {
         Pointer { bms: bms, pos: 0 }
     }
 
+    /// Returns a pointer pointing given object in `bms`.
     fn pointer_with_pos(bms: @mut ~Bms, pos: uint) -> Pointer {
         Pointer { bms: bms, pos: pos }
-    }
-
-    impl Eq for Pointer {
-        fn eq(&self, other: &Pointer) -> bool {
-            has_same_bms(self, other) && self.pos == other.pos
-        }
-        fn ne(&self, other: &Pointer) -> bool {
-            !has_same_bms(self, other) || self.pos != other.pos
-        }
-    }
-
-    impl Ord for Pointer {
-        fn lt(&self, other: &Pointer) -> bool {
-            assert!(has_same_bms(self, other));
-            self.pos < other.pos
-        }
-        fn le(&self, other: &Pointer) -> bool {
-            assert!(has_same_bms(self, other));
-            self.pos <= other.pos
-        }
-        fn ge(&self, other: &Pointer) -> bool {
-            assert!(has_same_bms(self, other));
-            self.pos >= other.pos
-        }
-        fn gt(&self, other: &Pointer) -> bool {
-            assert!(has_same_bms(self, other));
-            self.pos > other.pos
-        }
     }
 
     //------------------------------------------------------------------------
@@ -5037,6 +5101,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.lastchsnd[ch] = Some(sref as uint);
         }
 
+        /// Plays a given sound if `sref` is not zero. This reflects the fact
+        /// that an alphanumeric key `00` is normally a placeholder.
         fn play_sound_if_nonzero(&mut self, sref: SoundRef, bgm: bool) {
             if **sref > 0 { self.play_sound(sref, bgm); }
         }
@@ -5380,16 +5446,26 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //------------------------------------------------------------------------
     // graphic display
 
-    /// (C: `struct tkeykind` and `tkeyleft`)
+    /// An appearance for each lane. (C: `struct tkeykind` and `tkeyleft`)
     struct LaneStyle {
+        /// The left position of the lane in the final screen. (C: `tkeyleft`)
         left: uint,
+        /// The left position of the lane in the object sprite.
+        /// (C: `spriteleft` field)
         spriteleft: uint,
+        /// The left position of the lane in the bomb sprite.
+        /// (C: `spritebombleft` field)
         spritebombleft: uint,
+        /// The width of lane. (C: `width` field)
         width: uint,
+        /// The base color of object. The actual `Gradient` for drawing is
+        /// derived from this color. (C: `basecolor` field)
         basecolor: Color
     }
 
     pub impl LaneStyle {
+        /// Constructs a new `LaneStyle` object from given key kind and
+        /// the left (`Left(pos)`) or right (`Right(pos)`) position.
         /// (C: `tkeykinds`)
         fn from_kind(kind: KeyKind, pos: Either<uint,uint>) -> LaneStyle {
             let (spriteleft, spritebombleft, width, color) = match kind {
@@ -5410,6 +5486,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         width: width, basecolor: color }
         }
 
+        /// Renders required object and bomb images to the sprite.
         fn render_to_sprite(&self, sprite: &Surface) {
             let left = self.spriteleft;
             let noteleft = self.spriteleft + SCREENW;
@@ -5440,6 +5517,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// Renders the lane background to the screen from the sprite.
         fn render_back(&self, screen: &Surface, sprite: &Surface,
                        pressed: bool) {
             screen.fill_area((self.left, 30), (self.width, SCREENH-110),
@@ -5451,12 +5529,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
+        /// Renders an object to the screen from the sprite.
         fn render_note(&self, screen: &Surface, sprite: &Surface,
                        top: uint, bottom: uint) {
             screen.blit_area(sprite, (self.spriteleft + SCREENW, 0),
                              (self.left, top), (self.width, bottom - top));
         }
 
+        /// Renders a bomb object to the screen from the sprite.
         fn render_bomb(&self, screen: &Surface, sprite: &Surface,
                        top: uint, bottom: uint) {
             screen.blit_area(sprite, (self.spritebombleft + SCREENW, 0),
@@ -5464,6 +5544,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
+    /// Builds a list of `LaneStyle`s from the key specification.
     fn build_lane_styles(keyspec: &KeySpec) -> (uint, Option<uint>,
                                                 ~[(Lane,LaneStyle)]) {
         let mut leftmost = 0, rightmost = SCREENW;
@@ -5490,7 +5571,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         (leftmost, rightmost, styles)
     }
 
-    /// (C: sprite construction portion of `play_prepare`)
+    /// Creates a sprite. (C: sprite construction portion of `play_prepare`)
     fn create_sprite(opts: &Options, leftmost: uint, rightmost: Option<uint>,
                      styles: &[(Lane,LaneStyle)]) -> ~Surface {
         let sprite = new_surface(SCREENW + 400, SCREENH);
@@ -5668,6 +5749,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 style.render_back(screen, sprite, player.key_pressed(lane));
             }
 
+            // set the clip area to avoid drawing on the panels
             screen.set_clip_area((0, 30), (SCREENW, SCREENH-110));
 
             // render objects
@@ -5911,12 +5993,17 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
+    //------------------------------------------------------------------------
+
 }
 
 //============================================================================
 // entry point
 
+/// Parses the BMS file, initializes the display, shows the loading screen and
+/// runs the game play loop. (C: `play`)
 pub fn play(opts: ~player::Options) {
+    // parses the file and sanitizes it
     let r = ::core_compat::rand::Rng();
     let mut bms = match parser::parse_bms(opts.bmspath, &r) {
         Ok(bms) => ~bms,
@@ -5924,6 +6011,7 @@ pub fn play(opts: ~player::Options) {
     };
     parser::sanitize_bms(bms);
 
+    // parses the key specification and further sanitizes `bms` with it
     let keyspec = match player::key_spec(bms, opts) {
         Ok(keyspec) => keyspec,
         Err(err) => die!("%s", err)
@@ -5931,6 +6019,7 @@ pub fn play(opts: ~player::Options) {
     parser::compact_bms(bms, keyspec);
     let infos = ~parser::analyze_bms(bms);
 
+    // applies the modifier if any
     for opts.modf.each |&modf| {
         player::apply_modf(bms, modf, &r, keyspec, 0, keyspec.split);
         if keyspec.split < keyspec.order.len() {
@@ -5945,17 +6034,20 @@ pub fn play(opts: ~player::Options) {
     do ::sdl::start {
         let ~(opts, bms, infos, keyspec) = port.recv();
 
+        // initialize SDL
         player::init_sdl();
         for opts.joystick.each |&joyidx| { player::init_joystick(joyidx); }
 
-        // this has to be done after SDL initialization.
+        // read the input mapping (dependent to the SDL initialization)
         let keymap = ~player::read_keymap(keyspec, os::getenv);
 
+        // uncompress and populate the bitmap font.
         let mut font = ~gfx::Font();
         font.create_zoomed_font(1);
         font.create_zoomed_font(2);
         let font = font;
 
+        // initialize the screen if required
         let mut screen = None;
         if opts.has_screen() {
             screen = Some(player::init_video(opts.is_exclusive(),
@@ -5967,7 +6059,7 @@ pub fn play(opts: ~player::Options) {
         let atexit = if opts.is_exclusive() { || player::update_line(~"") }
                      else { || {} };
 
-        // show stagefile
+        // render the loading screen
         let mut ticker = player::Ticker();
         let mut saved_screen = None; // XXX should be in a trait actually
         let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
@@ -6007,6 +6099,7 @@ pub fn play(opts: ~player::Options) {
         }
         while ::sdl::get_ticks() < start { player::check_exit(atexit); }
 
+        // create the player and transfer ownership of other resources to it
         let duration = parser::bms_duration(bms, infos.originoffset,
                                             |sref| sndres[**sref].duration());
         let mut player = player::Player(opts, bms, infos, duration,
@@ -6025,6 +6118,7 @@ pub fn play(opts: ~player::Options) {
             ::sdl::mixer::allocate_channels(0);
         }
 
+        // create the display and runs the actual game play loop
         match screen {
             Some(screen) => {
                 if player.opts.is_exclusive() {
@@ -6042,6 +6136,7 @@ pub fn play(opts: ~player::Options) {
             }
         }
 
+        // it's done!
         atexit();
     }
 }
@@ -6093,7 +6188,7 @@ Environment Variables:
     See the manual for more information.
 
 ", version(), exename()));
-    util::exit(1)
+    util::exit(1);
 }
 
 /// The entry point. Parses the command line options and delegates other
