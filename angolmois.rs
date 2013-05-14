@@ -19,36 +19,36 @@
  */
 
 /*!
- * This is a direct, one-to-one translation of Angolmois to Rust programming
- * language. [Angolmois][angolmois] is a [BM98][bm98]-like minimalistic music
- * video game which supports the [BMS format][bms] for playing.
+ * This is a direct, one-to-one translation of Angolmois to Rust programming language.
+ * [Angolmois][angolmois] is a [BM98][bm98]-like minimalistic music video game which supports
+ * the [BMS format][bms] for playing.
  * 
  * [angolmois]: http://mearie.org/projects/angolmois/
  * [bms]: http://en.wikipedia.org/wiki/Be-Music_Source
  * [bm98]: http://bm98.yaneu.com/bm98/
  * 
- * Angolmois is a combination of string parsing, path manipulation,
- * two-dimensional graphics and complex game play carefully packed into some
- * thousand lines of code. This translation is intended to provide an example
- * of translating a moderately-sized C code to Rust, and also to investigate
+ * Angolmois is a combination of string parsing, path manipulation, two-dimensional graphics and
+ * complex game play carefully packed into some thousand lines of code. This translation is intended
+ * to provide an example of translating a moderately-sized C code to Rust, and also to investigate
  * additional library supports required for such moderately-sized programs.
  * 
- * Angolmois is distributed under GNU GPL version 2+, so is this translation.
- * The portions of it is intended to be sent as a patch to Rust, so those
- * portions are licensed under Apache License 2.0 and MIT license.
+ * Angolmois is distributed under GNU GPL version 2+, so is this translation. The portions of it is
+ * intended to be sent as a patch to Rust, so those portions are licensed under Apache License 2.0
+ * and MIT license.
  * 
- * Unlike the original Angolmois code (which sacrifices most comments due to
- * code size concerns), the Rust version has much more comments which can be
- * beneficial for understanding Angolmois itself too.
+ * Unlike the original Angolmois code (which sacrifices most comments due to code size concerns),
+ * the Rust version has much more comments which can be beneficial for understanding Angolmois
+ * itself too.
  * 
  * # Key
  * 
  * The following notations are used in the comments and documentations.
  * 
  * * (C: ...) - variable/function corresponds to given name in the C code.
- * * Rust: ... - suboptimal translation with a room for improvement in Rust.
- *   often contains a Rust issue number like #1234.
+ * * Rust: ... - suboptimal translation with a room for improvement in Rust. often contains a Rust
+ *   issue number like #1234.
  * * XXX - should be fixed as soon as Rust issue is gone.
+ * * TODO - other problems unrelated to Rust.
  */
 
 #[link(name = "angolmois",
@@ -75,7 +75,7 @@ use self::core_compat::str::*;
 /// Returns a version string. (C: `VERSION`)
 pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 
-//============================================================================
+//==================================================================================================
 // utility declarations
 
 /// Returns an executable name used in the command line if any. (C: `argv0`)
@@ -90,8 +90,7 @@ pub mod util {
 
     /// Immediately terminates the program with given exit code.
     pub fn exit(exitcode: int) -> ! {
-        // Rust: `os::set_exit_status` doesn't immediately terminate
-        //       the program.
+        // Rust: `os::set_exit_status` doesn't immediately terminate the program.
         unsafe { libc::exit(exitcode as libc::c_int); }
     }
 
@@ -122,8 +121,8 @@ pub mod util {
     /**
      * String utilities for Rust. Parallels to `core::str`.
      *
-     * NOTE: Some of these additions will be eventually sent to
-     * `libcore/str.rs` and are not subject to the above copyright notice.
+     * NOTE: Some of these additions will be eventually sent to `libcore/str.rs` and are not subject
+     * to the above copyright notice.
      */
     pub mod str {
         use core::str::*;
@@ -141,8 +140,8 @@ pub mod util {
             }
         }
 
-        /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid
-        /// UTF-8 sequence with given error handler.
+        /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid UTF-8 sequence with
+        /// given error handler.
         pub fn fix_utf8(v: &[u8], handler: &fn(&[u8]) -> ~[u8]) -> ~[u8] {
             let mut i = 0u;
             let total = vec::len::<u8>(v);
@@ -164,26 +163,24 @@ pub mod util {
             result
         }
 
-        /// Given a potentially invalid UTF-8 string, fixes an invalid
-        /// UTF-8 string with given error handler.
+        /// Given a potentially invalid UTF-8 string, fixes an invalid UTF-8 string with given error
+        /// handler.
         pub fn fix_utf8_str(s: &str, handler: &fn(&[u8]) -> ~str) -> ~str {
             from_fixed_utf8_bytes(to_bytes(s), handler)
         }
 
-        /// Converts a vector of bytes to a UTF-8 string. Any invalid UTF-8
-        /// sequences are fixed with given error handler.
-        pub fn from_fixed_utf8_bytes(v: &[u8],
-                                     handler: &fn(&[u8]) -> ~str) -> ~str {
+        /// Converts a vector of bytes to a UTF-8 string. Any invalid UTF-8 sequences are fixed with
+        /// given error handler.
+        pub fn from_fixed_utf8_bytes(v: &[u8], handler: &fn(&[u8]) -> ~str) -> ~str {
             let newhandler: &fn(&[u8]) -> ~[u8] =
                 |v: &[u8]| -> ~[u8] { to_bytes(handler(v)) };
             let bytes = fix_utf8(v, newhandler);
             unsafe { raw::from_bytes(bytes) }
         }
 
-        /// Counts the number of bytes in the complete UTF-8 sequences up to
-        /// `limit` bytes in `s` starting from `start`.
-        pub fn count_bytes_upto<'b>(s: &'b str, start: uint,
-                                    limit: uint) -> uint {
+        /// Counts the number of bytes in the complete UTF-8 sequences up to `limit` bytes in `s`
+        /// starting from `start`.
+        pub fn count_bytes_upto<'b>(s: &'b str, start: uint, limit: uint) -> uint {
             assert!(is_char_boundary(s, start));
             let limit = start + limit;
             let l = len(s);
@@ -198,8 +195,10 @@ pub mod util {
             end - start
         }
 
-        /// Returns a length of the longest prefix of given string, which
-        /// `uint::from_str` accepts without a failure, if any.
+        /// Returns a length of the longest prefix of given string, which `uint::from_str` accepts
+        /// without a failure, if any.
+        //
+        // Rust: actually, it is better to have `{uint,int,float}::from_str` returning an option.
         pub fn scan_uint(s: &str) -> Option<uint> {
             match find(s, |c| !('0' <= c && c <= '9')) {
                 Some(first) if first > 0u => Some(first),
@@ -208,8 +207,8 @@ pub mod util {
             }
         }
 
-        /// Returns a length of the longest prefix of given string, which
-        /// `int::from_str` accepts without a failure, if any.
+        /// Returns a length of the longest prefix of given string, which `int::from_str` accepts
+        /// without a failure, if any.
         pub fn scan_int(s: &str) -> Option<uint> {
             if s.starts_with(~"-") || s.starts_with(~"+") {
                 scan_uint(s.slice_to_end(1u)).map(|&pos| pos + 1u)
@@ -218,8 +217,8 @@ pub mod util {
             }
         }
 
-        /// Returns a length of the longest prefix of given string, which
-        /// `float::from_str` accepts without a failure, if any.
+        /// Returns a length of the longest prefix of given string, which `float::from_str` accepts
+        /// without a failure, if any.
         pub fn scan_float(s: &str) -> Option<uint> {
             do scan_int(s).chain |pos| {
                 if s.len() > pos && s.char_at(pos) == '.' {
@@ -231,40 +230,36 @@ pub mod util {
             }
         }
 
-        /// Region-dependent extensions to `str`. (Separated from `StrUtil`
-        /// for the compatibility reason.)
+        /// Region-dependent extensions to `str`. (Separated from `StrUtil` for the compatibility
+        /// reason.)
         pub trait StrRegionUtil<'self> {
             /// Returns a slice of the given string starting from `begin`.
             ///
             /// # Failure
             ///
-            /// If `begin` does not point to valid characters or beyond
-            /// the last character of the string
+            /// If `begin` does not point to valid characters or beyond the last character of
+            /// the string
             fn slice_to_end(&self, begin: uint) -> &'self str;
 
-            /// Returns a slice of the given string starting from `begin` and
-            /// up to the byte position `end`. `end` doesn't have to point to
-            /// valid characters.
+            /// Returns a slice of the given string starting from `begin` and up to the byte
+            /// position `end`. `end` doesn't have to point to valid characters.
             ///
             /// # Failure
             ///
-            /// If `begin` does not point to valid characters or beyond
-            /// the last character of the string, or `end` points beyond
-            /// the last character of the string
+            /// If `begin` does not point to valid characters or beyond the last character of
+            /// the string, or `end` points beyond the last character of the string
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str;
         }
 
-        // Rust: 0.6 and pre-0.7 differs from the implicitness/explicitness of
-        //       trait region parameters, and the syntax is mutually
-        //       exclusive. this is thus the last available workaround.
+        // Rust: 0.6 and pre-0.7 differs from the implicitness/explicitness of trait region
+        //       parameters, and the syntax is mutually exclusive.
         #[cfg(legacy)]
         impl<'self> StrRegionUtil for &'self str {
             fn slice_to_end(&self, begin: uint) -> &'self str {
                 slice(*self, begin, len(*self))
             }
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
-                slice(*self, begin, begin + count_bytes_upto(*self, begin,
-                                                             end))
+                slice(*self, begin, begin + count_bytes_upto(*self, begin, end))
             }
         }
 
@@ -274,8 +269,7 @@ pub mod util {
                 slice(*self, begin, len(*self))
             }
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
-                slice(*self, begin, begin + count_bytes_upto(*self, begin,
-                                                             end))
+                slice(*self, begin, begin + count_bytes_upto(*self, begin, end))
             }
         }
 
@@ -284,24 +278,24 @@ pub mod util {
             /// Iterates over the chars in a string, with byte indices.
             fn each_chari_byte(&self, it: &fn(uint, char) -> bool);
 
-            /// Given a potentially invalid UTF-8 string, fixes an invalid
-            /// UTF-8 string with given error handler.
+            /// Given a potentially invalid UTF-8 string, fixes an invalid UTF-8 string with given
+            /// error handler.
             fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str;
 
-            /// Counts the number of bytes in the complete UTF-8 sequences
-            /// up to `limit` bytes in `s` starting from `start`.
+            /// Counts the number of bytes in the complete UTF-8 sequences up to `limit` bytes
+            /// in `s` starting from `start`.
             fn count_bytes_upto(&self, start: uint, limit: uint) -> uint;
 
-            /// Returns a length of the longest prefix of given string, which
-            /// `uint::from_str` accepts without a failure, if any.
+            /// Returns a length of the longest prefix of given string, which `uint::from_str`
+            /// accepts without a failure, if any.
             fn scan_uint(&self) -> Option<uint>;
 
-            /// Returns a length of the longest prefix of given string, which
-            /// `int::from_str` accepts without a failure, if any.
+            /// Returns a length of the longest prefix of given string, which `int::from_str`
+            /// accepts without a failure, if any.
             fn scan_int(&self) -> Option<uint>;
 
-            /// Returns a length of the longest prefix of given string, which
-            /// `float::from_str` accepts without a failure, if any.
+            /// Returns a length of the longest prefix of given string, which `float::from_str`
+            /// accepts without a failure, if any.
             fn scan_float(&self) -> Option<uint>;
         }
 
@@ -320,11 +314,11 @@ pub mod util {
             fn scan_float(&self) -> Option<uint> { scan_float(*self) }
         }
 
-        /// A trait which provides `prefix_shifted` method. Similar to
-        /// `str::starts_with`, but with swapped `self` and argument.
+        /// A trait which provides `prefix_shifted` method. Similar to `str::starts_with`, but with
+        /// swapped `self` and argument.
         pub trait ShiftablePrefix {
-            /// Returns a slice of given string with `self` at the start of
-            /// the string stripped only once, if any.
+            /// Returns a slice of given string with `self` at the start of the string stripped only
+            /// once, if any.
             fn prefix_shifted(&self, s: &str) -> Option<~str>;
         }
 
@@ -355,28 +349,25 @@ pub mod util {
     /**
      * Option utilities for Rust. Parallels to `core::option`.
      *
-     * NOTE: Some of these additions will be eventually sent to
-     * `libcore/option.rs` and are not subject to the above copyright notice.
+     * NOTE: Some of these additions will be eventually sent to `libcore/option.rs` and are not
+     * subject to the above copyright notice.
      */
     pub mod option {
 
-        /// Filters the value inside the option using the function. Returns
-        /// `None` if the original option didn't contain a value.
+        /// Filters the value inside the option using the function. Returns `None` if the original
+        /// option didn't contain a value.
         #[inline(always)]
-        pub fn filter<T:Copy>(opt: Option<T>,
-                              f: &fn(t: T) -> bool) -> Option<T> {
+        pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool) -> Option<T> {
             match opt {
                 Some(t) => if f(t) {Some(t)} else {None},
                 None => None
             }
         }
 
-        /// Merges two options. When one of options is `None` returns
-        /// the other option. When both options contain a value the function
-        /// is called to get the merged value.
+        /// Merges two options. When one of options is `None` returns the other option. When both
+        /// options contain a value the function is called to get the merged value.
         #[inline(always)]
-        pub fn merge<T:Copy>(lhs: Option<T>, rhs: Option<T>,
-                             f: &fn(T, T) -> T) -> Option<T> {
+        pub fn merge<T:Copy>(lhs: Option<T>, rhs: Option<T>, f: &fn(T, T) -> T) -> Option<T> {
             match (lhs, rhs) {
                 (None, None) => None,
                 (_,    None) => lhs,
@@ -386,13 +377,12 @@ pub mod util {
         }
 
         pub trait CopyableOptionUtil<T:Copy> {
-            /// Filters the value inside the option using the function.
-            /// Returns `None` if the original option didn't contain a value.
+            /// Filters the value inside the option using the function. Returns `None` if
+            /// the original option didn't contain a value.
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
 
-            /// Merges two options. When one of options is `None` returns
-            /// the other option. When both options contain a value
-            /// the function is called to get the merged value.
+            /// Merges two options. When one of options is `None` returns the other option. When
+            /// both options contain a value the function is called to get the merged value.
             fn merge(self, other: Option<T>, f: &fn(T, T) -> T) -> Option<T>;
         }
 
@@ -412,14 +402,13 @@ pub mod util {
     /**
      * Iterator utilities for Rust. Parallels to `core::iter`.
      *
-     * NOTE: Some of these additions will be eventually sent to
-     * `libcore/iter.rs` and are not subject to the above copyright notice.
+     * NOTE: Some of these additions will be eventually sent to `libcore/iter.rs` and are not
+     * subject to the above copyright notice.
      */
     pub mod iter {
 
         pub trait OptionalIter<A> {
-            /// Like `each()`, but only iterates through the value inside
-            /// options.
+            /// Like `each()`, but only iterates through the value inside options.
             fn each_some(&self, blk: &fn(v: &A) -> bool);
         }
 
@@ -428,16 +417,15 @@ pub mod util {
     /**
      * Vector utilities for Rust. Parallels to `core::vec`.
      *
-     * NOTE: Some of these additions will be eventually sent to
-     * `libcore/vec.rs` and are not subject to the above copyright notice.
+     * NOTE: Some of these additions will be eventually sent to `libcore/vec.rs` and are not subject
+     * to the above copyright notice.
      */
     pub mod vec {
         use core::vec::*;
 
         /// Like `each()`, but only iterates through the value inside options.
         #[inline(always)]
-        pub fn each_some<'r,A>(vec: &'r [Option<A>],
-                               blk: &fn(v: &'r A) -> bool) {
+        pub fn each_some<'r,A>(vec: &'r [Option<A>], blk: &fn(v: &'r A) -> bool) {
             for each(vec) |e| {
                 for e.each |v| {
                     if !blk(v) { return; }
@@ -471,28 +459,24 @@ pub mod util {
     /**
      * I/O utilities for Rust. Parallels to `core::io`.
      *
-     * NOTE: Some of these additions will be eventually sent to
-     * `libcore/io.rs` and are not subject to the above copyright notice.
+     * NOTE: Some of these additions will be eventually sent to `libcore/io.rs` and are not subject
+     * to the above copyright notice.
      */
     pub mod io {
 
         /// Extensions to `ReaderUtil`.
         pub trait ReaderUtilEx {
-            /// Reads up until the first '\n' char (which is not returned),
-            /// or EOF. Any invalid UTF-8 sequences are fixed with given
-            /// error handler.
-            fn read_and_fix_utf8_line(&self, handler: &fn(&[u8]) -> ~str)
-                                        -> ~str;
+            /// Reads up until the first '\n' char (which is not returned), or EOF. Any invalid
+            /// UTF-8 sequences are fixed with given error handler.
+            fn read_and_fix_utf8_line(&self, handler: &fn(&[u8]) -> ~str) -> ~str;
 
-            /// Iterates over every line until the iterator breaks or EOF. Any
-            /// invalid UTF-8 sequences are fixed with given error handler.
-            fn each_fixed_utf8_line(&self, handler: &fn(&[u8]) -> ~str,
-                                    it: &fn(&str) -> bool);
+            /// Iterates over every line until the iterator breaks or EOF. Any invalid UTF-8
+            /// sequences are fixed with given error handler.
+            fn each_fixed_utf8_line(&self, handler: &fn(&[u8]) -> ~str, it: &fn(&str) -> bool);
         }
 
         impl<T: Reader> ReaderUtilEx for T {
-            fn read_and_fix_utf8_line(&self, handler: &fn(&[u8]) -> ~str)
-                                        -> ~str {
+            fn read_and_fix_utf8_line(&self, handler: &fn(&[u8]) -> ~str) -> ~str {
                 let mut bytes = ~[];
                 loop {
                     let ch = self.read_byte();
@@ -502,8 +486,7 @@ pub mod util {
                 ::util::str::from_fixed_utf8_bytes(bytes, handler)
             }
 
-            fn each_fixed_utf8_line(&self, handler: &fn(&[u8]) -> ~str,
-                                    it: &fn(&str) -> bool) {
+            fn each_fixed_utf8_line(&self, handler: &fn(&[u8]) -> ~str, it: &fn(&str) -> bool) {
                 while !self.eof() {
                     if !it(self.read_and_fix_utf8_line(handler)) { break; }
                 }
@@ -515,13 +498,13 @@ pub mod util {
     /**
      * Comparison routines for Rust. Parallels to `core::cmp`.
      *
-     * NOTE: Some of these additions will be eventually sent to
-     * `libcore/cmp.rs` and are not subject to the above copyright notice.
+     * NOTE: Some of these additions will be eventually sent to `libcore/cmp.rs` and are not subject
+     * to the above copyright notice.
      */
     pub mod cmp {
 
-        /// Returns `v`, unless it is not between `low` and `high` in which
-        /// cases returns whichever is the closest to `v`.
+        /// Returns `v`, unless it is not between `low` and `high` in which cases returns whichever
+        /// is the closest to `v`.
         #[inline(always)]
         pub fn clamp<T:Ord>(low: T, v: T, high: T) -> T {
             if v < low {low} else if v > high {high} else {v}
@@ -532,8 +515,8 @@ pub mod util {
     /**
      * Hash table routines for Rust. Parallels to `core::hashmap`.
      *
-     * NOTE: Some of these additions will be eventually sent to
-     * `libcore/hashmap.rs` and are not subject to the above copyright notice.
+     * NOTE: Some of these additions will be eventually sent to `libcore/hashmap.rs` and are not
+     * subject to the above copyright notice.
      */
     pub mod hashmap {
         use core_compat::hashmap::*;
@@ -541,8 +524,7 @@ pub mod util {
         /// Constructs a new map from a vector of key-value pairs.
         //
         // TODO make this constructible from any suitable iterator
-        pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)])
-                                        -> HashMap<K,V> {
+        pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)]) -> HashMap<K,V> {
             let mut map = HashMap::new();
             map.reserve_at_least(items.len());
             for items.each |&(k,v)| { map.insert(k, v); }
@@ -600,8 +582,7 @@ pub mod util {
                 unsafe { ll::Mix_ReserveChannels(num) }
             }
 
-            pub fn group_channel(which: Option<c_int>,
-                                 tag: Option<c_int>) -> bool {
+            pub fn group_channel(which: Option<c_int>, tag: Option<c_int>) -> bool {
                 unsafe {
                     let ll_which = which.get_or_default(-1);
                     let ll_tag = tag.get_or_default(-1);
@@ -650,12 +631,9 @@ pub mod util {
                 }
                 #[link_args = "-lsmpeg"]
                 pub extern {
-                    fn SMPEG_new(file: *c_char, info: *SMPEG_Info,
-                                 sdl_audio: c_int) -> *SMPEG;
-                    fn SMPEG_new_descr(file: c_int, info: *SMPEG_Info,
-                                       sdl_audio: c_int) -> *SMPEG;
-                    fn SMPEG_new_data(data: *c_void, size: c_int,
-                                      info: *SMPEG_Info,
+                    fn SMPEG_new(file: *c_char, info: *SMPEG_Info, sdl_audio: c_int) -> *SMPEG;
+                    fn SMPEG_new_descr(file: c_int, info: *SMPEG_Info, sdl_audio: c_int) -> *SMPEG;
+                    fn SMPEG_new_data(data: *c_void, size: c_int, info: *SMPEG_Info,
                                       sdl_audio: c_int) -> *SMPEG;
                     fn SMPEG_new_rwops(src: *SDL_RWops, info: *SMPEG_Info,
                                        sdl_audio: c_int) -> *SMPEG;
@@ -669,12 +647,10 @@ pub mod util {
                     fn SMPEG_setdisplay(mpeg: *SMPEG, dst: *SDL_Surface,
                                         surfLock: *c_void, callback: *c_void);
                     fn SMPEG_loop(mpeg: *SMPEG, repeat: c_int);
-                    fn SMPEG_scaleXY(mpeg: *SMPEG, width: c_int,
-                                     height: c_int);
+                    fn SMPEG_scaleXY(mpeg: *SMPEG, width: c_int, height: c_int);
                     fn SMPEG_scale(mpeg: *SMPEG, scale: c_int);
                     fn SMPEG_move(mpeg: *SMPEG, x: c_int, y: c_int);
-                    fn SMPEG_setdisplayregion(mpeg: *SMPEG, x: c_int,
-                                              y: c_int, w: c_int, h: c_int);
+                    fn SMPEG_setdisplayregion(mpeg: *SMPEG, x: c_int, y: c_int, w: c_int, h: c_int);
                     fn SMPEG_play(mpeg: *SMPEG);
                     fn SMPEG_pause(mpeg: *SMPEG);
                     fn SMPEG_stop(mpeg: *SMPEG);
@@ -682,17 +658,13 @@ pub mod util {
                     fn SMPEG_seek(mpeg: *SMPEG, bytes: c_int);
                     fn SMPEG_skip(mpeg: *SMPEG, seconds: c_float);
                     fn SMPEG_renderFrame(mpeg: *SMPEG, framenum: c_int);
-                    fn SMPEG_renderFinal(mpeg: *SMPEG, dst: *SDL_Surface,
-                                         x: c_int, y: c_int);
+                    fn SMPEG_renderFinal(mpeg: *SMPEG, dst: *SDL_Surface, x: c_int, y: c_int);
                     // XXX SMPEG_Filter unimplemented
                     fn SMPEG_filter(mpeg: *SMPEG, filter: *c_void) -> *c_void;
                     fn SMPEG_error(mpeg: *SMPEG) -> *c_char;
-                    fn SMPEG_playAudio(mpeg: *SMPEG, stream: *u8,
-                                       len: c_int) -> c_int;
-                    fn SMPEG_playAudioSDL(mpeg: *c_void, stream: *u8,
-                                          len: c_int) -> c_int;
-                    fn SMPEG_wantedSpec(mpeg: *SMPEG,
-                                        wanted: *SDL_AudioSpec) -> c_int;
+                    fn SMPEG_playAudio(mpeg: *SMPEG, stream: *u8, len: c_int) -> c_int;
+                    fn SMPEG_playAudioSDL(mpeg: *c_void, stream: *u8, len: c_int) -> c_int;
+                    fn SMPEG_wantedSpec(mpeg: *SMPEG, wanted: *SDL_AudioSpec) -> c_int;
                     fn SMPEG_actualSpec(mpeg: *SMPEG, spec: *SDL_AudioSpec);
                 }
             }
@@ -728,97 +700,68 @@ pub mod util {
                 }
 
                 fn set_volume(&self, volume: int) {
-                    unsafe {
-                        ll::SMPEG_setvolume(self.raw, volume as c_int);
-                    }
+                    unsafe { ll::SMPEG_setvolume(self.raw, volume as c_int); }
                 }
 
                 fn set_display(&self, surface: &Surface) {
                     unsafe {
-                        ll::SMPEG_setdisplay(self.raw, surface.raw,
-                                             ptr::null(), ptr::null());
+                        ll::SMPEG_setdisplay(self.raw, surface.raw, ptr::null(), ptr::null());
                     }
                 }
 
                 fn enable_video(&self, enable: bool) {
-                    unsafe {
-                        ll::SMPEG_enablevideo(self.raw, enable as c_int);
-                    }
+                    unsafe { ll::SMPEG_enablevideo(self.raw, enable as c_int); }
                 }
 
                 fn enable_audio(&self, enable: bool) {
-                    unsafe {
-                        ll::SMPEG_enableaudio(self.raw, enable as c_int);
-                    }
+                    unsafe { ll::SMPEG_enableaudio(self.raw, enable as c_int); }
                 }
 
                 fn set_loop(&self, repeat: bool) {
-                    unsafe {
-                        ll::SMPEG_loop(self.raw, repeat as c_int);
-                    }
+                    unsafe { ll::SMPEG_loop(self.raw, repeat as c_int); }
                 }
 
                 fn resize(&self, width: int, height: int) {
-                    unsafe {
-                        ll::SMPEG_scaleXY(self.raw, width as c_int,
-                                          height as c_int);
-                    }
+                    unsafe { ll::SMPEG_scaleXY(self.raw, width as c_int, height as c_int); }
                 }
 
                 fn scale_by(&self, scale: int) {
-                    unsafe {
-                        ll::SMPEG_scale(self.raw, scale as c_int);
-                    }
+                    unsafe { ll::SMPEG_scale(self.raw, scale as c_int); }
                 }
 
                 fn move(&self, x: int, y: int) {
-                    unsafe {
-                        ll::SMPEG_move(self.raw, x as c_int, y as c_int);
-                    }
+                    unsafe { ll::SMPEG_move(self.raw, x as c_int, y as c_int); }
                 }
 
                 fn set_display_region(&self, x: int, y: int, w: int, h: int) {
                     unsafe {
-                        ll::SMPEG_setdisplayregion(self.raw, x as c_int,
-                                                   y as c_int, w as c_int,
-                                                   h as c_int);
+                        ll::SMPEG_setdisplayregion(self.raw, x as c_int, y as c_int,
+                                                   w as c_int, h as c_int);
                     }
                 }
 
                 fn play(&self) {
-                    unsafe {
-                        ll::SMPEG_play(self.raw);
-                    }
+                    unsafe { ll::SMPEG_play(self.raw); }
                 }
 
                 fn pause(&self) {
-                    unsafe {
-                        ll::SMPEG_pause(self.raw);
-                    }
+                    unsafe { ll::SMPEG_pause(self.raw); }
                 }
 
                 fn stop(&self) {
-                    unsafe {
-                        ll::SMPEG_stop(self.raw);
-                    }
+                    unsafe { ll::SMPEG_stop(self.raw); }
                 }
 
                 fn rewind(&self) {
-                    unsafe {
-                        ll::SMPEG_rewind(self.raw);
-                    }
+                    unsafe { ll::SMPEG_rewind(self.raw); }
                 }
 
                 fn seek(&self, bytes: int) {
-                    unsafe {
-                        ll::SMPEG_seek(self.raw, bytes as c_int);
-                    }
+                    unsafe { ll::SMPEG_seek(self.raw, bytes as c_int); }
                 }
 
                 fn skip(&self, seconds: float) {
-                    unsafe {
-                        ll::SMPEG_skip(self.raw, seconds as c_float);
-                    }
+                    unsafe { ll::SMPEG_skip(self.raw, seconds as c_float); }
                 }
 
                 fn get_error(&self) -> ~str {
@@ -832,59 +775,53 @@ pub mod util {
     }
 
     /*
-     * A lexer barely powerful enough to parse BMS format. Comparable to C's
-     * `sscanf`.
+     * A lexer barely powerful enough to parse BMS format. Comparable to C's `sscanf`.
      *
-     * `lex!(e; fmt1, fmt2, ..., fmtN)` returns an expression that evaluates
-     * to true if and only if all format specification is consumed. The format
-     * specification (analogous to `sscanf`'s `%`-string) is as follows:
+     * `lex!(e; fmt1, fmt2, ..., fmtN)` returns an expression that evaluates to true if and only if
+     * all format specification is consumed. The format specification (analogous to `sscanf`'s
+     * `%`-string) is as follows:
      *
      * - `ws`: Consumes one or more whitespace. (C: `%*[ \t\r\n]` or similar)
      * - `ws*`: Consumes zero or more whitespace. (C: ` `)
-     * - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`.
-     *   (C: `%d` and `%*d`, but does not consume preceding whitespace)
-     *   The integer syntax is slightly limited compared to `sscanf`.
-     * - `float [-> e2]`: Consumes a real number and optionally saves it to
-     *   `e2`. (C: `%f` etc.) Again, the real number syntax is slightly
-     *   limited; especially an exponent support is missing.
-     * - `str [-> e2]`: Consumes a remaining input as a string and optionally
-     *   saves it to `e2`. The string is at least one character long.
-     *   (C: not really maps to `sscanf`, similar to `fgets`) Implies `!`.
-     *   It can be followed by `ws*` which makes the string right-trimmed.
+     * - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`. (C: `%d` and `%*d`, but
+     *   does not consume preceding whitespace) The integer syntax is slightly limited compared to
+     *   `sscanf`.
+     * - `float [-> e2]`: Consumes a real number and optionally saves it to `e2`. (C: `%f` etc.)
+     *   Again, the real number syntax is slightly limited; especially an exponent support is
+     *   missing.
+     * - `str [-> e2]`: Consumes a remaining input as a string and optionally saves it to `e2`.
+     *   The string is at least one character long. (C: not really maps to `sscanf`, similar to
+     *   `fgets`) Implies `!`. It can be followed by `ws*` which makes the string right-trimmed.
      * - `str* [-> e2]`: Same as above but the string can be empty.
-     * - `char [-> e2]`: Consumes exactly one character and optionally saves
-     *   it to `e2`. Resulting character can be whitespace. (C: `%1c`)
-     * - `!`: Ensures that the entire string has been consumed. Should be
-     *   the last format specification.
-     * - `"foo"` etc.: An ordinary expression is treated as a literal string
-     *   or literal character.
+     * - `char [-> e2]`: Consumes exactly one character and optionally saves it to `e2`. Resulting
+     *   character can be whitespace. (C: `%1c`)
+     * - `!`: Ensures that the entire string has been consumed. Should be the last format
+     *   specification.
+     * - `"foo"` etc.: An ordinary expression is treated as a literal string or literal character.
      *
      * For the use in Angolmois, the following specifications have been added:
      *
-     * - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally
-     *   saves it to `e2`. (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc.
-     *   followed by a call to `key2index`)
-     * - `Measure [-> e2]`: Consumes exactly three digits and optionally saves
-     *   it to `e2`. (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed
-     *   by a call to `atoi`)
+     * - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally saves it to `e2`.
+     *   (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc. followed by a call to `key2index`)
+     * - `Measure [-> e2]`: Consumes exactly three digits and optionally saves it to `e2`.
+     *   (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed by a call to `atoi`)
      */
-    // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex
-    //         support will make this obsolete in the future, but not now.
+    // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex support will make this
+    //         obsolete in the future, but not now.
     //       - multiple statements do not expand correctly. (#4375)
-    //       - it is desirable to have a matcher only accepts an integer
-    //         literal or string literal, not a generic expression.
-    //       - no hygienic macro yet. possibly observable names from `$e`
-    //         should be escaped for now.
-    //       - it would be more useful to generate bindings for parsed result.
-    //         this is related to many issues in general.
+    //       - it is desirable to have a matcher only accepts an integer literal or string literal,
+    //         not a generic expression.
+    //       - no hygienic macro yet. possibly observable names from `$e` should be escaped for now.
+    //       - it would be more useful to generate bindings for parsed result. this is related to
+    //         many issues in general.
     macro_rules! lex(
         ($e:expr; ) => (true);
         ($e:expr; !) => ($e.is_empty());
 
         ($e:expr; int -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            // Rust: num::from_str_bytes_common does not recognize a number
-            // followed by garbage, so we need to parse it ourselves.
+            // Rust: num::from_str_bytes_common does not recognize a number followed by garbage,
+            //       so we need to parse it ourselves.
             do _line.scan_int().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
                 do int::from_str(_prefix).map_default(false) |&_value| {
@@ -945,8 +882,7 @@ pub mod util {
         ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                let str::CharRange {ch:_ch, next:_pos} =
-                    str::char_range_at(_line, 0);
+                let str::CharRange {ch:_ch, next:_pos} = str::char_range_at(_line, 0);
                 $dst = _ch;
                 lex!(_line.slice_to_end(_pos); $($tail)*)
             } else {
@@ -965,8 +901,8 @@ pub mod util {
             let _line: &str = $e;
             let _isdigit = |c| { '0' <= c && c <= '9' };
             // Rust: this is plain annoying.
-            if _line.len() >= 3 && _isdigit(_line.char_at(0)) &&
-               _isdigit(_line.char_at(1)) && _isdigit(_line.char_at(2)) {
+            if _line.len() >= 3 && _isdigit(_line.char_at(0)) && _isdigit(_line.char_at(1)) &&
+                    _isdigit(_line.char_at(2)) {
                 $dst = uint::from_str(_line.slice(0u, 3u)).unwrap();
                 lex!(_line.slice_to_end(3u); $($tail)*)
             } else {
@@ -1084,7 +1020,7 @@ mod core_compat {
     }
 }
 
-//============================================================================
+//==================================================================================================
 // bms parser
 
 /**
@@ -1092,45 +1028,39 @@ mod core_compat {
  *
  * # Structure
  *
- * The BMS format is a plain text format with most directives start with
- * optional whitespace followed by `#`. Besides the metadata (title, artist
- * etc.), a BMS file is a map from the time position to various game play
- * elements (henceforth "objects") and other object-like effects including BGM
- * and BGA changes. It also contains preprocessor directives used to randomize
- * some or all parts of the BMS file, which would only make sense in
- * the loading time.
+ * The BMS format is a plain text format with most directives start with optional whitespace
+ * followed by `#`. Besides the metadata (title, artist etc.), a BMS file is a map from the time
+ * position to various game play elements (henceforth "objects") and other object-like effects
+ * including BGM and BGA changes. It also contains preprocessor directives used to randomize some or
+ * all parts of the BMS file, which would only make sense in the loading time.
  *
- * The time position is a virtual time divided by an unit of (musical)
- * measure. It is related to the actual time by the current Beats Per Minute
- * (BPM) value which can, well, also change during the game play. Consequently
- * it is convenient to refer the position in terms of measures, which the BMS
- * format does: the lines `#xxxyy:AABBCC...` indicates that the measure number
- * `xxx` contains objects or object-like effects (of the type specified by
- * `yy`, henceforth "channels"), evenly spaced throughout the measure and
- * which data values are `AA`, `BB`, `CC` respectively.
+ * The time position is a virtual time divided by an unit of (musical) measure. It is related to
+ * the actual time by the current Beats Per Minute (BPM) value which can, well, also change during
+ * the game play. Consequently it is convenient to refer the position in terms of measures, which
+ * the BMS format does: the lines `#xxxyy:AABBCC...` indicates that the measure number `xxx`
+ * contains objects or object-like effects (of the type specified by `yy`, henceforth "channels"),
+ * evenly spaced throughout the measure and which data values are `AA`, `BB`, `CC` respectively.
  *
- * An alphanumeric identifier (henceforth "alphanumeric key") like `AA` or
- * `BB` may mean that the actual numeric value interpreted as base 16 or 36
- * (depending on the channel), or a reference to other assets (e.g. `#BMPAA
- * foo.png`) or complex values specified by other commands (e.g. `#BPMBB
- * 192.0`). In most cases, an identifier `00` indicates an absence of objects
- * or object-like effects at that position.
+ * An alphanumeric identifier (henceforth "alphanumeric key") like `AA` or `BB` may mean that
+ * the actual numeric value interpreted as base 16 or 36 (depending on the channel), or a reference
+ * to other assets (e.g. `#BMPAA foo.png`) or complex values specified by other commands (e.g.
+ * `#BPMBB 192.0`). In most cases, an identifier `00` indicates an absence of objects or object-like
+ * effects at that position.
  *
- * More detailed information about BMS format, including surveys about
- * how different implementations (so called BMS players) react to
- * underspecified features or edge cases, can be found at [BMS command
- * memo][bmscmds].
+ * More detailed information about BMS format, including surveys about how different implementations
+ * (so called BMS players) react to underspecified features or edge cases, can be found at [BMS
+ * command memo][bmscmds].
  *
  * [bmscmds]: http://hitkey.nekokan.dyndns.info/cmds.htm
  */
 pub mod parser {
     use core::rand::*;
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // alphanumeric key
 
-    /// Two-letter alphanumeric identifier used for virtually everything,
-    /// including resource management, variable BPM and chart specification.
+    /// Two-letter alphanumeric identifier used for virtually everything, including resource
+    /// management, variable BPM and chart specification.
     #[deriving(Eq)]
     pub struct Key(int);
 
@@ -1138,15 +1068,14 @@ pub mod parser {
     pub static MAXKEY: int = 36*36;
 
     pub impl Key {
-        /// Returns if the alphanumeric key is in the proper range. Angolmois
-        /// supports the full range of 00-ZZ (0-1295) for every case.
+        /// Returns if the alphanumeric key is in the proper range. Angolmois supports the full
+        /// range of 00-ZZ (0-1295) for every case.
         fn is_valid(self) -> bool {
             0 <= *self && *self < MAXKEY
         }
 
-        /// Re-reads the alphanumeric key as a hexadecimal number if possible.
-        /// This is required due to handling of channel #03 (BPM is expected
-        /// to be in hexadecimal).
+        /// Re-reads the alphanumeric key as a hexadecimal number if possible. This is required
+        /// due to handling of channel #03 (BPM is expected to be in hexadecimal).
         fn to_hex(self) -> Option<int> {
             let sixteens = *self / 36, ones = *self % 36;
             if sixteens < 16 && ones < 16 {Some(sixteens * 16 + ones)}
@@ -1163,8 +1092,7 @@ pub mod parser {
     }
 
     impl ToStr for Key {
-        /// Returns a two-letter representation of alphanumeric key.
-        /// (C: `TO_KEY`)
+        /// Returns a two-letter representation of alphanumeric key. (C: `TO_KEY`)
         fn to_str(&self) -> ~str {
             assert!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -1172,11 +1100,11 @@ pub mod parser {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // lane and key kinds
 
-    /// A game play element mapped to the single input element (for example,
-    /// button) and the screen area (henceforth "lane").
+    /// A game play element mapped to the single input element (for example, button) and the screen
+    /// area (henceforth "lane").
     #[deriving(Eq)]
     pub struct Lane(uint);
 
@@ -1196,41 +1124,38 @@ pub mod parser {
     }
 
     /**
-     * Key kinds. They define an appearance of particular lane, but otherwise
-     * ignored for the game play. Angolmois supports several key kinds in
-     * order to cover many potential uses. (C: `KEYKIND_MNEMONICS`)
+     * Key kinds. They define an appearance of particular lane, but otherwise ignored for the game
+     * play. Angolmois supports several key kinds in order to cover many potential uses.
+     * (C: `KEYKIND_MNEMONICS`)
      *
      * # Defaults
      *
-     * For BMS/BME, channels #11/13/15/19 and #21/23/25/29 use `WhiteKey`,
-     * #12/14/18 and #22/24/28 use `BlackKey`, #16 and #26 use `Scratch` ,
-     * #17 and #27 use `FootPedal`.
+     * For BMS/BME, channels #11/13/15/19 and #21/23/25/29 use `WhiteKey`, #12/14/18 and #22/24/28
+     * use `BlackKey`, #16 and #26 use `Scratch`, #17 and #27 use `FootPedal`.
      *
-     * For PMS, channels #11/17/25 use `Button1`, #12/16/24 use `Button2`,
-     * #13/19/23 use `Button3`, #14/18/22 use `Button4`, #15 uses `Button5`.
+     * For PMS, channels #11/17/25 use `Button1`, #12/16/24 use `Button2`, #13/19/23 use `Button3`,
+     * #14/18/22 use `Button4`, #15 uses `Button5`.
      */
     #[deriving(Eq)]
     pub enum KeyKind {
         /// White key, which mimics a real white key in the musical keyboard.
         WhiteKey,
-        /// White key, but rendered yellow. This is used for simulating
-        /// the O2Jam interface which has one yellow lane (mapped to spacebar)
-        /// in middle of six other lanes (mapped to normal keys).
+        /// White key, but rendered yellow. This is used for simulating the O2Jam interface which
+        /// has one yellow lane (mapped to spacebar) in middle of six other lanes (mapped to normal
+        /// keys).
         WhiteKeyAlt,
-        /// Black key, which mimics a real black key in the keyboard but
-        /// rendered light blue as in Beatmania and other games.
+        /// Black key, which mimics a real black key in the keyboard but rendered light blue as in
+        /// Beatmania and other games.
         BlackKey,
-        /// Scratch, rendered red. Scratch lane is wider than other "keys" and
-        /// normally doesn't count as a key.
+        /// Scratch, rendered red. Scratch lane is wider than other "keys" and normally doesn't
+        /// count as a key.
         Scratch,
-        /// Foot pedal, rendered green. Otherwise has the same properties as
-        /// scratch. The choice of color follows that of EZ2DJ, one of
-        /// the first games that used this game element.
+        /// Foot pedal, rendered green. Otherwise has the same properties as scratch. The choice of
+        /// color follows that of EZ2DJ, one of the first games that used this game element.
         FootPedal,
-        /// White button. This and following "buttons" come from Pop'n Music,
-        /// which has nine colored buttons. (White buttons constitute 1st and
-        /// 9th of Pop'n Music buttons.) The "buttons" are wider than
-        /// aforementioned "keys" but narrower than scratch and foot pedal.
+        /// White button. This and following "buttons" come from Pop'n Music, which has nine colored
+        /// buttons. (White buttons constitute 1st and 9th of Pop'n Music buttons.) The "buttons"
+        /// are wider than aforementioned "keys" but narrower than scratch and foot pedal.
         Button1,
         /// Yellow button (2nd and 8th of Pop'n Music buttons).
         Button2,
@@ -1251,8 +1176,8 @@ pub mod parser {
               Button1, Button2, Button3, Button4, Button5]
         }
 
-        /// Converts a mnemonic character to an appropriate key kind. Used
-        /// for parsing a key specification (see also `KeySpec`).
+        /// Converts a mnemonic character to an appropriate key kind. Used for parsing a key
+        /// specification (see also `KeySpec`).
         fn from_char(c: char) -> Option<KeyKind> {
             match c {
                 'a' => Some(WhiteKey),
@@ -1269,8 +1194,8 @@ pub mod parser {
             }
         }
 
-        /// Converts an appropriate key kind to a mnemonic character. Used
-        /// for environment variables (see also `read_keymap`).
+        /// Converts an appropriate key kind to a mnemonic character. Used for environment variables
+        /// (see also `read_keymap`).
         fn to_char(self) -> char {
             match self {
                 WhiteKey    => 'a',
@@ -1289,17 +1214,16 @@ pub mod parser {
         /**
          * Returns true if a kind counts as a "key". (C: `KEYKIND_IS_KEY`)
          *
-         * This affects the number of keys displayed in the loading screen,
-         * and reflects a common practice of counting "keys" in many games
-         * (e.g. Beatmania IIDX has 8 lanes including one scratch but commonly
-         * said to have 7 "keys").
+         * This affects the number of keys displayed in the loading screen, and reflects a common
+         * practice of counting "keys" in many games (e.g. Beatmania IIDX has 8 lanes including one
+         * scratch but commonly said to have 7 "keys").
          */
         fn counts_as_key(self) -> bool {
             self != Scratch && self != FootPedal
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // object parameters
 
     /// Sound reference.
@@ -1319,34 +1243,30 @@ pub mod parser {
         Layer2 = 1,
         /// The highest layer. BMS channel #0A. (C: `BGA3_LAYER`)
         Layer3 = 2,
-        /// The layer only displayed shortly after the MISS grade. It is
-        /// technically not over `Layer3`, but several extensions to BMS
-        /// assumes it. BMS channel #06. (C: `POORBGA_LAYER`)
+        /// The layer only displayed shortly after the MISS grade. It is technically not over
+        /// `Layer3`, but several extensions to BMS assumes it. BMS channel #06.
+        /// (C: `POORBGA_LAYER`)
         PoorBGA = 3
     }
 
     /// The number of BGA layers.
     pub static NLAYERS: uint = 4;
 
-    /// Beats per minute. Used as a conversion factor between the time
-    /// position and actual time in BMS.
+    /// Beats per minute. Used as a conversion factor between the time position and actual time
+    /// in BMS.
     #[deriving(Eq)]
     pub struct BPM(float);
 
     pub impl BPM {
         /// Converts a measure to a millisecond. (C: `MEASURE_TO_MSEC`)
-        fn measure_to_msec(self, measure: float) -> float {
-            measure * 240000.0 / *self
-        }
+        fn measure_to_msec(self, measure: float) -> float { measure * 240000.0 / *self }
 
         /// Converts a millisecond to a measure. (C: `MSEC_TO_MEASURE`)
-        fn msec_to_measure(self, msec: float) -> float {
-            msec * *self / 240000.0
-        }
+        fn msec_to_measure(self, msec: float) -> float { msec * *self / 240000.0 }
     }
 
-    /// A duration from the particular point. It may be specified in measures
-    /// or seconds. Used in the `Stop` object.
+    /// A duration from the particular point. It may be specified in measures or seconds. Used in
+    /// the `Stop` object.
     #[deriving(Eq)]
     pub enum Duration { Seconds(float), Measures(float) }
 
@@ -1360,65 +1280,58 @@ pub mod parser {
         }
     }
 
-    /// A damage value upon the MISS grade. Normally it is specified in
-    /// percents of the full gauge (as in `MAXGAUGE`), but sometimes it may
-    /// cause an instant death. Used in the `Bomb` object (normal note objects
-    /// have a fixed value).
+    /// A damage value upon the MISS grade. Normally it is specified in percents of the full gauge
+    /// (as in `MAXGAUGE`), but sometimes it may cause an instant death. Used in the `Bomb` object
+    /// (normal note objects have a fixed value).
     #[deriving(Eq)]
     pub enum Damage { GaugeDamage(float), InstantDeath }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // object
 
-    /// A data for objects (or object-like effects). Does not include the time
-    /// information.
+    /// A data for objects (or object-like effects). Does not include the time information.
     #[deriving(Eq)]
     pub enum ObjData {
         /// Deleted object. Only used during various processing.
         Deleted,
-        /// Visible object. Sound is played when the key is input inside the
-        /// associated grading area. (C: `NOTE`)
+        /// Visible object. Sound is played when the key is input inside the associated grading
+        /// area. (C: `NOTE`)
         Visible(Lane, Option<SoundRef>),
-        /// Invisible object. Sound is played when the key is input inside the
-        /// associated grading area. No render nor grading performed.
-        /// (C: `INVNOTE`)
+        /// Invisible object. Sound is played when the key is input inside the associated grading
+        /// area. No render nor grading performed. (C: `INVNOTE`)
         Invisible(Lane, Option<SoundRef>),
-        /// Start of long note (LN). Sound is played when the key is down
-        /// inside the associated grading area. (C: `LNSTART`)
+        /// Start of long note (LN). Sound is played when the key is down inside the associated
+        /// grading area. (C: `LNSTART`)
         LNStart(Lane, Option<SoundRef>),
-        /// End of LN. Sound is played when the start of LN is graded, the key
-        /// was down and now up inside the associated grading area.
-        /// (C: `LNDONE`)
+        /// End of LN. Sound is played when the start of LN is graded, the key was down and now up
+        /// inside the associated grading area. (C: `LNDONE`)
         LNDone(Lane, Option<SoundRef>),
-        /// Bomb. Pressing the key down at the moment that the object is
-        /// on time causes the specified damage; sound is played in this case.
-        /// No associated grading area. (C: `BOMB`)
+        /// Bomb. Pressing the key down at the moment that the object is on time causes
+        /// the specified damage; sound is played in this case. No associated grading area.
+        /// (C: `BOMB`)
         Bomb(Lane, Option<SoundRef>, Damage),
         /// Plays associated sound. (C: `BGM_CHANNEL`)
         BGM(SoundRef),
         /**
-         * Sets the virtual BGA layer to given image. The layer itself may
-         * not be displayed depending on the current game status.
-         * (C: `BGA_CHANNEL`)
+         * Sets the virtual BGA layer to given image. The layer itself may not be displayed
+         * depending on the current game status. (C: `BGA_CHANNEL`)
          *
-         * If the reference points to a movie, the movie starts playing; if
-         * the other layer had the same movie started, it rewinds to
-         * the beginning. The resulting image from the movie can be shared
-         * among multiple layers.
+         * If the reference points to a movie, the movie starts playing; if the other layer had
+         * the same movie started, it rewinds to the beginning. The resulting image from the movie
+         * can be shared among multiple layers.
          */
         SetBGA(BGALayer, Option<ImageRef>),
-        /// Sets the BPM. Negative BPM causes the chart scrolls backwards
-        /// (and implicitly signals the end of the chart). (C: `BPM_CHANNEL`)
+        /// Sets the BPM. Negative BPM causes the chart scrolls backwards (and implicitly signals
+        /// the end of the chart). (C: `BPM_CHANNEL`)
         SetBPM(BPM),
-        /// Stops the scroll of the chart for given duration ("scroll
-        /// stopper" hereafter). (C: `STOP_CHANNEL`)
+        /// Stops the scroll of the chart for given duration ("scroll stopper" hereafter).
+        /// (C: `STOP_CHANNEL`)
         Stop(Duration)
     }
 
     /// Query operations for objects.
     pub trait ObjQueryOps {
-        /// Returns true if the object is a visible object (`Visible`).
-        /// (C: `obj->type == NOTE`)
+        /// Returns true if the object is a visible object (`Visible`). (C: `obj->type == NOTE`)
         pub fn is_visible(self) -> bool;
         /// Returns true if the object is an invisible object (`Invisible`).
         /// (C: `obj->type == INVNOTE`)
@@ -1426,39 +1339,31 @@ pub mod parser {
         /// Returns true if the object is a start of LN object (`LNStart`).
         /// (C: `obj->type == LNSTART`)
         pub fn is_lnstart(self) -> bool;
-        /// Returns true if the object is an end of LN object (`LNEnd`).
-        /// (C: `obj->type == LNDONE`)
+        /// Returns true if the object is an end of LN object (`LNEnd`). (C: `obj->type == LNDONE`)
         pub fn is_lndone(self) -> bool;
-        /// Returns true if the object is either a start or an end of LN
-        /// object. (C: `obj->type < NOTE`)
+        /// Returns true if the object is either a start or an end of LN object.
+        /// (C: `obj->type < NOTE`)
         pub fn is_ln(self) -> bool;
-        /// Returns true if the object is a bomb (`Bomb`).
-        /// (C: `obj->type == BOMB`)
+        /// Returns true if the object is a bomb (`Bomb`). (C: `obj->type == BOMB`)
         pub fn is_bomb(self) -> bool;
-        /// Returns true if the object is soundable when it is the closest
-        /// soundable object from the current position and the player pressed
-        /// the key. Named "soundable" since it may choose not to play
-        /// the associated sound. Note that not every object with sound is
+        /// Returns true if the object is soundable when it is the closest soundable object from
+        /// the current position and the player pressed the key. Named "soundable" since it may
+        /// choose not to play the associated sound. Note that not every object with sound is
         /// soundable. (C: `obj->type <= INVNOTE`)
         pub fn is_soundable(self) -> bool;
-        /// Returns true if the object is subject to grading.
-        /// (C: `obj->type < INVNOTE`)
+        /// Returns true if the object is subject to grading. (C: `obj->type < INVNOTE`)
         pub fn is_gradable(self) -> bool;
-        /// Returns true if the object has a visible representation.
-        /// (C: `obj->type != INVNOTE`)
+        /// Returns true if the object has a visible representation. (C: `obj->type != INVNOTE`)
         pub fn is_renderable(self) -> bool;
-        /// Returns true if the data is an object.
-        /// (C: `IS_NOTE_CHANNEL(obj->chan)`)
+        /// Returns true if the data is an object. (C: `IS_NOTE_CHANNEL(obj->chan)`)
         pub fn is_object(self) -> bool;
         /// Returns true if the data is a BGM. (C: `obj->chan == BGM_CHANNEL`)
         pub fn is_bgm(self) -> bool;
         /// Returns true if the data is a BGA. (C: `obj->chan == BGA_CHANNEL`)
         pub fn is_setbga(self) -> bool;
-        /// Returns true if the data is a BPM change.
-        /// (C: `obj->chan == BPM_CHANNEL`)
+        /// Returns true if the data is a BPM change. (C: `obj->chan == BPM_CHANNEL`)
         pub fn is_setbpm(self) -> bool;
-        /// Returns true if the data is a scroll stopper.
-        /// (C: `obj->chan == STOP_CHANNEL`)
+        /// Returns true if the data is a scroll stopper. (C: `obj->chan == STOP_CHANNEL`)
         pub fn is_stop(self) -> bool;
 
         /// Returns an associated lane if the data is an object.
@@ -1469,9 +1374,8 @@ pub mod parser {
         pub fn keydown_sound(self) -> Option<SoundRef>;
         /// Returns all sounds played when key is unpressed.
         pub fn keyup_sound(self) -> Option<SoundRef>;
-        /// Returns all sounds played when the object is activated while
-        /// the corresponding key is currently pressed. Bombs are the only
-        /// instance of this kind of sounds.
+        /// Returns all sounds played when the object is activated while the corresponding key is
+        /// currently pressed. Bombs are the only instance of this kind of sounds.
         pub fn through_sound(self) -> Option<SoundRef>;
         /// Returns all images associated to the data.
         pub fn images(self) -> ~[ImageRef];
@@ -1481,17 +1385,13 @@ pub mod parser {
 
     /// Conversion operations for objects.
     pub trait ObjConvOps: ObjQueryOps {
-        /// Returns a visible object with the same time, lane and sound as
-        /// given object.
+        /// Returns a visible object with the same time, lane and sound as given object.
         pub fn to_visible(self) -> Self;
-        /// Returns an invisible object with the same time, lane and sound as
-        /// given object.
+        /// Returns an invisible object with the same time, lane and sound as given object.
         pub fn to_invisible(self) -> Self;
-        /// Returns a start of LN object with the same time, lane and sound as
-        /// given object.
+        /// Returns a start of LN object with the same time, lane and sound as given object.
         pub fn to_lnstart(self) -> Self;
-        /// Returns an end of LN object with the same time, lane and sound as
-        /// given object.
+        /// Returns an end of LN object with the same time, lane and sound as given object.
         pub fn to_lndone(self) -> Self;
     }
 
@@ -1521,32 +1421,20 @@ pub mod parser {
         }
 
         pub fn is_soundable(self) -> bool {
-            match self {
-                Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) => true,
-                _ => false
-            }
+            match self { Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) => true, _ => false }
         }
 
         pub fn is_gradable(self) -> bool {
-            match self {
-                Visible(*) | LNStart(*) | LNDone(*) => true,
-                _ => false
-            }
+            match self { Visible(*) | LNStart(*) | LNDone(*) => true, _ => false }
         }
 
         pub fn is_renderable(self) -> bool {
-            match self {
-                Visible(*) | LNStart(*) | LNDone(*) | Bomb(*) => true,
-                _ => false
-            }
+            match self { Visible(*) | LNStart(*) | LNDone(*) | Bomb(*) => true, _ => false }
         }
 
         pub fn is_object(self) -> bool {
-            match self {
-                Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) | Bomb(*)
-                    => true,
-                _ => false
-            }
+            match self { Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) | Bomb(*) => true,
+                         _ => false }
         }
 
         pub fn is_bgm(self) -> bool {
@@ -1586,38 +1474,23 @@ pub mod parser {
         }
 
         pub fn keydown_sound(self) -> Option<SoundRef> {
-            match self {
-                Visible(_,sref) | Invisible(_,sref) | LNStart(_,sref) => sref,
-                _ => None
-            }
+            match self { Visible(_,sref) | Invisible(_,sref) | LNStart(_,sref) => sref, _ => None }
         }
 
         pub fn keyup_sound(self) -> Option<SoundRef> {
-            match self {
-                LNDone(_,sref) => sref,
-                _ => None
-            }
+            match self { LNDone(_,sref) => sref, _ => None }
         }
 
         pub fn through_sound(self) -> Option<SoundRef> {
-            match self {
-                Bomb(_,sref,_) => sref,
-                _ => None
-            }
+            match self { Bomb(_,sref,_) => sref, _ => None }
         }
 
         pub fn images(self) -> ~[ImageRef] {
-            match self {
-                SetBGA(_,Some(iref)) => ~[iref],
-                _ => ~[]
-            }
+            match self { SetBGA(_,Some(iref)) => ~[iref], _ => ~[] }
         }
 
         pub fn through_damage(self) -> Option<Damage> {
-            match self {
-                Bomb(_,_,damage) => Some(damage),
-                _ => None
-            }
+            match self { Bomb(_,_,damage) => Some(damage), _ => None }
         }
     }
 
@@ -1655,8 +1528,8 @@ pub mod parser {
         }
     }
 
-    /// Game play data associated to the time axis. It contains both objects
-    /// (which are also associated to lanes) and object-like effects.
+    /// Game play data associated to the time axis. It contains both objects (which are also
+    /// associated to lanes) and object-like effects.
     #[deriving(Eq)]
     pub struct Obj {
         /// Time position in measures.
@@ -1746,78 +1619,53 @@ pub mod parser {
         pub fn is_setbpm(self) -> bool { self.data.is_setbpm() }
         pub fn is_stop(self) -> bool { self.data.is_stop() }
 
-        pub fn object_lane(self) -> Option<Lane> {
-            self.data.object_lane()
-        }
-        pub fn sounds(self) -> ~[SoundRef] {
-            self.data.sounds()
-        }
-        pub fn keydown_sound(self) -> Option<SoundRef> {
-            self.data.keydown_sound()
-        }
-        pub fn keyup_sound(self) -> Option<SoundRef> {
-            self.data.keyup_sound()
-        }
-        pub fn through_sound(self) -> Option<SoundRef> {
-            self.data.through_sound()
-        }
-        pub fn images(self) -> ~[ImageRef] {
-            self.data.images()
-        }
-        pub fn through_damage(self) -> Option<Damage> {
-            self.data.through_damage()
-        }
+        pub fn object_lane(self) -> Option<Lane> { self.data.object_lane() }
+        pub fn sounds(self) -> ~[SoundRef] { self.data.sounds() }
+        pub fn keydown_sound(self) -> Option<SoundRef> { self.data.keydown_sound() }
+        pub fn keyup_sound(self) -> Option<SoundRef> { self.data.keyup_sound() }
+        pub fn through_sound(self) -> Option<SoundRef> { self.data.through_sound() }
+        pub fn images(self) -> ~[ImageRef] { self.data.images() }
+        pub fn through_damage(self) -> Option<Damage> { self.data.through_damage() }
     }
 
     impl ObjConvOps for Obj {
-        pub fn to_visible(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_visible() }
-        }
-        pub fn to_invisible(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_invisible() }
-        }
-        pub fn to_lnstart(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_lnstart() }
-        }
-        pub fn to_lndone(self) -> Obj {
-            Obj { time: self.time, data: self.data.to_lndone() }
-        }
+        pub fn to_visible(self) -> Obj { Obj { time: self.time, data: self.data.to_visible() } }
+        pub fn to_invisible(self) -> Obj { Obj { time: self.time, data: self.data.to_invisible() } }
+        pub fn to_lnstart(self) -> Obj { Obj { time: self.time, data: self.data.to_lnstart() } }
+        pub fn to_lndone(self) -> Obj { Obj { time: self.time, data: self.data.to_lndone() } }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // BMS data
 
     /// Default BPM. This value comes from the original BMS specification.
     pub static DefaultBPM: BPM = BPM(130.0);
 
     /**
-     * Blit commands, which manipulate the image after the image had been
-     * loaded. This maps to BMS #BGA command. (C: `struct blitcmd`)
+     * Blit commands, which manipulate the image after the image had been loaded. This maps to BMS
+     * #BGA command. (C: `struct blitcmd`)
      *
-     * Blitting occurs from the region `(x1,y1)-(x2,y2)` in the source surface
-     * to the region `(dx,dy)-(dx+(x2-x1),dy+(y2-y1))` in the destination
-     * surface. The rectangular region contains the upper-left corner but not
-     * the lower-right corner. The region is clipped to make the upper-left
-     * corner has non-negative coordinates and the size of the region doesn't
-     * exceed 256 by 256 pixels.
+     * Blitting occurs from the region `(x1,y1)-(x2,y2)` in the source surface to the region
+     * `(dx,dy)-(dx+(x2-x1),dy+(y2-y1))` in the destination surface. The rectangular region contains
+     * the upper-left corner but not the lower-right corner. The region is clipped to make
+     * the upper-left corner has non-negative coordinates and the size of the region doesn't exceed
+     * 256 by 256 pixels.
      */
     pub struct BlitCmd {
         dst: ImageRef, src: ImageRef,
         x1: int, y1: int, x2: int, y2: int, dx: int, dy: int
     }
 
-    /// A value of BMS #PLAYER command signifying Single Play (SP), where only
-    /// channels #1x are used for the game play.
+    /// A value of BMS #PLAYER command signifying Single Play (SP), where only channels #1x are used
+    /// for the game play.
     pub static SinglePlay: int = 1;
-    /// A value of BMS #PLAYER command signifying Couple Play, where channels
-    /// #1x and #2x renders to the different panels. They are originally meant
-    /// to be played by different players with separate gauges and scores, but
-    /// this mode of game play is increasingly unsupported by modern
+    /// A value of BMS #PLAYER command signifying Couple Play, where channels #1x and #2x renders to
+    /// the different panels. They are originally meant to be played by different players with
+    /// separate gauges and scores, but this mode of game play is increasingly unsupported by modern
     /// implementations. Angolmois has only a limited support for Couple Play.
     pub static CouplePlay: int = 2;
-    /// A value of BMS #PLAYER command signifying Double Play (DP), where both
-    /// channels #1x and #2x renders to a single wide panel. The chart is
-    /// still meant to be played by one person.
+    /// A value of BMS #PLAYER command signifying Double Play (DP), where both channels #1x and #2x
+    /// renders to a single wide panel. The chart is still meant to be played by one person.
     pub static DoublePlay: int = 3;
 
     /// Loaded BMS data. It is not a global state unlike C.
@@ -1828,60 +1676,53 @@ pub mod parser {
         genre: Option<~str>,
         /// Artist. Maps to BMS #ARTIST command. (C: `string[S_ARTIST]`)
         artist: Option<~str>,
-        /// Path to an image for loading screen. Maps to BMS #STAGEFILE
-        /// command. (C: `string[S_STAGEFILE]`)
+        /// Path to an image for loading screen. Maps to BMS #STAGEFILE command.
+        /// (C: `string[S_STAGEFILE]`)
         stagefile: Option<~str>,
-        /// A base path used for loading all other resources. Maps to BMS
-        /// #PATH_WAV command. (C: `string[S_BASEPATH]`)
+        /// A base path used for loading all other resources. Maps to BMS #PATH_WAV command.
+        /// (C: `string[S_BASEPATH]`)
         basepath: Option<~str>,
 
-        /// Game mode. One of `SinglePlay`(1), `CouplePlay`(2) or
-        /// `DoublePlay`(3). Maps to BMS #PLAYER command.
-        /// (C: `value[V_PLAYER]`)
+        /// Game mode. One of `SinglePlay`(1), `CouplePlay`(2) or `DoublePlay`(3). Maps to BMS
+        /// #PLAYER command. (C: `value[V_PLAYER]`)
         player: int,
-        /// Game level. Does not affect the actual game play. Maps to BMS
-        /// #PLAYLEVEL command. (C: `value[V_PLAYLEVEL]`)
+        /// Game level. Does not affect the actual game play. Maps to BMS #PLAYLEVEL command.
+        /// (C: `value[V_PLAYLEVEL]`)
         playlevel: int,
-        /// Gauge difficulty. Higher is easier. Maps to BMS #RANK command.
-        /// (C: `value[V_RANK]`)
+        /// Gauge difficulty. Higher is easier. Maps to BMS #RANK command. (C: `value[V_RANK]`)
         rank: int,
 
         /// Initial BPM. (C: `initbpm`)
         initbpm: BPM,
-        /// Paths to sound file relative to `basepath` or BMS file.
-        /// (C: `sndpath`)
+        /// Paths to sound file relative to `basepath` or BMS file. (C: `sndpath`)
         //
         // Rust: constant expression in the array size is unsupported.
         sndpath: [Option<~str>, ..MAXKEY],
-        /// Paths to image/movie file relative to `basepath` or BMS file.
-        /// (C: `imgpath`)
+        /// Paths to image/movie file relative to `basepath` or BMS file. (C: `imgpath`)
         imgpath: [Option<~str>, ..MAXKEY],
-        /// List of blit commands to be executed after `imgpath` is loaded.
-        /// (C: `blitcmd`)
+        /// List of blit commands to be executed after `imgpath` is loaded. (C: `blitcmd`)
         blitcmd: ~[BlitCmd],
 
         /// List of objects sorted by the position. (C: `objs`)
         objs: ~[Obj],
         /// The scaling factor of measures. Defaults to 1.0. (C: `shorten`)
         shorten: ~[float],
-        /// The number of measures after the origin, i.e. the length of
-        /// the BMS file. The play stops after the last measure. (C: `length`)
+        /// The number of measures after the origin, i.e. the length of the BMS file. The play stops
+        /// after the last measure. (C: `length`)
         nmeasures: uint
     }
 
     /// Creates a default value of BMS data.
     pub fn Bms() -> Bms {
-        Bms { title: None, genre: None, artist: None, stagefile: None,
-              basepath: None, player: SinglePlay, playlevel: 0, rank: 2,
-              initbpm: DefaultBPM, sndpath: [None, ..MAXKEY],
-              imgpath: [None, ..MAXKEY], blitcmd: ~[], objs: ~[],
+        Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
+              player: SinglePlay, playlevel: 0, rank: 2, initbpm: DefaultBPM,
+              sndpath: [None, ..MAXKEY], imgpath: [None, ..MAXKEY], blitcmd: ~[], objs: ~[],
               shorten: ~[], nmeasures: 0 }
     }
 
     pub impl Bms {
-        /// Returns a scaling factor of given measure number. The default
-        /// scaling factor is 1.0, and that value applies to any out-of-bound
-        /// measures.
+        /// Returns a scaling factor of given measure number. The default scaling factor is 1.0, and
+        /// that value applies to any out-of-bound measures.
         fn shorten_factor(&self, measure: int) -> float {
             if measure < 0 || measure as uint >= self.shorten.len() {
                 1.0
@@ -1890,11 +1731,9 @@ pub mod parser {
             }
         }
 
-        /// Calculates the virtual time that is `offset` measures away from
-        /// the virtual time `base`. This takes account of the scaling factor,
-        /// so if first four measures are scaled by 1/4, then
-        /// `adjust_object_time(0.0, 2.0)` results in `5.0`.
-        /// (C: `adjust_object_time`)
+        /// Calculates the virtual time that is `offset` measures away from the virtual time `base`.
+        /// This takes account of the scaling factor, so if first four measures are scaled by 1/4,
+        /// then `adjust_object_time(0.0, 2.0)` results in `5.0`. (C: `adjust_object_time`)
         fn adjust_object_time(&self, base: float, offset: float) -> float {
             let basemeasure = base.floor() as int;
             let baseshorten = self.shorten_factor(basemeasure);
@@ -1915,13 +1754,11 @@ pub mod parser {
             }
         }
 
-        /// Calculates an adjusted offset between the virtual time `base` and
-        /// `base + offset`. This takes account of the measure scaling factor,
-        /// so for example, the adjusted offset between the virtual time 0.0
-        /// and 2.0 is, if the measure #000 is scaled by 1.2x, 2.2 measures
-        /// instead of 2.0 measures. (C: `adjust_object_position`)
-        pub fn adjust_object_position(&self, base: float, time: float)
-                                        -> float {
+        /// Calculates an adjusted offset between the virtual time `base` and `base + offset`.
+        /// This takes account of the measure scaling factor, so for example, the adjusted offset
+        /// between the virtual time 0.0 and 2.0 is, if the measure #000 is scaled by 1.2x,
+        /// 2.2 measures instead of 2.0 measures. (C: `adjust_object_position`)
+        pub fn adjust_object_position(&self, base: float, time: float) -> float {
             let basemeasure = base.floor() as int;
             let timemeasure = time.floor() as int;
             let basefrac = base - basemeasure as float;
@@ -1935,11 +1772,10 @@ pub mod parser {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // parsing
 
-    /// Converts a single alphanumeric (base-36) letter to an integer.
-    /// (C: `getdigit`)
+    /// Converts a single alphanumeric (base-36) letter to an integer. (C: `getdigit`)
     fn getdigit(n: char) -> Option<int> {
         match n {
             '0'..'9' => Some((n as int) - ('0' as int)),
@@ -1971,11 +1807,10 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
-    pub fn parse_bms_from_reader<R:RngUtil>(f: @io::Reader,
-                                            r: &R) -> Result<Bms,~str> {
-        /// The list of recognized prefixes of directives. The longest prefix
-        /// should come first. Also note that not all recognized prefixes are
-        /// processed (counterexample being `ENDSW`). (C: `bmsheader`)
+    pub fn parse_bms_from_reader<R:RngUtil>(f: @io::Reader, r: &R) -> Result<Bms,~str> {
+        /// The list of recognized prefixes of directives. The longest prefix should come first.
+        /// Also note that not all recognized prefixes are processed (counterexample being `ENDSW`).
+        /// (C: `bmsheader`)
         static bmsheader: &'static [&'static str] = &[
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
             "PLAYER", "PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP",
@@ -2007,16 +1842,15 @@ pub mod parser {
         }
         impl Eq for Rnd {
             fn eq(&self, other: &Rnd) -> bool {
-                // Rust: this is for using `ImmutableEqVector<T>::rposition`,
-                //       which should have been in `ImmutableVector<T>`.
+                // Rust: this is for using `ImmutableEqVector<T>::rposition`, which should have been
+                //       in `ImmutableVector<T>`.
                 self.val == other.val && self.inside == other.inside &&
                 self.state == other.state && self.skip == other.skip
             }
             fn ne(&self, other: &Rnd) -> bool { !self.eq(other) }
         }
 
-        let mut rnd = ~[Rnd { val: None, inside: false,
-                              state: Process, skip: false }];
+        let mut rnd = ~[Rnd { val: None, inside: false, state: Process, skip: false }];
 
         struct BmsLine { measure: uint, chan: Key, data: ~str }
         impl Ord for BmsLine {
@@ -2039,19 +1873,18 @@ pub mod parser {
         // (C: `stoptab`)
         let mut stoptab = ~[Seconds(0.0), ..MAXKEY];
 
-        // Allows LNs to be specified as a consecutive row of same or non-00
-        // alphanumeric keys (MGQ type, #LNTYPE 2). The default is to specify
-        // LNs as two endpoints (RDM type, #LNTYPE 1). (C: `value[V_LNTYPE]`)
+        // Allows LNs to be specified as a consecutive row of same or non-00 alphanumeric keys (MGQ
+        // type, #LNTYPE 2). The default is to specify LNs as two endpoints (RDM type, #LNTYPE 1).
+        // (C: `value[V_LNTYPE]`)
         let mut consecutiveln = false;
 
-        // An end-of-LN marker used in LN specification for channels #1x/2x.
-        // Maps to BMS #LNOBJ command. (C: `value[V_LNOBJ]`)
+        // An end-of-LN marker used in LN specification for channels #1x/2x. Maps to BMS #LNOBJ
+        // command. (C: `value[V_LNOBJ]`)
         let mut lnobj = None;
 
         let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
         for lines.each |&line0| {
-            let line0 = ::util::str::from_fixed_utf8_bytes(line0,
-                                                           |_| ~"\ufffd");
+            let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
             let line: &str = line0;
 
             // skip non-command lines
@@ -2059,13 +1892,12 @@ pub mod parser {
             if !line.starts_with(~"#") { loop; }
             let line = line.slice_to_end(1);
 
-            // search for header prefix. the header list (`bmsheader`) is
-            // in the decreasing order of prefix length.
+            // search for header prefix. the header list (`bmsheader`) is in the decreasing order
+            // of prefix length.
             let mut prefix = "";
             for bmsheader.each |&header| {
                 if line.len() >= header.len() &&
-                   line.slice(0, header.len()).to_upper()
-                        == header.to_owned() {
+                   line.slice(0, header.len()).to_upper() == header.to_owned() {
                     prefix = header;
                     break;
                 }
@@ -2092,11 +1924,10 @@ pub mod parser {
                 })
             )
 
-            // Rust: mutable loan and immutable loan cannot coexist
-            //       in the same block (although it's safe). (#4666)
+            // Rust: mutable loan and immutable loan cannot coexist in the same block (although
+            //       it's safe). (#4666)
             assert!(!rnd.is_empty());
-            let state = { if rnd.last().skip {Ignore}
-                          else {rnd.last().state} }; // XXX #4666
+            let state = { if rnd.last().skip {Ignore} else {rnd.last().state} }; // XXX #4666
 
             match (prefix, state) {
                 // #TITLE|#GENRE|#ARTIST|#STAGEFILE|#PATH_WAV <string>
@@ -2141,12 +1972,10 @@ pub mod parser {
                 // #BGAxx yy <int> <int> <int> <int> <int> <int>
                 ("BGA", Process) => {
                     let mut dst = Key(0), src = Key(0);
-                    let mut bc = BlitCmd {
-                        dst: ImageRef(Key(0)), src: ImageRef(Key(0)),
-                        x1: 0, y1: 0, x2: 0, y2: 0, dx: 0, dy: 0 };
+                    let mut bc = BlitCmd { dst: ImageRef(Key(0)), src: ImageRef(Key(0)),
+                                           x1: 0, y1: 0, x2: 0, y2: 0, dx: 0, dy: 0 };
                     if lex!(line; Key -> dst, ws, Key -> src, ws,
-                            int -> bc.x1, ws, int -> bc.y1, ws,
-                            int -> bc.x2, ws, int -> bc.y2, ws,
+                            int -> bc.x1, ws, int -> bc.y1, ws, int -> bc.x2, ws, int -> bc.y2, ws,
                             int -> bc.dx, ws, int -> bc.dy) {
                         bc.src = ImageRef(src);
                         bc.dst = ImageRef(dst);
@@ -2181,23 +2010,20 @@ pub mod parser {
                     if lex!(line; ws, int -> val) {
                         let val = if val <= 0 {None} else {Some(val)};
 
-                        // do not generate a random value if the entire block
-                        // is skipped (but it still marks the start of block)
-                        let inactive = // XXX #4666
-                            {rnd.last().state != Process || rnd.last().skip};
-                        let generated =
-                            // Rust: there should be `Option<T>::chain` if
-                            //       `T` is copyable.
-                            do val.chain |val| {
-                                if prefix == "SETRANDOM" {
-                                    Some(val)
-                                } else if !inactive {
-                                    // Rust: not an uniform distribution yet!
-                                    Some(r.gen_int_range(1, val + 1))
-                                } else {
-                                    None
-                                }
-                            };
+                        // do not generate a random value if the entire block is skipped (but it
+                        // still marks the start of block)
+                        let inactive = {rnd.last().state != Process || rnd.last().skip};// XXX #4666
+                        let generated = do val.chain |val| {
+                            // Rust: there should be `Option<T>::chain` if `T` is copyable.
+                            if prefix == "SETRANDOM" {
+                                Some(val)
+                            } else if !inactive {
+                                // Rust: not an uniform distribution yet!
+                                Some(r.gen_int_range(1, val + 1))
+                            } else {
+                                None
+                            }
+                        };
                         rnd.push(Rnd { val: generated, inside: false,
                                        state: Process, skip: inactive });
                     }
@@ -2220,11 +2046,7 @@ pub mod parser {
                         last.inside = true;
                         last.state =
                             if prefix == "IF" || last.state == NoFurther {
-                                if val.is_none() || val == last.val {
-                                    Ignore
-                                } else {
-                                    Process
-                                }
+                                if val.is_none() || val == last.val {Ignore} else {Process}
                             } else {
                                 NoFurther
                             };
@@ -2235,8 +2057,7 @@ pub mod parser {
                 ("ELSE", _) => {
                     let last = &mut rnd[rnd.len() - 1];
                     last.inside = true;
-                    last.state = if last.state == Ignore {Process}
-                                 else {NoFurther};
+                    last.state = if last.state == Ignore {Process} else {NoFurther};
                 }
 
                 // #END(IF)
@@ -2255,10 +2076,8 @@ pub mod parser {
                 // #nnnmm:...
                 ("", Process) => {
                     let mut measure = 0, chan = Key(0), data = ~"";
-                    if lex!(line; Measure -> measure, Key -> chan, ':',
-                            ws*, str -> data, ws*, !) {
-                        bmsline.push(BmsLine { measure: measure, chan: chan,
-                                               data: data })
+                    if lex!(line; Measure -> measure, Key -> chan, ':', ws*, str -> data, ws*, !) {
+                        bmsline.push(BmsLine { measure: measure, chan: chan, data: data })
                     }
                 }
 
@@ -2266,34 +2085,30 @@ pub mod parser {
             }
         }
 
-        // Poor BGA defined by #BMP00 wouldn't be played if it is a movie.
-        // We can't just let it played at the beginning of the chart as the
-        // "beginning" is not always 0.0 (actually, `originoffset`). Thus
-        // we add an artificial BGA object at time 0.0 only when the other
+        // Poor BGA defined by #BMP00 wouldn't be played if it is a movie. We can't just let it
+        // played at the beginning of the chart as the "beginning" is not always 0.0 (actually,
+        // `originoffset`). Thus we add an artificial BGA object at time 0.0 only when the other
         // poor BGA does not exist at this position. (C: `poorbgafix`)
         let mut poorbgafix = true;
 
-        // Indices to last visible object per channels. A marker specified by
-        // #LNOBJ will turn this last object to the start of LN.
-        // (C: `prev12`)
+        // Indices to last visible object per channels. A marker specified by #LNOBJ will turn
+        // this last object to the start of LN. (C: `prev12`)
         let mut lastvis: [Option<uint>, ..NLANES] = [None, ..NLANES];
 
-        // Indices to last LN start or end inserted (and not finalized yet)
-        // per channels. If `consecutiveln` is on (#LNTYPE 2), the position
-        // of referenced object gets updated during parsing; if off (#LNTYPE
-        // 1), it is solely used for checking if we are inside the LN or not.
-        // (C: `prev56`)
+        // Indices to last LN start or end inserted (and not finalized yet) per channels.
+        // If `consecutiveln` is on (#LNTYPE 2), the position of referenced object gets updated
+        // during parsing; if off (#LNTYPE 1), it is solely used for checking if we are inside
+        // the LN or not. (C: `prev56`)
         let mut lastln: [Option<uint>, ..NLANES] = [None, ..NLANES];
 
-        // Handles a non-00 alphanumeric key `v` positioned at the particular
-        // channel `chan` and particular position `t`. The position `t2`
-        // next to `t` is used for some cases that an alphanumeric key
-        // designates an area rather than a point.
+        // Handles a non-00 alphanumeric key `v` positioned at the particular channel `chan` and
+        // particular position `t`. The position `t2` next to `t` is used for some cases that
+        // an alphanumeric key designates an area rather than a point.
         let handle_key = |chan: Key, t: float, t2: float, v: Key| {
             // Adds an object. Objects are sorted by its position later.
             let add = |obj: Obj| { bms.objs.push(obj); };
-            // Adds an object and returns its position. LN parsing generally
-            // mutates the existing object for simplicity.
+            // Adds an object and returns its position. LN parsing generally mutates the existing
+            // object for simplicity.
             let mark = |obj: Obj| -> Option<uint> {
                 let marked = bms.objs.len();
                 bms.objs.push(obj);
@@ -2324,23 +2139,19 @@ pub mod parser {
                 7 => { add(Obj::SetBGA(t, Layer2, Some(v))); }
 
                 // channel #08: BPM defined by #BPMxx
-                // TODO bpmtab validity check
-                8 => { add(Obj::SetBPM(t, bpmtab[*v])); }
+                8 => { add(Obj::SetBPM(t, bpmtab[*v])); } // TODO bpmtab validity check
 
                 // channel #09: scroll stopper defined by #STOPxx
-                // TODO stoptab validity check
-                9 => { add(Obj::Stop(t, stoptab[*v])); }
+                9 => { add(Obj::Stop(t, stoptab[*v])); } // TODO stoptab validity check
 
                 // channel #0A: BGA layer 3
                 10 => { add(Obj::SetBGA(t, Layer3, Some(v))); }
 
-                // channels #1x/2x: visible object, possibly LNs when #LNOBJ
-                // is in active
+                // channels #1x/2x: visible object, possibly LNs when #LNOBJ is in active
                 1*36..3*36-1 => {
                     let lane = Lane::from_channel(chan);
                     if lnobj.is_some() && lnobj == Some(v) {
-                        // change the last inserted visible object to the
-                        // start of LN if any.
+                        // change the last inserted visible object to the start of LN if any.
                         for {lastvis[*lane]}.each |&pos| { // XXX #4666
                             assert!(bms.objs[pos].is_visible());
                             bms.objs[pos] = bms.objs[pos].to_lnstart();
@@ -2362,9 +2173,8 @@ pub mod parser {
                 5*36..7*36-1 if !consecutiveln => {
                     let lane = Lane::from_channel(chan);
 
-                    // a pair of non-00 alphanumeric keys designate one LN.
-                    // if there are an odd number of them, the last LN is
-                    // implicitly closed later.
+                    // a pair of non-00 alphanumeric keys designate one LN. if there are an odd
+                    // number of them, the last LN is implicitly closed later.
                     if lastln[*lane].is_some() {
                         lastln[*lane] = None;
                         add(Obj::LNDone(t, lane, Some(v)));
@@ -2377,15 +2187,13 @@ pub mod parser {
                 5*36..7*36-1 if consecutiveln => {
                     let lane = Lane::from_channel(chan);
 
-                    // one non-00 alphanumeric key, in the absence of other
-                    // information, inserts one complete LN starting at `t`
-                    // and ending at `t2`.
+                    // one non-00 alphanumeric key, in the absence of other information, inserts one
+                    // complete LN starting at `t` and ending at `t2`.
                     //
-                    // the next non-00 alphanumeric key also inserts one
-                    // complete LN from `t` to `t2`, unless there is already
-                    // an end of LN at `t` in which case the end of LN is
-                    // simply moved from `t` to `t2` (effectively increasing
-                    // the length of previous LN).
+                    // the next non-00 alphanumeric key also inserts one complete LN from `t` to
+                    // `t2`, unless there is already an end of LN at `t` in which case the end of LN
+                    // is simply moved from `t` to `t2` (effectively increasing the length of
+                    // previous LN).
                     match lastln[*lane] {
                         Some(pos) if bms.objs[pos].time == t => {
                             assert!(bms.objs[pos].is_lndone());
@@ -2393,14 +2201,13 @@ pub mod parser {
                         }
                         _ => {
                             add(Obj::LNStart(t, lane, Some(v)));
-                            lastln[*lane] =
-                                mark(Obj::LNDone(t2, lane, Some(v)));
+                            lastln[*lane] = mark(Obj::LNDone(t2, lane, Some(v)));
                         }
                     }
                 }
 
-                // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5%
-                // of the full gauge) or instant death (ZZ)
+                // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5% of the full gauge) or
+                // instant death (ZZ)
                 0xD*36..0xE*36-1 => {
                     let lane = Lane::from_channel(chan);
                     let damage = match *v {
@@ -2413,10 +2220,9 @@ pub mod parser {
                     }
                 }
 
-                // unsupported: channels #0B/0C/0D/0E (BGA opacity),
-                // #97/98 (sound volume), #99 (text), #A0 (dynamic #RANK),
-                // #A1/A2/A3/A4 (BGA color key update), #A5 (BGA on keypress),
-                // #A6 (player-specific option)
+                // unsupported: channels #0B/0C/0D/0E (BGA opacity), #97/98 (sound volume),
+                // #99 (text), #A0 (dynamic #RANK), #A1/A2/A3/A4 (BGA color key update),
+                // #A5 (BGA on keypress), #A6 (player-specific option)
                 _ => {}
             }
         };
@@ -2457,8 +2263,7 @@ pub mod parser {
         bms.nmeasures = bmsline.last_opt().map_default(0, |l| l.measure) + 1;
         let endt = bms.nmeasures as float;
         for uint::range(0, NLANES) |i| {
-            if lastvis[i].is_some() ||
-                    (!consecutiveln && lastln[i].is_some()) {
+            if lastvis[i].is_some() || (!consecutiveln && lastln[i].is_some()) {
                 bms.objs.push(Obj::LNDone(endt, Lane(i), None));
             }
         }
@@ -2473,27 +2278,26 @@ pub mod parser {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // key specification
 
-    /// The key specification. Specifies the order and apperance of lanes.
-    /// Once determined from the options and BMS file, the key specification
-    /// is fixed and independent of other data (e.g. `#PLAYER` value).
+    /// The key specification. Specifies the order and apperance of lanes. Once determined from
+    /// the options and BMS file, the key specification is fixed and independent of other data
+    /// (e.g. `#PLAYER` value).
     pub struct KeySpec {
-        /// The number of lanes on the left side. This number is significant
-        /// only when Couple Play is used. (C: `nleftkeys`)
+        /// The number of lanes on the left side. This number is significant only when Couple Play
+        /// is used. (C: `nleftkeys`)
         split: uint,
-        /// The order of significant lanes. The first `nleftkeys` lanes go to
-        /// the left side and the remaining lanes (C: `nrightkeys`) go to
-        /// the right side. (C: `keyorder`)
+        /// The order of significant lanes. The first `nleftkeys` lanes go to the left side and
+        /// the remaining lanes (C: `nrightkeys`) go to the right side. (C: `keyorder`)
         order: ~[Lane],
         /// The type of lanes. (C: `keykind`)
         kinds: ~[Option<KeyKind>]
     }
 
     pub impl KeySpec {
-        /// Returns a number of lanes that count towards "keys". Notably
-        /// scratches and pedals do not count as keys. (C: `nkeys`)
+        /// Returns a number of lanes that count towards "keys". Notably scratches and pedals do not
+        /// count as keys. (C: `nkeys`)
         fn nkeys(&self) -> uint {
             let mut nkeys = 0;
             for self.kinds.each_some |kind| {
@@ -2539,20 +2343,16 @@ pub mod parser {
     static PRESETS: &'static [(&'static str, &'static str, &'static str)] = &[
         // 5-key BMS, SP/DP
         ("5",     "16s 11a 12b 13a 14b 15a", ""),
-        ("10",    "16s 11a 12b 13a 14b 15a",
-                  "21a 22b 23a 24b 25a 26s"),
+        ("10",    "16s 11a 12b 13a 14b 15a", "21a 22b 23a 24b 25a 26s"),
         // 5-key BMS with a foot pedal, SP/DP
         ("5/fp",  "16s 11a 12b 13a 14b 15a 17p", ""),
-        ("10/fp", "16s 11a 12b 13a 14b 15a 17p",
-                  "27p 21a 22b 23a 24b 25a 26s"),
+        ("10/fp", "16s 11a 12b 13a 14b 15a 17p", "27p 21a 22b 23a 24b 25a 26s"),
         // 7-key BME, SP/DP
         ("7",     "16s 11a 12b 13a 14b 15a 18b 19a", ""),
-        ("14",    "16s 11a 12b 13a 14b 15a 18b 19a",
-                  "21a 22b 23a 24b 25a 28b 29a 26s"),
+        ("14",    "16s 11a 12b 13a 14b 15a 18b 19a", "21a 22b 23a 24b 25a 28b 29a 26s"),
         // 7-key BME with a foot pedal, SP/DP
         ("7/fp",  "16s 11a 12b 13a 14b 15a 18b 19a 17p", ""),
-        ("14/fp", "16s 11a 12b 13a 14b 15a 18b 19a 17p",
-                  "27p 21a 22b 23a 24b 25a 28b 29a 26s"),
+        ("14/fp", "16s 11a 12b 13a 14b 15a 18b 19a 17p", "27p 21a 22b 23a 24b 25a 28b 29a 26s"),
         // 9-key PMS (#PLAYER 3)
         ("9",     "11q 12w 13e 14r 15t 22r 23e 24w 25q", ""),
         // 9-key PMS (BME-compatible)
@@ -2560,18 +2360,16 @@ pub mod parser {
     ];
 
     /**
-     * Determines the key specification from the preset name, in the absence
-     * of explicit key specification with `-K` option. (C: `detect_preset`)
+     * Determines the key specification from the preset name, in the absence of explicit key
+     * specification with `-K` option. (C: `detect_preset`)
      *
-     * Besides from presets specified in `PRESETS`, this function also allows
-     * the following pseudo-presets inferred from the BMS file:
+     * Besides from presets specified in `PRESETS`, this function also allows the following
+     * pseudo-presets inferred from the BMS file:
      *
-     * - `bms`, `bme`, `bml` or no preset: Selects one of eight presets
-     *   `{5,7,10,14}[/fp]`.
+     * - `bms`, `bme`, `bml` or no preset: Selects one of eight presets `{5,7,10,14}[/fp]`.
      * - `pms`: Selects one of two presets `9` and `9-bme`.
      */
-    pub fn preset_to_key_spec(bms: &Bms, preset: Option<~str>)
-                                    -> Option<(~str, ~str)> {
+    pub fn preset_to_key_spec(bms: &Bms, preset: Option<~str>) -> Option<(~str, ~str)> {
         let mut present = [false, ..NLANES];
         for bms.objs.each |&obj| {
             for obj.object_lane().each |&Lane(lane)| {
@@ -2579,26 +2377,22 @@ pub mod parser {
             }
         }
 
-        let preset =
-            match preset.map(|s| s.to_lower()) {
-                None | Some(~"bms") | Some(~"bme") | Some(~"bml") => {
-                    let isbme = (present[8] || present[9] ||
-                                 present[36+8] || present[36+9]);
-                    let haspedal = (present[7] || present[36+7]);
-                    let nkeys = match bms.player {
-                        CouplePlay|DoublePlay =>
-                             if isbme {~"14"} else {~"10"},
-                        _ => if isbme {~"7" } else {~"5" }
-                    };
-                    if haspedal {nkeys + ~"/fp"} else {nkeys}
-                },
-                Some(~"pms") => {
-                    let isbme = (present[6] || present[7] ||
-                                 present[8] || present[9]);
-                    if isbme {~"9-bme"} else {~"9"}
-                },
-                Some(preset) => preset
-            };
+        let preset = match preset.map(|s| s.to_lower()) {
+            None | Some(~"bms") | Some(~"bme") | Some(~"bml") => {
+                let isbme = (present[8] || present[9] || present[36+8] || present[36+9]);
+                let haspedal = (present[7] || present[36+7]);
+                let nkeys = match bms.player {
+                    CouplePlay | DoublePlay => if isbme {~"14"} else {~"10"},
+                    _                       => if isbme {~"7" } else {~"5" }
+                };
+                if haspedal {nkeys + ~"/fp"} else {nkeys}
+            },
+            Some(~"pms") => {
+                let isbme = (present[6] || present[7] || present[8] || present[9]);
+                if isbme {~"9-bme"} else {~"9"}
+            },
+            Some(preset) => preset
+        };
 
         for PRESETS.each |&(name, leftkeys, rightkeys)| {
             if name == preset {
@@ -2608,11 +2402,10 @@ pub mod parser {
         None
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // post-processing
 
-    /// Updates the object in place to BGM or placeholder.
-    /// (C: `remove_or_replace_note`)
+    /// Updates the object in place to BGM or placeholder. (C: `remove_or_replace_note`)
     fn remove_or_replace_note(obj: &mut Obj) {
         obj.data = match obj.data {
             Visible(_,Some(sref)) | Invisible(_,Some(sref)) |
@@ -2737,8 +2530,8 @@ pub mod parser {
                  |types| types);
     }
 
-    /// Removes insignificant objects (i.e. not in visible lanes) and ensures
-    /// that there is no `Deleted` object. (C: `analyze_and_compact_bms`)
+    /// Removes insignificant objects (i.e. not in visible lanes) and ensures that there is no
+    /// `Deleted` object. (C: `analyze_and_compact_bms`)
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
         for vec::each_mut(bms.objs) |obj| {
             for obj.object_lane().each |&Lane(lane)| {
@@ -2751,22 +2544,20 @@ pub mod parser {
         do bms.objs.retain |&obj| { obj.data != Deleted }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // analysis
 
     /// Derived BMS information. Again, this is not a global state.
     pub struct BmsInfo {
-        /// The start position of the BMS file. This is either -1.0 or 0.0
-        /// depending on the first measure has any visible objects or not.
-        /// (C: `originoffset`)
+        /// The start position of the BMS file. This is either -1.0 or 0.0 depending on the first
+        /// measure has any visible objects or not. (C: `originoffset`)
         originoffset: float,
         /// Set to true if the BMS file has a BPM change. (C: `hasbpmchange`)
         hasbpmchange: bool,
-        /// Set to true if the BMS file has long note objects.
-        /// (C: `haslongnote`)
+        /// Set to true if the BMS file has long note objects. (C: `haslongnote`)
         haslongnote: bool,
-        /// The number of visible objects in the BMS file. A long note object
-        /// counts as one object. (C: `nnotes`)
+        /// The number of visible objects in the BMS file. A long note object counts as one object.
+        /// (C: `nnotes`)
         nnotes: int,
         /// The maximum possible score. (C: `maxscore`)
         maxscore: int
@@ -2774,9 +2565,8 @@ pub mod parser {
 
     /// Analyzes the loaded BMS file. (C: `analyze_and_compact_bms`)
     pub fn analyze_bms(bms: &Bms) -> BmsInfo {
-        let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false,
-                                  haslongnote: false, nnotes: 0,
-                                  maxscore: 0 };
+        let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false, haslongnote: false,
+                                  nnotes: 0, maxscore: 0 };
 
         for bms.objs.each |&obj| {
             infos.haslongnote |= obj.is_lnstart();
@@ -2815,8 +2605,7 @@ pub mod parser {
                         bpm = BPM(newbpm);
                     } else if newbpm < 0.0 {
                         bpm = BPM(newbpm);
-                        let delta =
-                            bms.adjust_object_position(originoffset, pos);
+                        let delta = bms.adjust_object_position(originoffset, pos);
                         time += BPM(-newbpm).measure_to_msec(delta);
                         break;
                     }
@@ -2830,14 +2619,13 @@ pub mod parser {
         }
 
         if *bpm > 0.0 {
-            let delta =
-                bms.adjust_object_position(pos, (bms.nmeasures + 1) as float);
+            let delta = bms.adjust_object_position(pos, (bms.nmeasures + 1) as float);
             time += bpm.measure_to_msec(delta);
         }
         cmp::max(time, sndtime)
      }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // modifiers
 
     fn update_object_lane(obj: &mut Obj, f: &fn(Lane) -> Lane) {
@@ -2865,8 +2653,7 @@ pub mod parser {
     }
 
     /// (C: `shuffle_bms` with `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
-    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &R,
-                                         lanes: &[Lane]) {
+    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
         for vec::zip_slice(lanes, shuffled).each |&(Lane(from), to)| {
@@ -2879,8 +2666,7 @@ pub mod parser {
     }
 
     /// (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
-    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &R,
-                                        lanes: &[Lane]) {
+    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
         let mut movable = vec::from_slice(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
 
@@ -2896,8 +2682,7 @@ pub mod parser {
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
                 let shuffled = r.shuffle(movable);
-                for vec::zip_slice(movable,
-                                   shuffled).each |&(Lane(from), to)| {
+                for vec::zip_slice(movable, shuffled).each |&(Lane(from), to)| {
                     map[from] = to;
                 }
             }
@@ -2909,22 +2694,22 @@ pub mod parser {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
 
 }
 
-//============================================================================
+//==================================================================================================
 // graphics
 
 pub mod gfx {
     use sdl::Rect;
     pub use sdl::video::*;
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // `Rect` additions
 
-    /// A trait that can be translated to point coordinates (`x` and `y`
-    /// fields in `sdl::Rect`, hence the name). Also contains `()`.
+    /// A trait that can be translated to point coordinates (`x` and `y` fields in `sdl::Rect`,
+    /// hence the name). Also contains `()`.
     pub trait XyOpt {
         /// Returns point coordinates if any.
         fn xy_opt(&self) -> Option<(i16,i16)>;
@@ -2936,8 +2721,8 @@ pub mod gfx {
         fn xy(&self) -> (i16,i16);
     }
 
-    /// A trait that can be translated to a rectangular area (`w` and `h`
-    /// fields in `sdl::Rect`, hence the name). Also contains `()`.
+    /// A trait that can be translated to a rectangular area (`w` and `h` fields in `sdl::Rect`,
+    /// hence the name). Also contains `()`.
     pub trait WhOpt {
         /// Returns a rectangular area if any.
         fn wh_opt(&self) -> Option<(u16,u16)>;
@@ -2954,8 +2739,7 @@ pub mod gfx {
         fn xy_opt(&self) -> Option<(i16,i16)> { None }
     }
 
-    // Rust: we can't define these with `impl<T:Xy> XyOpt for T` due to
-    //       the ambiguity.
+    // Rust: we can't define these with `impl<T:Xy> XyOpt for T` due to the ambiguity.
     impl XyOpt for Rect {
         #[inline(always)]
         fn xy_opt(&self) -> Option<(i16,i16)> { Some((self.x, self.y)) }
@@ -3011,8 +2795,8 @@ pub mod gfx {
         fn wh(&self) -> (u16,u16) { (*self).wh() }
     }
 
-    /// A helper trait for defining every implementations for types `(T1,T2)`
-    /// where `T1` and `T2` is convertible to an integer.
+    /// A helper trait for defining every implementations for types `(T1,T2)` where `T1` and `T2` is
+    /// convertible to an integer.
     trait ToInt16 {
         /// Converts to `i16`.
         fn to_i16(&self) -> i16;
@@ -3042,44 +2826,34 @@ pub mod gfx {
 
     impl<X:ToInt16+Copy,Y:ToInt16+Copy> XyOpt for (X,Y) {
         #[inline(always)]
-        fn xy_opt(&self) -> Option<(i16,i16)> {
-            let (x, y) = *self; Some((x.to_i16(), y.to_i16()))
-        }
+        fn xy_opt(&self) -> Option<(i16,i16)> { let (x, y) = *self; Some((x.to_i16(), y.to_i16())) }
     }
 
     impl<X:ToInt16+Copy,Y:ToInt16+Copy> Xy for (X,Y) {
         #[inline(always)]
-        fn xy(&self) -> (i16,i16) {
-            let (x, y) = *self; (x.to_i16(), y.to_i16())
-        }
+        fn xy(&self) -> (i16,i16) { let (x, y) = *self; (x.to_i16(), y.to_i16()) }
     }
 
     impl<W:ToInt16+Copy,H:ToInt16+Copy> WhOpt for (W,H) {
         #[inline(always)]
-        fn wh_opt(&self) -> Option<(u16,u16)> {
-            let (w, h) = *self; Some((w.to_u16(), h.to_u16()))
-        }
+        fn wh_opt(&self) -> Option<(u16,u16)> { let (w, h) = *self; Some((w.to_u16(), h.to_u16())) }
     }
 
     impl<W:ToInt16+Copy,H:ToInt16+Copy> Wh for (W,H) {
         #[inline(always)]
-        fn wh(&self) -> (u16,u16) {
-            let (w, h) = *self; (w.to_u16(), h.to_u16())
-        }
+        fn wh(&self) -> (u16,u16) { let (w, h) = *self; (w.to_u16(), h.to_u16()) }
     }
 
-    /// Constructs an `sdl::Rect` from given point coordinates. Fills `w` and
-    /// `h` fields to 0 as expected by the second `sdl::Rect` argument from
-    /// `SDL_BlitSurface`.
+    /// Constructs an `sdl::Rect` from given point coordinates. Fills `w` and `h` fields to 0
+    /// as expected by the second `sdl::Rect` argument from `SDL_BlitSurface`.
     #[inline(always)]
     fn rect_from_xy<XY:Xy>(xy: XY) -> Rect {
         let (x, y) = xy.xy();
         Rect { x: x, y: y, w: 0, h: 0 }
     }
 
-    /// Constructs an `sdl::Rect` from given point coordinates and optional
-    /// rectangular area. `rect_from_xywh(xy, ())` equals to
-    /// `rect_from_xy(xy)`.
+    /// Constructs an `sdl::Rect` from given point coordinates and optional rectangular area.
+    /// `rect_from_xywh(xy, ())` equals to `rect_from_xy(xy)`.
     #[inline(always)]
     fn rect_from_xywh<XY:Xy,WH:WhOpt>(xy: XY, wh: WH) -> Rect {
         let (x, y) = xy.xy();
@@ -3087,17 +2861,16 @@ pub mod gfx {
         Rect { x: x, y: y, w: w, h: h }
     }
 
-    /// Additions to `sdl::video::Surface`. They replace their `_rect`
-    /// suffixed counterparts, which are generally annoying to work with.
+    /// Additions to `sdl::video::Surface`. They replace their `_rect` suffixed counterparts,
+    /// which are generally annoying to work with.
     pub trait SurfaceAreaUtil {
         /// An alternative interface to `set_clip_rect`.
         fn set_clip_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH);
         /// An alternative interface to `blit_rect`.
         fn blit_area<SrcXY:Xy,DstXY:XyOpt,WH:WhOpt>(&self, src: &Surface,
-                srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool;
+                                                    srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool;
         /// An alternative interface to `fill_rect`.
-        fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH,
-                                     color: Color) -> bool;
+        fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH, color: Color) -> bool;
     }
 
     impl SurfaceAreaUtil for Surface {
@@ -3109,22 +2882,20 @@ pub mod gfx {
 
         #[inline(always)]
         fn blit_area<SrcXY:Xy,DstXY:XyOpt,WH:WhOpt>(&self, src: &Surface,
-                srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool {
+                                                    srcxy: SrcXY, dstxy: DstXY, wh: WH) -> bool {
             let srcrect = rect_from_xywh(srcxy, wh);
-            let dstrect =
-                dstxy.xy_opt().map(|&xy| rect_from_xywh(xy, &srcrect));
+            let dstrect = dstxy.xy_opt().map(|&xy| rect_from_xywh(xy, &srcrect));
             self.blit_rect(src, Some(srcrect), dstrect)
         }
 
         #[inline(always)]
-        fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH,
-                                     color: Color) -> bool {
+        fn fill_area<XY:Xy,WH:WhOpt>(&self, xy: XY, wh: WH, color: Color) -> bool {
             let rect = rect_from_xywh(xy, wh);
             self.fill_rect(Some(rect), color)
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // color
 
     /// Extracts a red, green, blue components from given color.
@@ -3145,8 +2916,8 @@ pub mod gfx {
         Gradient { zero: top, one: bottom }
     }
 
-    /// A trait for color or color gradient. The color at the particular
-    /// position can be calculated with `blend` method.
+    /// A trait for color or color gradient. The color at the particular position can be calculated
+    /// with `blend` method.
     //
     // Rust: `Copy` can't be inherited even when it's specified. (#3984)
     pub trait Blend {
@@ -3167,26 +2938,24 @@ pub mod gfx {
 
             let (r0, g0, b0) = to_rgb(self.zero);
             let (r1, g1, b1) = to_rgb(self.one);
-            RGB(mix(r1, r0, num, denom), mix(g1, g0, num, denom),
-                mix(b1, b0, num, denom))
+            RGB(mix(r1, r0, num, denom), mix(g1, g0, num, denom), mix(b1, b0, num, denom))
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // surface utilities
 
-    /// Creates a new RAM-backed surface. By design, Angolmois does not use
-    /// a VRAM-backed surface except for the screen. (C: `newsurface`)
+    /// Creates a new RAM-backed surface. By design, Angolmois does not use a VRAM-backed surface
+    /// except for the screen. (C: `newsurface`)
     pub fn new_surface(w: uint, h: uint) -> ~Surface {
-        match Surface::new([SWSurface], w as int, h as int, 32,
-                           0xff0000, 0xff00, 0xff, 0) {
+        match Surface::new([SWSurface], w as int, h as int, 32, 0xff0000, 0xff00, 0xff, 0) {
             Ok(surface) => surface,
             Err(err) => die!("new_surface failed: %s", err)
         }
     }
 
-    /// A proxy to `sdl::video::Surface` for the direct access to pixels.
-    /// For now, it is for 32 bits per pixel only.
+    /// A proxy to `sdl::video::Surface` for the direct access to pixels. For now, it is for 32 bits
+    /// per pixel only.
     pub struct SurfacePixels<'self> {
         fmt: *ll::SDL_PixelFormat,
         width: uint,
@@ -3197,8 +2966,8 @@ pub mod gfx {
 
     /// A trait for the direct access to pixels.
     pub trait SurfacePixelsUtil {
-        /// Grants the direct access to pixels. Also locks the surface
-        /// as needed, so you can't blit during working with pixels.
+        /// Grants the direct access to pixels. Also locks the surface as needed, so you can't blit
+        /// during working with pixels.
         fn with_pixels<R>(&self, f: &fn(pixels: &SurfacePixels) -> R) -> R;
     }
 
@@ -3227,15 +2996,13 @@ pub mod gfx {
             self.pixels[x + y * self.pitch] = c.to_mapped(self.fmt);
         }
 
-        /// Sets or blends (if `c` is `RGBA`) a pixel to given position.
-        /// (C: `putblendedpixel`)
+        /// Sets or blends (if `c` is `RGBA`) a pixel to given position. (C: `putblendedpixel`)
         pub fn put_blended_pixel(&self, x: uint, y: uint, c: Color) {
             match c {
                 RGB(*) => self.put_pixel(x, y, c),
                 RGBA(r,g,b,a) => match self.get_pixel(x, y) {
                     RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
-                        let grad = Gradient { zero: RGB(r,g,b),
-                                              one:  RGB(r2,g2,b2) };
+                        let grad = Gradient { zero: RGB(r,g,b), one: RGB(r2,g2,b2) };
                         self.put_pixel(x, y, grad.blend(a as int, 255));
                     }
                 }
@@ -3282,10 +3049,8 @@ pub mod gfx {
                     for int::range(0, 4) |k1| {
                         let xx = x + k0 - 1, yy = y + k1 - 1;
                         if 0 <= xx && xx <= ww && 0 <= yy && yy <= hh {
-                            let (r2,g2,b2) =
-                                to_rgb(src.get_pixel(xx as uint, yy as uint));
-                            let d = (a0[k0] * a1[k1]) >> (FP_SHIFT1*2 -
-                                                          FP_SHIFT2);
+                            let (r2,g2,b2) = to_rgb(src.get_pixel(xx as uint, yy as uint));
+                            let d = (a0[k0] * a1[k1]) >> (FP_SHIFT1*2 - FP_SHIFT2);
                             r += r2 as int * d;
                             g += g2 as int * d;
                             b += b2 as int * d;
@@ -3313,7 +3078,7 @@ pub mod gfx {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // bitmap font
 
     /// Bit vector which represents one row of zoomed font.
@@ -3322,23 +3087,21 @@ pub mod gfx {
     /// 8x16 resizable bitmap font.
     pub struct Font {
         /**
-         * Font data used for zoomed font reconstruction. This is actually
-         * an array of `u32` elements, where the first `u16` element forms
-         * upper 16 bits and the second forms lower 16 bits. It is
-         * reinterpreted for better compression. (C: `fontdata`)
+         * Font data used for zoomed font reconstruction. This is actually an array of `u32`
+         * elements, where the first `u16` element forms upper 16 bits and the second forms lower
+         * 16 bits. It is reinterpreted for better compression. (C: `fontdata`)
          *
-         * One glyph has 16 `u32` elements for each row from the top to
-         * the bottom. One `u32` element contains eight four-bit groups for
-         * each column from the left (lowermost group) to the right
-         * (uppermost group). Each group is a bitwise OR of following bits:
+         * One glyph has 16 `u32` elements for each row from the top to the bottom. One `u32`
+         * element contains eight four-bit groups for each column from the left (lowermost group)
+         * to the right (uppermost group). Each group is a bitwise OR of following bits:
          *
          * - 1: the lower right triangle of the zoomed pixel should be drawn.
          * - 2: the lower left triangle of the zoomed pixel should be drawn.
          * - 4: the upper left triangle of the zoomed pixel should be drawn.
          * - 8: the upper right triangle of the zoomed pixel should be drawn.
          *
-         * So for example, if the group bits read 3 (1+2), the zoomed pixel
-         * would be drawn as follows (in the zoom factor 5):
+         * So for example, if the group bits read 3 (1+2), the zoomed pixel would be drawn
+         * as follows (in the zoom factor 5):
          *
          *     .....
          *     #...#
@@ -3346,15 +3109,14 @@ pub mod gfx {
          *     #####
          *     #####
          *
-         * The group bits 15 (1+2+4+8) always draw the whole square, so in
-         * the zoom factor 1 only pixels with group bits 15 will be drawn.
+         * The group bits 15 (1+2+4+8) always draw the whole square, so in the zoom factor 1 only
+         * pixels with group bits 15 will be drawn.
          */
         glyphs: ~[u16],
 
-        /// Precalculated zoomed font per zoom factor. It is three-dimensional
-        /// array which indices are zoom factor, glyph number and row
-        /// respectively. Assumes that each element has at least zoom factor
-        /// times 8 (columns per row) bits. (C: `zoomfont`)
+        /// Precalculated zoomed font per zoom factor. It is three-dimensional array which indices
+        /// are zoom factor, glyph number and row respectively. Assumes that each element has
+        /// at least zoom factor times 8 (columns per row) bits. (C: `zoomfont`)
         pixels: ~[~[~[ZoomedFontRow]]]
     }
 
@@ -3369,30 +3131,25 @@ pub mod gfx {
 
         // LZ77-compressed indices to code words:
         // - Byte 33..97 encodes a literal code word 0..64;
-        // - Byte 98..126 encodes an LZ77 length distance pair with length
-        //   3..31; the following byte 33..126 encodes a distance 1..94.
+        // - Byte 98..126 encodes an LZ77 length distance pair with length 3..31;
+        //   the following byte 33..126 encodes a distance 1..94.
         // (C: `indices`)
         let indices =
-            ~"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!\
-              Qi>&!&!>UT2T2&2>WT!c*T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ25\
-              2>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfejcNl!&JTLTLG_&J>]c*&J\
-              m@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ\
-              2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a\
-              [2!2k?!bnc32>[u`>Uc4d@b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!k\
-              tk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5ghCk=>UQ2Q2U2Dc>J!!&J&\
-              b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWG\
-              Ok@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a\
-              [g*Ql`7[&J&Jk$7[l`!Qi$d^GWk@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[\
-              a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWCgZU:EW.Ok@>[g<G[!2!2d$k@Ug@Q2V\
-              2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a\
-              [CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!C\
-              a[k@*Q!Q!l$b2m!+!:#W'O,?4!1n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?\
-              4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@l`czi|c$al@i`b:[!2Un`\
-              >8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2\
-              U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2\
-              !2b$h!al`aWQ!Q!Qp`fVlZf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@\
-              U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(M$U!Ck@a[]!G8.M(U$[!C\
-              a[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
+            ~"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*\
+              T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfe\
+              jcNl!&JTLTLG_&J>]c*&Jm@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ\
+              2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u`>Uc4d\
+              @b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5g\
+              hCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWG\
+              Ok@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi\
+              $d^GWk@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWCgZU:EW.Ok\
+              @>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a\
+              [CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'\
+              O,?4!1n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@\
+              l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2\
+              U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`fVl\
+              Zf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(\
+              M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
         /// (C: `fontdecompress`)
         fn decompress(dwords: &[u16], indices: &str) -> ~[u16] {
@@ -3409,7 +3166,7 @@ pub mod gfx {
                 let code = indices[i] as uint;
                 i += 1;
                 match code {
-                    33..97 => glyphs.push(words[code - 33]),
+                    33..97 => { glyphs.push(words[code - 33]); }
                     98..126 => {
                         let length = code - 95; // code=98 -> length=3
                         let distance = indices[i] as uint - 32;
@@ -3418,7 +3175,7 @@ pub mod gfx {
                         for uint::range(start, start + length) |i| {
                             glyphs.push(glyphs[i]);
                         }
-                    },
+                    }
                     _ => fail!(~"unexpected codeword")
                 }
             }
@@ -3435,17 +3192,13 @@ pub mod gfx {
         fn create_zoomed_font(&mut self, zoom: uint) {
             assert!(zoom > 0);
             assert!(zoom <= (8 * sys::size_of::<ZoomedFontRow>()) / 8);
-            if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() {
-                return;
-            }
+            if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() { return; }
 
             let nrows = 16;
             let nglyphs = self.glyphs.len() / nrows / 2;
-            let mut pixels = vec::from_elem(nglyphs,
-                                            vec::from_elem(zoom*nrows, 0));
+            let mut pixels = vec::from_elem(nglyphs, vec::from_elem(zoom*nrows, 0));
 
-            let put_zoomed_pixel = |glyph: uint, row: uint, col: uint,
-                                    v: u32| {
+            let put_zoomed_pixel = |glyph: uint, row: uint, col: uint, v: u32| {
                 let zoomrow = row * zoom;
                 let zoomcol = col * zoom;
                 for uint::range(0, zoom) |r| {
@@ -3470,8 +3223,7 @@ pub mod gfx {
             let mut i = 0;
             for uint::range(0, nglyphs) |glyph| {
                 for uint::range(0, nrows) |row| {
-                    let data = (self.glyphs[i] as u32 << 16) |
-                               (self.glyphs[i+1] as u32);
+                    let data = (self.glyphs[i] as u32 << 16) | (self.glyphs[i+1] as u32);
                     i += 2;
                     for uint::range(0, 8) |col| {
                         let v = (data >> (4 * col)) & 15;
@@ -3482,12 +3234,10 @@ pub mod gfx {
             self.pixels.grow_set(zoom, &~[], pixels);
         }
 
-        /// Prints a glyph with given position and top/bottom color. This
-        /// method is distinct from `print_glyph` since the glyph #95 is used
-        /// for the tick marker (character code -1 in C).
-        pub fn print_glyph<ColorT:Blend+Copy>(&self, // XXX #3984
-                pixels: &SurfacePixels, x: uint, y: uint, zoom: uint,
-                glyph: uint, color: ColorT) {
+        /// Prints a glyph with given position and top/bottom color. This method is distinct from
+        /// `print_glyph` since the glyph #95 is used for the tick marker (character code -1 in C).
+        pub fn print_glyph<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
+                                              zoom: uint, glyph: uint, color: ColorT) { // XXX #3984
             assert!(!self.pixels[zoom].is_empty());
             for uint::range(0, 16 * zoom) |iy| {
                 let row = self.pixels[zoom][glyph][iy];
@@ -3501,9 +3251,8 @@ pub mod gfx {
         }
 
         /// (C: `printchar`)
-        pub fn print_char<ColorT:Blend+Copy>(&self, // XXX #3984
-                pixels: &SurfacePixels, x: uint, y: uint, zoom: uint,
-                c: char, color: ColorT) {
+        pub fn print_char<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
+                                             zoom: uint, c: char, color: ColorT) { // XXX #3984
             if !char::is_whitespace(c) {
                 let c = c as uint;
                 let glyph = if 32 <= c && c < 126 {c-32} else {0};
@@ -3512,9 +3261,9 @@ pub mod gfx {
         }
 
         /// (C: `printstr`)
-        pub fn print_string<ColorT:Blend+Copy>(&self, // XXX #3984
-                pixels: &SurfacePixels, x: uint, y: uint, zoom: uint,
-                align: Alignment, s: &str, color: ColorT) {
+        pub fn print_string<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
+                                               zoom: uint, align: Alignment, s: &str,
+                                               color: ColorT) { // XXX #3984
             let mut x = match align {
                 LeftAligned  => x,
                 Centered     => x - s.char_len() * (8 * zoom) / 2,
@@ -3530,16 +3279,16 @@ pub mod gfx {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
 
 }
 
-//============================================================================
+//==================================================================================================
 // game play
 
 /**
- * Game play logics. This module contains whooping 2000+ lines of code,
- * reflecting the fact that Angolmois is not well refactored.
+ * Game play logics. This module contains whooping 2000+ lines of code, reflecting the fact that
+ * Angolmois is not well refactored.
  */
 pub mod player {
     use sdl::*;
@@ -3560,22 +3309,19 @@ pub mod player {
     /// The height of BGA, or the height of screen for the exclusive mode.
     pub static BGAH: uint = 256;
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // options
 
     /// Game play modes. (C: `enum mode`)
     #[deriving(Eq)]
     pub enum Mode {
-        /// Normal game play. The graphical display and input is enabled.
-        /// (C: `PLAY_MODE`)
+        /// Normal game play. The graphical display and input is enabled. (C: `PLAY_MODE`)
         PlayMode,
-        /// Automatic game play. The graphical display is enabled but
-        /// the input is mostly ignored except for the play speed change.
-        /// (C: `AUTOPLAY_MODE`)
+        /// Automatic game play. The graphical display is enabled but the input is mostly ignored
+        /// except for the play speed change. (C: `AUTOPLAY_MODE`)
         AutoPlayMode,
-        /// Exclusive (headless) mode. The graphical display is reduced to
-        /// the BGA or absent at all (when `NoBga` is also set).
-        /// (C: `EXCLUSIVE_MODE`)
+        /// Exclusive (headless) mode. The graphical display is reduced to the BGA or absent at all
+        /// (when `NoBga` is also set). (C: `EXCLUSIVE_MODE`)
         ExclusiveMode
     }
 
@@ -3635,38 +3381,33 @@ pub mod player {
             Path(self.bmspath).dir_path().push_rel(&Path(path))
         }
 
-        /// Returns true if the exclusive mode is enabled. This enables
-        /// a text-based interface. (C: `opt_mode >= EXCLUSIVE_MODE`)
+        /// Returns true if the exclusive mode is enabled. This enables a text-based interface.
+        /// (C: `opt_mode >= EXCLUSIVE_MODE`)
         fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
 
-        /// Returns true if the input is ignored. Escape key or speed-changing
-        /// keys are still available as long as the graphical screen is
-        /// enabled. (C: `!!opt_mode`)
+        /// Returns true if the input is ignored. Escape key or speed-changing keys are still
+        /// available as long as the graphical screen is enabled. (C: `!!opt_mode`)
         fn is_autoplay(&self) -> bool { self.mode != PlayMode }
 
         /// Returns true if the BGA is displayed. (C: `opt_bga < NO_BGA`)
         fn has_bga(&self) -> bool { self.bga != NoBga }
 
-        /// Returns true if the BGA movie is enabled.
-        /// (C: `opt_bga < BGA_BUT_NO_MOVIE`)
+        /// Returns true if the BGA movie is enabled. (C: `opt_bga < BGA_BUT_NO_MOVIE`)
         fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
 
         /// Returns true if the graphical screen is enabled.
         /// (C: `opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA`)
-        fn has_screen(&self) -> bool {
-            !self.is_exclusive() || self.has_bga()
-        }
+        fn has_screen(&self) -> bool { !self.is_exclusive() || self.has_bga() }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // bms utilities
 
     pub fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
-                    if opts.preset.is_none() &&
-                           opts.bmspath.to_lower().ends_with(~".pms") {
+                    if opts.preset.is_none() && opts.bmspath.to_lower().ends_with(~".pms") {
                         Some(~"pms")
                     } else {
                         copy opts.preset
@@ -3675,8 +3416,7 @@ pub mod player {
                     Some(leftright) => leftright,
                     None => {
                         return Err(fmt!("Invalid preset name: %s",
-                                        opts.preset.map_default(~"",
-                                            |&v| copy v)));
+                                        opts.preset.map_default(~"", |&v| copy v)));
                     }
                 }
             } else {
@@ -3686,8 +3426,7 @@ pub mod player {
                  opts.rightkeys.map_default(~"", |&v| copy v))
             };
 
-        let mut keyspec = ~KeySpec { split: 0, order: ~[],
-                                     kinds: ~[None, ..NLANES] };
+        let mut keyspec = ~KeySpec { split: 0, order: ~[], kinds: ~[None, ..NLANES] };
         let parse_and_add = |keys: &str| -> Option<uint> {
             match parse_key_spec(keys) {
                 None | Some([]) => None,
@@ -3704,10 +3443,7 @@ pub mod player {
 
         if !leftkeys.is_empty() {
             match parse_and_add(leftkeys) {
-                None => {
-                    return Err(fmt!("Invalid key spec for left \
-                                     hand side: %s", leftkeys));
-                }
+                None => { return Err(fmt!("Invalid key spec for left hand side: %s", leftkeys)); }
                 Some(nkeys) => { keyspec.split += nkeys; }
             }
         } else {
@@ -3715,10 +3451,7 @@ pub mod player {
         }
         if !rightkeys.is_empty() {
             match parse_and_add(rightkeys) {
-                None => {
-                    return Err(fmt!("Invalid key spec for right \
-                                     hand side: %s", rightkeys));
-                }
+                None => { return Err(fmt!("Invalid key spec for right hand side: %s", rightkeys)); }
                 Some(nkeys) => { // no split panes except for #PLAYER 2
                     if bms.player != CouplePlay { keyspec.split += nkeys; }
                 }
@@ -3728,8 +3461,7 @@ pub mod player {
     }
 
     /// (C: `shuffle_bms`)
-    pub fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf,
-                                                r: &R, keyspec: &KeySpec,
+    pub fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf, r: &R, keyspec: &KeySpec,
                                                 begin: uint, end: uint) {
         let mut lanes = ~[];
         for uint::range(begin, end) |i| {
@@ -3748,11 +3480,11 @@ pub mod player {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // utilities
 
-    /// Checks if the user pressed the escape key or the quit button. `atexit`
-    /// is called before the program is terminated. (C: `check_exit`)
+    /// Checks if the user pressed the escape key or the quit button. `atexit` is called before
+    /// the program is terminated. (C: `check_exit`)
     pub fn check_exit(atexit: &fn()) {
         loop {
             match poll_event() {
@@ -3785,8 +3517,7 @@ pub mod player {
 
     pub impl Ticker {
         fn on_tick(&mut self, now: uint, f: &fn()) {
-            if self.lastinfo.map_default(true,
-                                         |&t| now - t >= self.interval) {
+            if self.lastinfo.map_default(true, |&t| now - t >= self.interval) {
                 self.lastinfo = Some(now);
                 f();
             }
@@ -3797,7 +3528,7 @@ pub mod player {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // initialization
 
     static SAMPLERATE: i32 = 44100;
@@ -3807,14 +3538,11 @@ pub mod player {
     pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
         let result =
             if exclusive {
-                set_video_mode(BGAW as int, BGAH as int, 32,
-                               [SWSurface], [DoubleBuf])
+                set_video_mode(BGAW as int, BGAH as int, 32, [SWSurface], [DoubleBuf])
             } else if !fullscreen {
-                set_video_mode(SCREENW as int, SCREENH as int, 32,
-                               [SWSurface], [DoubleBuf])
+                set_video_mode(SCREENW as int, SCREENH as int, 32, [SWSurface], [DoubleBuf])
             } else {
-                set_video_mode(SCREENW as int, SCREENH as int, 32,
-                               [], [Fullscreen])
+                set_video_mode(SCREENW as int, SCREENH as int, 32, [], [Fullscreen])
             };
         let screen =
             match result {
@@ -3835,8 +3563,7 @@ pub mod player {
         }
         img::init([img::InitJPG, img::InitPNG]);
         //mixer::init([mixer::InitOGG, mixer::InitMP3]); // TODO
-        if mixer::open(SAMPLERATE, audio::S16AudioFormat,
-                       audio::Stereo, 2048).is_err() {
+        if mixer::open(SAMPLERATE, audio::S16AudioFormat, audio::Stereo, 2048).is_err() {
             die!("SDL Mixer Initialization Failure");
         }
     }
@@ -3849,7 +3576,7 @@ pub mod player {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // virtual input
 
     /// Actual input. Mapped to zero or more virtual inputs by input mapping.
@@ -3886,36 +3613,31 @@ pub mod player {
     }
 
     /**
-     * State of virtual input elements. There are three states: neutral, and
-     * positive or negative. There is no difference between positive and
-     * negative states (the naming is arbitrary) except for that they are
-     * distinct.
+     * State of virtual input elements. There are three states: neutral, and positive or negative.
+     * There is no difference between positive and negative states (the naming is arbitrary)
+     * except for that they are distinct.
      *
-     * The states should really be one of pressed (non-neutral) or unpressed
-     * (neutral) states, but we need two non-neutral states since the actual
-     * input device with continuous values (e.g. joystick axes) can trigger
-     * the state transition *twice* without hitting the neutral state.
-     * We solve this problem by making the transition from negative to
-     * positive (and vice versa) temporarily hit the neutral state.
+     * The states should really be one of pressed (non-neutral) or unpressed (neutral) states,
+     * but we need two non-neutral states since the actual input device with continuous values
+     * (e.g. joystick axes) can trigger the state transition *twice* without hitting the neutral
+     * state. We solve this problem by making the transition from negative to positive (and vice
+     * versa) temporarily hit the neutral state.
      */
     #[deriving(Eq)]
     enum InputState {
-        /// Positive input state. Occurs when the button is pressed or
-        /// the joystick axis is moved in the positive direction.
+        /// Positive input state. Occurs when the button is pressed or the joystick axis is moved
+        /// in the positive direction.
         Positive = 1,
-        /// Neutral input state. Occurs when the button is not pressed or
-        /// the joystick axis is moved back to the origin.
+        /// Neutral input state. Occurs when the button is not pressed or the joystick axis is moved
+        /// back to the origin.
         Neutral = 0,
-        /// Negative input state. Occurs when the joystick axis is moved
-        /// in the negative direction.
+        /// Negative input state. Occurs when the joystick axis is moved in the negative direction.
         Negative = -1
     }
 
     pub impl VirtualInput {
-        /// Returns true if the virtual input has a specified key kind in
-        /// the key specification.
-        fn active_in_key_spec(&self, kind: KeyKind,
-                              keyspec: &KeySpec) -> bool {
+        /// Returns true if the virtual input has a specified key kind in the key specification.
+        fn active_in_key_spec(&self, kind: KeyKind, keyspec: &KeySpec) -> bool {
             match *self {
                 LaneInput(Lane(lane)) => keyspec.kinds[lane] == Some(kind),
                 SpeedDownInput | SpeedUpInput => true
@@ -3938,14 +3660,12 @@ pub mod player {
         &'static str,
         &'static [(Option<KeyKind>, &'static [VirtualInput])]);
 
-    /// A list of environment variables that set the mapping for multiple
-    /// keys, and corresponding default values and the order of keys.
-    /// (C: `envvars`)
+    /// A list of environment variables that set the mapping for multiple keys, and corresponding
+    /// default values and the order of keys. (C: `envvars`)
     static KEYSETS: &'static [KeySet] = &[
         (/*KeySet { envvar:*/ &"ANGOLMOIS_1P_KEYS",
-                 /*default:*/ &"left shift%axis 3|z%button 3|s%button 6|\
-                            x%button 2|d%button 7|c%button 1|f%button 4|\
-                            v%axis 2|left alt",
+                 /*default:*/ &"left shift%axis 3|z%button 3|s%button 6|x%button 2|d%button 7|\
+                            c%button 1|f%button 4|v%axis 2|left alt",
                  /*mapping:*/ &[(Some(Scratch),   &[LaneInput(Lane(6))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(1))]),
                             (Some(BlackKey),  &[LaneInput(Lane(2))]),
@@ -3973,14 +3693,10 @@ pub mod player {
                             (Some(Button3), &[LaneInput(Lane(3))]),
                             (Some(Button4), &[LaneInput(Lane(4))]),
                             (Some(Button5), &[LaneInput(Lane(5))]),
-                            (Some(Button4), &[LaneInput(Lane(8)),
-                                              LaneInput(Lane(36+2))]),
-                            (Some(Button3), &[LaneInput(Lane(9)),
-                                              LaneInput(Lane(36+3))]),
-                            (Some(Button2), &[LaneInput(Lane(6)),
-                                              LaneInput(Lane(36+4))]),
-                            (Some(Button1), &[LaneInput(Lane(7)),
-                                              LaneInput(Lane(36+5))])] ),
+                            (Some(Button4), &[LaneInput(Lane(8)), LaneInput(Lane(36+2))]),
+                            (Some(Button3), &[LaneInput(Lane(9)), LaneInput(Lane(36+3))]),
+                            (Some(Button2), &[LaneInput(Lane(6)), LaneInput(Lane(36+4))]),
+                            (Some(Button1), &[LaneInput(Lane(7)), LaneInput(Lane(36+5))])] ),
         (/*KeySet { envvar:*/ &"ANGOLMOIS_SPEED_KEYS",
                  /*default:*/ &"f3|f4",
                  /*mapping:*/ &[(None, &[SpeedDownInput]),
@@ -3990,8 +3706,7 @@ pub mod player {
     pub type KeyMap = ::core_compat::hashmap::HashMap<Input,VirtualInput>;
 
     /// (C: `read_keymap`)
-    pub fn read_keymap(keyspec: &KeySpec,
-                       getenv: &fn(&str) -> Option<~str>) -> KeyMap {
+    pub fn read_keymap(keyspec: &KeySpec, getenv: &fn(&str) -> Option<~str>) -> KeyMap {
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
             let name = name.to_lower();
             unsafe {
@@ -4019,10 +3734,8 @@ pub mod player {
         }
 
         let mut map = ::core_compat::hashmap::HashMap::new();
-        let add_mapping = |kind: Option<KeyKind>, input: Input,
-                           vinput: VirtualInput| {
-            if kind.map_default(true,
-                    |&kind| vinput.active_in_key_spec(kind, keyspec)) {
+        let add_mapping = |kind: Option<KeyKind>, input: Input, vinput: VirtualInput| {
+            if kind.map_default(true, |&kind| vinput.active_in_key_spec(kind, keyspec)) {
                 map.insert(input, vinput);
             }
         };
@@ -4041,7 +3754,7 @@ pub mod player {
                             for vinputs.each |&vinput| {
                                 add_mapping(kind, input, vinput);
                             }
-                        },
+                        }
                         None => die!("Unknown key name in the environment \
                                       variable %s: %s", /*keyset.*/envvar, s)
                     }
@@ -4055,14 +3768,11 @@ pub mod player {
         for keyspec.order.each |&lane| {
             let key = Key(36 + *lane as int);
             let kind = keyspec.kinds[*lane].get();
-            let envvar = fmt!("ANGOLMOIS_%s%c_KEY", key.to_str(),
-                              kind.to_char());
+            let envvar = fmt!("ANGOLMOIS_%s%c_KEY", key.to_str(), kind.to_char());
             for getenv(envvar).each |&s| {
                 match parse_input(s) {
-                    Some(input) => add_mapping(Some(kind), input,
-                                               LaneInput(lane)),
-                    None => die!("Unknown key name in the environment \
-                                  variable %s: %s", envvar, s)
+                    Some(input) => { add_mapping(Some(kind), input, LaneInput(lane)); }
+                    None => die!("Unknown key name in the environment variable %s: %s", envvar, s)
                 }
             }
         }
@@ -4070,19 +3780,19 @@ pub mod player {
         map
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // resource management
 
-    /// Sound resource associated to `SoundRef`. It contains the actual
-    /// SDL_mixer chunk that can be readily played. (C: the type of `sndres`)
+    /// Sound resource associated to `SoundRef`. It contains the actual SDL_mixer chunk that can be
+    /// readily played. (C: the type of `sndres`)
     enum SoundResource {
         /// No sound resource is associated, or error occurred while loading.
         NoSound,
         /// Sound resource is associated.
         //
-        // Rust: ideally this should be just a ~-ptr, but the current borrowck
-        //       is very constrained in this aspect. after several attempts
-        //       I finally sticked to delegate the ownership to a managed box.
+        // Rust: ideally this should be just a ~-ptr, but the current borrowck is very constrained
+        //       in this aspect. after several attempts I finally sticked to delegate the ownership
+        //       to a managed box.
         Sound(@~Chunk) // XXX borrowck
     }
 
@@ -4095,10 +3805,9 @@ pub mod player {
             }
         }
 
-        /// Returns the length of associated sound chunk in seconds. This is
-        /// used for determining the actual duration of the song in presence
-        /// of key and background sounds, so it may return 0 seconds if no
-        /// sound is present.
+        /// Returns the length of associated sound chunk in seconds. This is used for determining
+        /// the actual duration of the song in presence of key and background sounds, so it may
+        /// return 0.0 if no sound is present.
         fn duration(&self) -> float {
             match *self {
                 NoSound => 0.0,
@@ -4127,18 +3836,17 @@ match Chunk::from_wav(&fullpath) {
         }
     }
 
-    /// Image resource associated to `ImageRef`. It can be either a static
-    /// image or a movie, and both contains an SDL surface that can be blitted
-    /// to the screen. (C: the type of `imgres`)
+    /// Image resource associated to `ImageRef`. It can be either a static image or a movie, and
+    /// both contains an SDL surface that can be blitted to the screen. (C: the type of `imgres`)
     enum ImageResource {
         /// No image resource is associated, or error occurred while loading.
         NoImage,
-        /// A static image is associated. The surface may have a transparency
-        /// which is already handled by `load_image`.
+        /// A static image is associated. The surface may have a transparency which is already
+        /// handled by `load_image`.
         Image(@~Surface), // XXX borrowck
-        /// A movie is associated. A playback starts when `start_movie` method
-        /// is called, and stops when `stop_movie` is called. An associated
-        /// surface is updated from the separate thread during the playback.
+        /// A movie is associated. A playback starts when `start_movie` method is called, and stops
+        /// when `stop_movie` is called. An associated surface is updated from the separate thread
+        /// during the playback.
         Movie(@~Surface, @~MPEG) // XXX borrowck
     }
 
@@ -4159,8 +3867,8 @@ match Chunk::from_wav(&fullpath) {
             }
         }
 
-        /// Starts (or restarts, if the movie was already being played)
-        /// the movie playback if possible.
+        /// Starts (or restarts, if the movie was already being played) the movie playback
+        /// if possible.
         fn start_movie(&self) {
             match *self {
                 NoImage | Image(_) => {}
@@ -4171,8 +3879,8 @@ match Chunk::from_wav(&fullpath) {
 
     /// Loads an image resource.
     fn load_image(key: Key, path: &str, opts: &Options) -> ImageResource {
-        /// Converts a surface to the native display format, while preserving
-        /// a transparency or setting a color key if required.
+        /// Converts a surface to the native display format, while preserving a transparency or
+        /// setting a color key if required.
         fn to_display_format(surface: ~Surface) -> Result<~Surface,~str> {
             if unsafe {(*(*surface.raw).format).Amask} != 0 {
                 let res = surface.display_format_alpha();
@@ -4184,8 +3892,7 @@ match Chunk::from_wav(&fullpath) {
             } else {
                 let res = surface.display_format();
                 do res.iter |surface| { // XXX #3224
-                    (*&surface).set_color_key([SrcColorKey, RLEAccel],
-                                              RGB(0,0,0));
+                    (*&surface).set_color_key([SrcColorKey, RLEAccel], RGB(0,0,0));
                 }
                 res
             }
@@ -4202,10 +3909,7 @@ match Chunk::from_wav(&fullpath) {
                         movie.set_display(*surface);
                         return Movie(surface, @movie);
                     }
-                    Err(_) => {
-                        warn!("failed to load image #BMP%s (%s)",
-                              key.to_str(), path);
-                    }
+                    Err(_) => { warn!("failed to load image #BMP%s (%s)", key.to_str(), path); }
                 }
             }
         } else if opts.has_bga() {
@@ -4217,17 +3921,13 @@ match Chunk::from_wav(&fullpath) {
             };
             match res {
                 Ok(res) => { return res; },
-                Err(_) => {
-                    warn!("failed to load image #BMP%s (%s)",
-                          key.to_str(), path);
-                }
+                Err(_) => { warn!("failed to load image #BMP%s (%s)", key.to_str(), path); }
             }
         }
         NoImage
     }
 
-    /// Applies the blit command to given list of image resources.
-    /// (C: a part of `load_resource`)
+    /// Applies the blit command to given list of image resources. (C: a part of `load_resource`)
     fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
         let origin: @~Surface = match imgres[**bc.src] {
             Image(src) => src,
@@ -4252,30 +3952,28 @@ match Chunk::from_wav(&fullpath) {
         target.blit_area(*origin, (x1,y1), (x2,y2), (x2-x1,y2-y1));
     }
 
-    /// A list of image references displayed in BGA layers (henceforth the BGA
-    /// state). Not all image referenced here is directly rendered, but
-    /// the references themselves are kept.
+    /// A list of image references displayed in BGA layers (henceforth the BGA state). Not all image
+    /// referenced here is directly rendered, but the references themselves are kept.
     type BGAState = [Option<ImageRef>, ..NLAYERS];
 
-    /// Returns the initial BGA state. Note that merely setting a particular
-    /// layer doesn't start the movie playback; `poorbgafix` in
-    /// `parser::parse` function handles it.
+    /// Returns the initial BGA state. Note that merely setting a particular layer doesn't start
+    /// the movie playback; `poorbgafix` in `parser::parse` function handles it.
     fn initial_bga_state() -> BGAState {
         [None, None, None, Some(ImageRef(Key(0)))]
     }
 
     trait BGAStateOps {
         fn update(&mut self, current: &BGAState, imgres: &[ImageResource]);
-        fn render(&self, screen: &Surface, layers: &[BGALayer],
-                  imgres: &[ImageResource], x: uint, y: uint);
+        fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
+                  x: uint, y: uint);
     }
 
     impl BGAStateOps for BGAState {
         fn update(&mut self, current: &BGAState, imgres: &[ImageResource]) {
             for uint::range(0, NLAYERS) |layer| {
-                // TODO this design can't handle the case that a BGA layer is
-                // updated to the same image reference, which should rewind
-                // the movie playback. the original Angolmois does handle it.
+                // TODO this design can't handle the case that a BGA layer is updated to the same
+                // image reference, which should rewind the movie playback. the original Angolmois
+                // does handle it.
                 if self[layer] != current[layer] {
                     for self[layer].each |&iref| {
                         imgres[**iref].stop_movie();
@@ -4288,8 +3986,8 @@ match Chunk::from_wav(&fullpath) {
             *self = *current;
         }
 
-        fn render(&self, screen: &Surface, layers: &[BGALayer],
-                  imgres: &[ImageResource], x: uint, y: uint) {
+        fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
+                  x: uint, y: uint) {
             screen.fill_area((x,y), (256,256), RGB(0,0,0));
             for layers.each |&layer| {
                 for self[layer as uint].each |&iref| {
@@ -4301,19 +3999,14 @@ match Chunk::from_wav(&fullpath) {
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // loading
 
-    /// Returns the interface string common to the graphical and textual
-    /// loading screen.
-    fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec)
-                                    -> (~str, ~str, ~str, ~str) {
+    /// Returns the interface string common to the graphical and textual loading screen.
+    fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec) -> (~str, ~str, ~str, ~str) {
         let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
-                        bms.playlevel, *bms.initbpm,
-                        if infos.hasbpmchange {~"?"} else {~""},
-                        infos.nnotes,
-                        if infos.nnotes == 1 {~""} else {~"s"},
-                        keyspec.nkeys(),
+                        bms.playlevel, *bms.initbpm, if infos.hasbpmchange {~"?"} else {~""},
+                        infos.nnotes, if infos.nnotes == 1 {~""} else {~"s"}, keyspec.nkeys(),
                         if infos.haslongnote {~"-LN"} else {~""});
         let title = (copy bms.title).get_or_default(~"");
         let genre = (copy bms.genre).get_or_default(~"");
@@ -4321,20 +4014,15 @@ match Chunk::from_wav(&fullpath) {
         (meta, title, genre, artist)
     }
 
-    /// Renders the graphical loading screen by blitting BMS #STAGEFILE image
-    /// (if any) and showing the metadata. (C: `play_show_stagefile` when
-    /// `opt_mode < EXCLUSIVE_MODE`)
-    pub fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo,
-                                 keyspec: &KeySpec, opts: &Options,
+    /// Renders the graphical loading screen by blitting BMS #STAGEFILE image (if any) and showing
+    /// the metadata. (C: `play_show_stagefile` when `opt_mode < EXCLUSIVE_MODE`)
+    pub fn show_stagefile_screen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec, opts: &Options,
                                  screen: &Surface, font: &Font) {
-        let (meta, title, genre, artist) =
-            displayed_info(bms, infos, keyspec);
+        let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
 
         do screen.with_pixels |pixels| {
-            font.print_string(pixels, SCREENW/2, SCREENH/2-16,
-                              2, Centered, ~"loading bms file...",
-                              Gradient(RGB(0x80,0x80,0x80),
-                                       RGB(0x20,0x20,0x20)));
+            font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2, Centered, ~"loading bms file...",
+                              Gradient(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
         }
         screen.flip();
 
@@ -4362,14 +4050,10 @@ match Chunk::from_wav(&fullpath) {
                         pixels.put_blended_pixel(i, j, bg);
                     }
                 }
-                let right = SCREENW-8, bottom = SCREENH-18;
                 font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
-                font.print_string(pixels, right, 4, 1,
-                                  RightAligned, genre, fg);
-                font.print_string(pixels, right, 20, 1,
-                                  RightAligned, artist, fg);
-                font.print_string(pixels, 3, bottom, 1,
-                                  LeftAligned, meta, fg);
+                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre, fg);
+                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist, fg);
+                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta, fg);
             }
         }
 
@@ -4378,44 +4062,39 @@ match Chunk::from_wav(&fullpath) {
 
     /// Renders the textual loading screen by printing the metadata.
     /// (C: `play_show_stagefile` when `opt_mode >= EXCLUSIVE_MODE`)
-    pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo,
-                                   keyspec: &KeySpec, opts: &Options) {
+    pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec, opts: &Options) {
         if opts.showinfo {
-            let (meta, title, genre, artist) =
-                displayed_info(bms, infos, keyspec);
+            let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
             io::stderr().write_line(fmt!("\
-------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------
 Title:    %s\nGenre:    %s\nArtist:   %s\n%s
-------------------------------------------------------------------------",
+----------------------------------------------------------------------------------------------",
                 title, genre, artist, meta));
         }
     }
 
-    /// Loads the image and sound resources and calls a callback whenever
-    /// a new resource has been loaded. (C: `load_resource`)
+    /// Loads the image and sound resources and calls a callback whenever a new resource has been
+    /// loaded. (C: `load_resource`)
     pub fn load_resource(bms: &Bms, opts: &Options,
-                         callback: &fn(Option<~str>))
-            -> (~[SoundResource], ~[ImageResource]) {
-        let sndres =
-            do bms.sndpath.mapi |i, &path| {
-                match path {
-                    Some(path) => {
-                        callback(Some(copy path));
-                        load_sound(Key(i as int), path, opts)
-                    },
-                    None => NoSound
-                }
-            };
-        let mut imgres =
-            do bms.imgpath.mapi |i, &path| {
-                match path {
-                    Some(path) => {
-                        callback(Some(copy path));
-                        load_image(Key(i as int), path, opts)
-                    },
-                    None => NoImage
-                }
-            };
+                         callback: &fn(Option<~str>)) -> (~[SoundResource], ~[ImageResource]) {
+        let sndres = do bms.sndpath.mapi |i, &path| {
+            match path {
+                Some(path) => {
+                    callback(Some(copy path));
+                    load_sound(Key(i as int), path, opts)
+                },
+                None => NoSound
+            }
+        };
+        let mut imgres = do bms.imgpath.mapi |i, &path| {
+            match path {
+                Some(path) => {
+                    callback(Some(copy path));
+                    load_image(Key(i as int), path, opts)
+                },
+                None => NoImage
+            }
+        };
 
         for bms.blitcmd.each |bc| {
             apply_blitcmd(imgres, bc);
@@ -4430,41 +4109,35 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         saved_screen
     }
 
-    /// A callback template for `load_resource` with the graphical loading
-    /// screen. (C: `resource_loaded`)
-    pub fn graphic_update_status(path: Option<~str>, screen: &Surface,
-                                 saved_screen: &Surface, font: &Font,
-                                 ticker: &mut Ticker, atexit: &fn()) {
-        // Rust: `on_tick` calls the closure at most once so `path` won't be
-        //       referenced twice, but the analysis can't reason that. (#4654)
-        //       an "option dance" via `Option<T>::swap_unwrap` is not helpful
-        //       here since `path` can be `None`.
+    /// A callback template for `load_resource` with the graphical loading screen.
+    /// (C: `resource_loaded`)
+    pub fn graphic_update_status(path: Option<~str>, screen: &Surface, saved_screen: &Surface,
+                                 font: &Font, ticker: &mut Ticker, atexit: &fn()) {
+        // Rust: `on_tick` calls the closure at most once so `path` won't be referenced twice,
+        //       but the analysis can't reason that. (#4654) an "option dance" via
+        //       `Option<T>::swap_unwrap` is not helpful here since `path` can be `None`.
         let mut path = path; // XXX #4654
         do ticker.on_tick(get_ticks()) {
             let path = ::core::util::replace(&mut path, None); // XXX #4654
             let msg = path.get_or_default(~"loading...");
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             do screen.with_pixels |pixels| {
-                font.print_string(pixels, SCREENW-3, SCREENH-18,
-                                  1, RightAligned, msg,
-                                  Gradient(RGB(0xc0,0xc0,0xc0),
-                                           RGB(0x80,0x80,0x80)));
+                font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg,
+                                  Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
             }
             screen.flip();
         }
         check_exit(atexit);
     }
 
-    /// A callback template for `load_resource` with the textual loading
-    /// screen. (C: `resource_loaded`)
-    pub fn text_update_status(path: Option<~str>, ticker: &mut Ticker,
-                              atexit: &fn()) {
+    /// A callback template for `load_resource` with the textual loading screen.
+    /// (C: `resource_loaded`)
+    pub fn text_update_status(path: Option<~str>, ticker: &mut Ticker, atexit: &fn()) {
         let mut path = path; // XXX #4654
         do ticker.on_tick(get_ticks()) {
             match ::core::util::replace(&mut path, None) { // XXX #4654
                 Some(path) => {
-                    let path = if path.len() < 63 {path}
-                               else {path.slice(0, 63).to_owned()};
+                    let path = if path.len() < 63 {path} else {path.slice(0, 63).to_owned()};
                     update_line(~"Loading: " + path);
                 }
                 None => { update_line(~"Loading done."); }
@@ -4473,13 +4146,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         check_exit(atexit);
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // pointers
 
-    /// A pointer to the object. A pointer is used to implement common
-    /// operations, e.g. iterating until given position, or finding
-    /// the closest object with given condition. A pointer can also be used
-    /// like an object when it points to the valid object.
+    /// A pointer to the object. A pointer is used to implement common operations, e.g. iterating
+    /// until given position, or finding the closest object with given condition. A pointer can also
+    /// be used like an object when it points to the valid object.
     struct Pointer {
         /// A BMS data holding objects.
         bms: @mut ~Bms,
@@ -4528,70 +4200,28 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     impl ObjQueryOps for Pointer {
-        pub fn is_visible(self) -> bool {
-            self.bms.objs[self.pos].is_visible()
-        }
-        pub fn is_invisible(self) -> bool {
-            self.bms.objs[self.pos].is_invisible()
-        }
-        pub fn is_lnstart(self) -> bool {
-            self.bms.objs[self.pos].is_lnstart()
-        }
-        pub fn is_lndone(self) -> bool {
-            self.bms.objs[self.pos].is_lndone()
-        }
-        pub fn is_ln(self) -> bool {
-            self.bms.objs[self.pos].is_ln()
-        }
-        pub fn is_bomb(self) -> bool {
-            self.bms.objs[self.pos].is_bomb()
-        }
-        pub fn is_soundable(self) -> bool {
-            self.bms.objs[self.pos].is_soundable()
-        }
-        pub fn is_gradable(self) -> bool {
-            self.bms.objs[self.pos].is_gradable()
-        }
-        pub fn is_renderable(self) -> bool {
-            self.bms.objs[self.pos].is_renderable()
-        }
-        pub fn is_object(self) -> bool {
-            self.bms.objs[self.pos].is_object()
-        }
-        pub fn is_bgm(self) -> bool {
-            self.bms.objs[self.pos].is_bgm()
-        }
-        pub fn is_setbga(self) -> bool {
-            self.bms.objs[self.pos].is_setbga()
-        }
-        pub fn is_setbpm(self) -> bool {
-            self.bms.objs[self.pos].is_setbpm()
-        }
-        pub fn is_stop(self) -> bool {
-            self.bms.objs[self.pos].is_stop()
-        }
+        pub fn is_visible(self) -> bool { self.bms.objs[self.pos].is_visible() }
+        pub fn is_invisible(self) -> bool { self.bms.objs[self.pos].is_invisible() }
+        pub fn is_lnstart(self) -> bool { self.bms.objs[self.pos].is_lnstart() }
+        pub fn is_lndone(self) -> bool { self.bms.objs[self.pos].is_lndone() }
+        pub fn is_ln(self) -> bool { self.bms.objs[self.pos].is_ln() }
+        pub fn is_bomb(self) -> bool { self.bms.objs[self.pos].is_bomb() }
+        pub fn is_soundable(self) -> bool { self.bms.objs[self.pos].is_soundable() }
+        pub fn is_gradable(self) -> bool { self.bms.objs[self.pos].is_gradable() }
+        pub fn is_renderable(self) -> bool { self.bms.objs[self.pos].is_renderable() }
+        pub fn is_object(self) -> bool { self.bms.objs[self.pos].is_object() }
+        pub fn is_bgm(self) -> bool { self.bms.objs[self.pos].is_bgm() }
+        pub fn is_setbga(self) -> bool { self.bms.objs[self.pos].is_setbga() }
+        pub fn is_setbpm(self) -> bool { self.bms.objs[self.pos].is_setbpm() }
+        pub fn is_stop(self) -> bool { self.bms.objs[self.pos].is_stop() }
 
-        pub fn object_lane(self) -> Option<Lane> {
-            self.bms.objs[self.pos].object_lane()
-        }
-        pub fn sounds(self) -> ~[SoundRef] {
-            self.bms.objs[self.pos].sounds()
-        }
-        pub fn keydown_sound(self) -> Option<SoundRef> {
-            self.bms.objs[self.pos].keydown_sound()
-        }
-        pub fn keyup_sound(self) -> Option<SoundRef> {
-            self.bms.objs[self.pos].keyup_sound()
-        }
-        pub fn through_sound(self) -> Option<SoundRef> {
-            self.bms.objs[self.pos].through_sound()
-        }
-        pub fn images(self) -> ~[ImageRef] {
-            self.bms.objs[self.pos].images()
-        }
-        pub fn through_damage(self) -> Option<Damage> {
-            self.bms.objs[self.pos].through_damage()
-        }
+        pub fn object_lane(self) -> Option<Lane> { self.bms.objs[self.pos].object_lane() }
+        pub fn sounds(self) -> ~[SoundRef] { self.bms.objs[self.pos].sounds() }
+        pub fn keydown_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].keydown_sound() }
+        pub fn keyup_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].keyup_sound() }
+        pub fn through_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].through_sound() }
+        pub fn images(self) -> ~[ImageRef] { self.bms.objs[self.pos].images() }
+        pub fn through_damage(self) -> Option<Damage> { self.bms.objs[self.pos].through_damage() }
     }
 
     pub impl Pointer {
@@ -4611,8 +4241,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
-        /// Iterates over objects starting from the current object, until
-        /// the first object which time is past the limit is reached.
+        /// Iterates over objects starting from the current object, until the first object which
+        /// time is past the limit is reached.
         fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
@@ -4632,8 +4262,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.pos = limit.pos;
         }
 
-        /// Iterates over objects starting from the current object, until
-        /// the object pointed by the other pointer is reached.
+        /// Iterates over objects starting from the current object, until the object pointed by
+        /// the other pointer is reached.
         fn iter_to(&mut self, limit: Pointer, f: &fn(&Obj) -> bool) {
             assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
@@ -4662,10 +4292,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
-        /// Finds the next object that satisfies given condition if any,
-        /// without updating itself.
-        fn find_next_of_type(&self,
-                             cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+        /// Finds the next object that satisfies given condition if any, without updating itself.
+        fn find_next_of_type(&self, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             let mut i = self.pos;
@@ -4679,10 +4307,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             None
         }
 
-        /// Finds the previous object that satisfies given condition if any,
-        /// without updating itself.
-        fn find_previous_of_type(&self,
-                                 cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+        /// Finds the previous object that satisfies given condition if any, without updating
+        /// itself.
+        fn find_previous_of_type(&self, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let bms = &*self.bms;
             let mut i = self.pos;
             while i > 0 {
@@ -4695,13 +4322,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             None
         }
 
-        /// Finds the closest object from the virtual time `base` that
-        /// satisfies given condition if any. `base` should lie between
-        /// the pointed object and the previous object. The proximity is
-        /// measured in terms of virtual time, which can differ from
-        /// the actual time.
-        fn find_closest_of_type(&self, base: float,
-                                cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+        /// Finds the closest object from the virtual time `base` that satisfies given condition
+        /// if any. `base` should lie between the pointed object and the previous object.
+        /// The proximity is measured in terms of virtual time, which can differ from actual time.
+        fn find_closest_of_type(&self, base: float, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let previous = self.find_previous_of_type(cond);
             let next = self.find_next_of_type(cond);
             match (previous, next) {
@@ -4726,7 +4350,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         Pointer { bms: bms, pos: pos }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // game play logics
 
     #[deriving(Eq)]
@@ -4757,71 +4381,64 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         opts: ~Options,
         /// The current BMS data.
         //
-        // Rust: this should have been just `~Bms`, and `Pointer` should have
-        //       received a lifetime parameter (for `&'self Bms` things).
-        //       in reality, though, a lifetime parameter made borrowck much
-        //       stricter and I ended up with wrapping `bms` to a mutable
-        //       managed box.
+        // Rust: this should have been just `~Bms`, and `Pointer` should have received a lifetime
+        //       parameter (for `&'self Bms` things). in reality, though, a lifetime parameter made
+        //       borrowck much stricter and I ended up with wrapping `bms` to a mutable managed box.
         bms: @mut ~Bms,
         /// The derived BMS information.
         infos: ~BmsInfo,
-        /// The length of BMS file in seconds as calculated by `bms_duration`.
-        /// (C: `duration`)
+        /// The length of BMS file in seconds as calculated by `bms_duration`. (C: `duration`)
         duration: float,
         /// The key specification.
         keyspec: ~KeySpec,
         /// The input mapping.
         keymap: ~KeyMap,
 
-        /// Set to true if the corresponding object in `bms.objs` had graded
-        /// and should not be graded twice. Its length equals to that of
-        /// `bms.objs`. (C: `nograding` field in `struct obj`)
+        /// Set to true if the corresponding object in `bms.objs` had graded and should not be
+        /// graded twice. Its length equals to that of `bms.objs`. (C: `nograding` field in
+        /// `struct obj`)
         nograding: ~[bool],
         /// Sound resources. (C: `res` field in `sndres`)
         sndres: ~[SoundResource],
-        /// A sound chunk used for beeps. It always plays on the channel #0.
-        /// (C: `beep`)
+        /// A sound chunk used for beeps. It always plays on the channel #0. (C: `beep`)
         beep: ~Chunk,
-        /// Last channels in which the corresponding sound in `sndres` was
-        /// played. (C: `lastch` field in `sndres`)
+        /// Last channels in which the corresponding sound in `sndres` was played.
+        /// (C: `lastch` field in `sndres`)
         sndlastch: ~[Option<uint>],
-        /// Indices to last sounds which the channel has played. For every
-        /// `x`, if `sndlastch[x] == Some(y)` then `sndlastchmap[y] ==
-        /// Some(x)` and vice versa. (C: `sndlastchmap`)
+        /// Indices to last sounds which the channel has played. For every `x`, if `sndlastch[x] ==
+        /// Some(y)` then `sndlastchmap[y] == Some(x)` and vice versa. (C: `sndlastchmap`)
         lastchsnd: ~[Option<uint>],
         /// Currently active BGA layers. (C: `bga`)
         bga: BGAState,
 
-        /// The chart expansion rate, or "play speed". One measure has
-        /// the length of 400 pixels times the play speed, so higher play
-        /// speed means that objects will fall much more quickly (hence
-        /// the name). (C: `playspeed`)
+        /// The chart expansion rate, or "play speed". One measure has the length of 400 pixels
+        /// times the play speed, so higher play speed means that objects will fall much more
+        /// quickly (hence the name). (C: `playspeed`)
         playspeed: float,
-        /// The play speed targeted for speed change if any. It is also
-        /// the value displayed while the play speed is changing.
-        /// (C: `targetspeed`)
+        /// The play speed targeted for speed change if any. It is also the value displayed while
+        /// the play speed is changing. (C: `targetspeed`)
         targetspeed: Option<float>,
-        /// The current BPM. Can be negative, in that case the chart will
-        /// scroll backwards. (C: `bpm`)
+        /// The current BPM. Can be negative, in that case the chart will scroll backwards.
+        /// (C: `bpm`)
         bpm: BPM,
-        /// The timestamp at the last tick. It is a return value from
-        /// `sdl::get_ticks` and measured in milliseconds. (C: `now`)
+        /// The timestamp at the last tick. It is a return value from `sdl::get_ticks` and measured
+        /// in milliseconds. (C: `now`)
         now: uint,
         /// The timestamp at the first tick. (C: `origintime`)
         origintime: uint,
-        /// The timestamp at the last discontinuity that breaks a linear
-        /// relationship between the virtual time and actual time.
-        /// (C: `starttime`) Currently the following are considered
-        /// a discontinuity:
-        ///
-        /// * `origintime`
-        /// * A change in BPM
-        /// * A change in scaling factor of measure
-        /// * A scroll stopper (in this case, `stoptime` is first updated and
-        ///   `starttime` is updated at the end of stop)
+        /**
+         * The timestamp at the last discontinuity that breaks a linear relationship between
+         * the virtual time and actual time. (C: `starttime`) Currently the following are
+         * considered a discontinuity:
+         *
+         * - `origintime`
+         * - A change in BPM
+         * - A change in scaling factor of measure
+         * - A scroll stopper (in this case, `stoptime` is first updated and `starttime` is updated
+         *   at the end of stop)
+         */
         starttime: uint,
-        /// The timestamp at the end of ongoing scroll stopper, if any.
-        /// (C: `stoptime`)
+        /// The timestamp at the end of ongoing scroll stopper, if any. (C: `stoptime`)
         stoptime: Option<uint>,
         /// The virtual time at the last discontinuity. (C: `startoffset`)
         startoffset: float,
@@ -4830,8 +4447,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// The virtual time at the bottom of the visible chart. (C: `bottom`)
         bottom: float,
-        /// The virtual time at the grading line. Currently same as `bottom`.
-        /// (C: `line`)
+        /// The virtual time at the grading line. Currently same as `bottom`. (C: `line`)
         line: float,
         /// The virtual time at the top of the visible chart. (C: `top`)
         top: float,
@@ -4839,57 +4455,51 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pfront: Pointer,
         /// A pointer to the first `Obj` after `line`. (C: `pcur`)
         pcur: Pointer,
-        /// A pointer to the first `Obj` that haven't escaped the grading
-        /// area. It is possible that this `Obj` haven't reached the grading
-        /// area either. (C: `pcheck`)
+        /// A pointer to the first `Obj` that haven't escaped the grading area. It is possible that
+        /// this `Obj` haven't reached the grading area either. (C: `pcheck`)
         pcheck: Pointer,
-        /// Pointers to `Obj`s for the start of LN which grading is
-        /// in progress. (C: `pthru`)
+        /// Pointers to `Obj`s for the start of LN which grading is in progress. (C: `pthru`)
         //
-        // Rust: this is intended to be `[Option<Pointer>, ..NLANES]` but
-        //       a fixed-size vector cannot be cloned.
+        // Rust: this is intended to be `[Option<Pointer>, ..NLANES]` but a fixed-size vector cannot
+        //       be cloned.
         pthru: ~[Option<Pointer>],
 
-        /// The scale factor for grading area. The factor less than 1 causes
-        /// the grading area shrink. (C: `gradefactor`)
+        /// The scale factor for grading area. The factor less than 1 causes the grading area
+        /// shrink. (C: `gradefactor`)
         gradefactor: float,
         /// (C: `grademode` and `gradetime`)
         lastgrade: Option<(Grade,uint)>,
         /// The numbers of each grades. (C: `scocnt`)
         gradecounts: [uint, ..NGRADES],
-        /// The last combo number, i.e. the number of objects graded at least
-        /// GREAT. GOOD doesn't cause the combo number reset; BAD and MISS do.
-        /// (C: `scombo`)
+        /// The last combo number, i.e. the number of objects graded at least GREAT. GOOD doesn't
+        /// cause the combo number reset; BAD and MISS do. (C: `scombo`)
         lastcombo: uint,
-        /// The best combo number so far. If the player manages to get no BADs
-        /// and MISSes, then the combo number should end up with the number of
-        /// note and LN objects (`BMSInfo::nnotes`). (C: `smaxcombo`)
+        /// The best combo number so far. If the player manages to get no BADs and MISSes, then
+        /// the combo number should end up with the number of note and LN objects
+        /// (`BMSInfo::nnotes`). (C: `smaxcombo`)
         bestcombo: uint,
         /// The current score. (C: `score`)
         score: uint,
-        /// The current health gauge. Should be no larger than `MAXGAUGE`.
-        /// This can go negative (not displayed directly), which will require
-        /// players much more efforts to survive. (C: `gauge`)
+        /// The current health gauge. Should be no larger than `MAXGAUGE`. This can go negative
+        /// (not displayed directly), which will require players much more efforts to survive.
+        /// (C: `gauge`)
         gauge: int,
-        /// The health gauge required to survive at the end of the song.
-        /// Note that the gauge less than this value (or even zero) doesn't
-        /// cause the instant game over; only `InstantDeath` value from
-        /// `Damage` does. (C: `survival`)
+        /// The health gauge required to survive at the end of the song. Note that the gaugex
+        /// less than this value (or even zero) doesn't cause the instant game over;
+        /// only `InstantDeath` value from `Damage` does. (C: `survival`)
         survival: int,
 
-        /// The number of keyboard or joystick keys, mapped to each lane and
-        /// and currently pressed. (C: `keypressed[0]`)
+        /// The number of keyboard or joystick keys, mapped to each lane and and currently pressed.
+        /// (C: `keypressed[0]`)
         keymultiplicity: [uint, ..NLANES],
         /// The state of joystick axes. (C: `keypressed[1]`)
         joystate: [InputState, ..NLANES],
     }
 
-    /// A list of play speed marks. `SpeedUpInput` and `SpeedDownInput`
-    /// changes the play speed to the next/previous nearest mark.
-    /// (C: `speeds`)
-    static SPEED_MARKS: &'static [float] = &[0.1, 0.2, 0.4, 0.6, 0.8, 1.0,
-        1.2, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0,
-        10.0, 15.0, 25.0, 40.0, 60.0, 99.0];
+    /// A list of play speed marks. `SpeedUpInput` and `SpeedDownInput` changes the play speed to
+    /// the next/previous nearest mark. (C: `speeds`)
+    static SPEED_MARKS: &'static [float] = &[0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0,
+        3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0, 10.0, 15.0, 25.0, 40.0, 60.0, 99.0];
 
     /// Finds the next nearest play speed mark if any.
     fn next_speed_mark(current: float) -> Option<float> {
@@ -4917,22 +4527,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         None
     }
 
-    /// Creates a beep sound played on the play speed change.
-    /// (C: `create_beep`)
+    /// Creates a beep sound played on the play speed change. (C: `create_beep`)
     fn create_beep() -> ~Chunk {
         let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
-            |i| { let i = i as i32;
-                  (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
+            |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
         Chunk::new(unsafe { cast::transmute(samples) }, 128)
     }
 
-    /// Creates a new player object. The player object owns other related
-    /// structures, including the options, BMS file, key specification, input
-    /// mapping and sound resources.
-    pub fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo,
-                  duration: float, keyspec: ~KeySpec, keymap: ~KeyMap,
-                  sndres: ~[SoundResource]) -> Player {
+    /// Creates a new player object. The player object owns other related structures, including
+    /// the options, BMS file, key specification, input mapping and sound resources.
+    pub fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: float, keyspec: ~KeySpec,
+                  keymap: ~KeyMap, sndres: ~[SoundResource]) -> Player {
         let now = get_ticks();
         let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
@@ -4950,21 +4556,17 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             opts: opts, bms: bms, infos: infos, duration: duration,
             keyspec: keyspec, keymap: keymap,
 
-            nograding: vec::from_elem(nobjs, false), sndres: sndres,
-            beep: create_beep(), sndlastch: vec::from_elem(nsounds, None),
-            lastchsnd: ~[], bga: initial_bga_state(),
+            nograding: vec::from_elem(nobjs, false), sndres: sndres, beep: create_beep(),
+            sndlastch: vec::from_elem(nsounds, None), lastchsnd: ~[], bga: initial_bga_state(),
 
-            playspeed: initplayspeed, targetspeed: None, bpm: initbpm,
-            now: now, origintime: now, starttime: now, stoptime: None,
-            startoffset: originoffset, startshorten: startshorten,
+            playspeed: initplayspeed, targetspeed: None, bpm: initbpm, now: now, origintime: now,
+            starttime: now, stoptime: None, startoffset: originoffset, startshorten: startshorten,
 
             bottom: originoffset, line: originoffset, top: originoffset,
-            pfront: initptr, pcur: initptr, pcheck: initptr,
-            pthru: ~[None, ..NLANES],
+            pfront: initptr, pcur: initptr, pcheck: initptr, pthru: ~[None, ..NLANES],
 
-            gradefactor: gradefactor, lastgrade: None,
-            gradecounts: [0, ..NGRADES], lastcombo: 0, bestcombo: 0, score: 0,
-            gauge: initialgauge, survival: survival,
+            gradefactor: gradefactor, lastgrade: None, gradecounts: [0, ..NGRADES],
+            lastcombo: 0, bestcombo: 0, score: 0, gauge: initialgauge, survival: survival,
 
             keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
         };
@@ -4975,24 +4577,22 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     pub impl Player {
-        /// Returns true if the specified lane is being pressed, either by
-        /// keyboard, joystick buttons or axes.
+        /// Returns true if the specified lane is being pressed, either by keyboard, joystick
+        /// buttons or axes.
         fn key_pressed(&self, lane: Lane) -> bool {
             self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
         }
 
-        /// Returns the play speed displayed. Can differ from the actual play
-        /// speed (`self.playspeed`) when the play speed is changing.
+        /// Returns the play speed displayed. Can differ from the actual play speed
+        /// (`self.playspeed`) when the play speed is changing.
         fn nominal_playspeed(&self) -> float {
             self.targetspeed.get_or_default(self.playspeed)
         }
 
-        /// Updates the score and associated statistics according to grading.
-        /// `scoredelta` is an weight normalized to [0,1] that is calculated
-        /// from the distance between the object and the input time, and
-        /// `damage` is an optionally associated `Damage` value for bombs.
-        /// May return true when `Damage` resulted in the instant death.
-        /// (C: `update_grade`)
+        /// Updates the score and associated statistics according to grading. `scoredelta` is
+        /// an weight normalized to [0,1] that is calculated from the distance between the object
+        /// and the input time, and `damage` is an optionally associated `Damage` value for bombs.
+        /// May return true when `Damage` resulted in the instant death. (C: `update_grade`)
         fn update_grade(&mut self, grade: Grade, scoredelta: float,
                         damage: Option<Damage>) -> bool {
             self.gradecounts[grade as uint] += 1;
@@ -5009,8 +4609,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     let weight = if grade == GREAT {2} else {3};
                     let cmbbonus = cmp::min(self.lastcombo as int, 100) / 50;
                     self.lastcombo += 1;
-                    self.gauge = cmp::min(self.gauge + weight + cmbbonus,
-                                          MAXGAUGE);
+                    self.gauge = cmp::min(self.gauge + weight + cmbbonus, MAXGAUGE);
                 }
             }
             self.bestcombo = cmp::max(self.bestcombo, self.lastcombo);
@@ -5026,41 +4625,38 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
-        /// Same as `update_grade`, but the grade is calculated from
-        /// the normalized difference between the object and input time in
-        /// milliseconds. The normalized distance equals to the actual time
-        /// difference when `gradefactor` is 1.0. (C: `update_grade(grade,
-        /// scoredelta, 0)` where `grade` and `scoredelta` are pre-calculated
-        /// from `dist`)
+        /// Same as `update_grade`, but the grade is calculated from the normalized difference
+        /// between the object and input time in milliseconds. The normalized distance equals to
+        /// the actual time difference when `gradefactor` is 1.0. (C: `update_grade(grade,
+        /// scoredelta, 0)` where `grade` and `scoredelta` are pre-calculated from `dist`)
         fn update_grade_from_distance(&mut self, dist: float) {
             let dist = num::abs(dist);
-            let (grade, damage) =
-                if      dist <  COOL_CUTOFF {(COOL,None)}
-                else if dist < GREAT_CUTOFF {(GREAT,None)}
-                else if dist <  GOOD_CUTOFF {(GOOD,None)}
-                else if dist <   BAD_CUTOFF {(BAD,Some(BAD_DAMAGE))}
-                else                        {(MISS,Some(MISS_DAMAGE))};
+            let (grade, damage) = if      dist <  COOL_CUTOFF {(COOL,None)}
+                                  else if dist < GREAT_CUTOFF {(GREAT,None)}
+                                  else if dist <  GOOD_CUTOFF {(GOOD,None)}
+                                  else if dist <   BAD_CUTOFF {(BAD,Some(BAD_DAMAGE))}
+                                  else                        {(MISS,Some(MISS_DAMAGE))};
             let scoredelta = cmp::max(1.0 - dist / BAD_CUTOFF, 0.0);
             let keepgoing = self.update_grade(grade, scoredelta, damage);
             assert!(keepgoing);
         }
 
-        /// Same as `update_grade`, but with the predetermined damage value.
-        /// Always results in MISS grade. May return true when the damage
-        /// resulted in the instant death. (C: `update_grade(0, 0, damage)`)
+        /// Same as `update_grade`, but with the predetermined damage value. Always results in MISS
+        /// grade. May return true when the damage resulted in the instant death.
+        /// (C: `update_grade(0, 0, damage)`)
         fn update_grade_from_damage(&mut self, damage: Damage) -> bool {
             self.update_grade(MISS, 0.0, Some(damage))
         }
 
-        /// Same as `update_grade`, but always results in MISS grade with
-        /// the standard damage value. (C: `update_grade(0, 0, 0)`)
+        /// Same as `update_grade`, but always results in MISS grade with the standard damage value.
+        /// (C: `update_grade(0, 0, 0)`)
         fn update_grade_to_miss(&mut self) {
             let keepgoing = self.update_grade(MISS, 0.0, Some(MISS_DAMAGE));
             assert!(keepgoing);
         }
 
-        /// Allocate more SDL_mixer channels without stopping already playing
-        /// channels. (C: `allocate_more_channels`)
+        /// Allocate more SDL_mixer channels without stopping already playing channels.
+        /// (C: `allocate_more_channels`)
         fn allocate_more_channels(&mut self, howmany: uint) {
             let howmany = howmany as libc::c_int;
             let nchannels = allocate_channels(-1 as libc::c_int);
@@ -5070,10 +4666,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
         }
 
-        /// Plays a given sound referenced by `sref`. `bgm` indicates that
-        /// the sound is a BGM so should be played with the lower volume and
-        /// should in the different channel group from key sounds.
-        /// (C: `play_sound`)
+        /// Plays a given sound referenced by `sref`. `bgm` indicates that the sound is a BGM and
+        /// should be played with the lower volume and should in the different channel group from
+        /// key sounds. (C: `play_sound`)
         fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
             let sref = **sref as uint;
             let chunk = match self.sndres[sref].chunk() {
@@ -5082,8 +4677,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             };
             let lastch = self.sndlastch[sref].map(|&ch| ch as libc::c_int);
 
-            // try to play on the last channel if it is not occupied by
-            // other sounds (in this case the last channel info is removed)
+            // try to play on the last channel if it is not occupied by other sounds (in this case
+            // the last channel info is removed)
             let mut ch;
             loop {
                 ch = chunk.play(lastch, 0);
@@ -5101,15 +4696,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.lastchsnd[ch] = Some(sref as uint);
         }
 
-        /// Plays a given sound if `sref` is not zero. This reflects the fact
-        /// that an alphanumeric key `00` is normally a placeholder.
+        /// Plays a given sound if `sref` is not zero. This reflects the fact that an alphanumeric
+        /// key `00` is normally a placeholder.
         fn play_sound_if_nonzero(&mut self, sref: SoundRef, bgm: bool) {
             if **sref > 0 { self.play_sound(sref, bgm); }
         }
 
-        /// Plays a beep. The beep is always played in the channel 0, which
-        /// is excluded from the uniform key sound and BGM management.
-        /// (C: `Mix_PlayChannel(0, beep, 0)`)
+        /// Plays a beep. The beep is always played in the channel 0, which is excluded from
+        /// the uniform key sound and BGM management. (C: `Mix_PlayChannel(0, beep, 0)`)
         fn play_beep(&self) {
             self.beep.play(Some(0), 0);
         }
@@ -5163,11 +4757,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 self.startshorten = curshorten;
             }
 
-            //self.line = bms.adjust_object_time(self.bottom,
-            //                                   0.03 / self.playspeed);
+            //self.line = bms.adjust_object_time(self.bottom, 0.03 / self.playspeed);
             self.line = self.bottom;
-            self.top = bms.adjust_object_time(self.bottom,
-                                              1.25 / self.playspeed);
+            self.top = bms.adjust_object_time(self.bottom, 1.25 / self.playspeed);
             let lineshorten = bms.shorten_factor(self.line.floor() as int);
 
             // apply object-like effects while advancing to new `pcur`
@@ -5189,8 +4781,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     Stop(duration) => {
                         let msecs = duration.to_msec(self.bpm);
                         let newstoptime = Some(msecs as uint + self.now);
-                        self.stoptime = self.stoptime.merge(newstoptime,
-                                                            cmp::max);
+                        self.stoptime = self.stoptime.merge(newstoptime, cmp::max);
                         self.startoffset = obj.time;
                     }
                     Visible(_,sref) | LNStart(_,sref) => {
@@ -5208,9 +4799,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             // grade objects that have escaped the grading area
             if !self.opts.is_autoplay() {
                 for pcheck.iter_to(pcur) |&obj| {
-                    let dist =
-                        self.bpm.measure_to_msec(self.line - obj.time) *
-                        bms.shorten_factor(obj.measure()) * self.gradefactor;
+                    let dist = self.bpm.measure_to_msec(self.line - obj.time) *
+                               bms.shorten_factor(obj.measure()) * self.gradefactor;
                     if dist < BAD_CUTOFF { break; }
                     if !self.nograding[pcheck.pos] {
                         for obj.object_lane().each |&Lane(lane)| {
@@ -5231,9 +4821,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // process inputs
             loop {
-                // map to the virtual input. results in `vkey` (virtual key),
-                // `state` (input state) and `continuous` (true if the input
-                // is not discrete and `Negative` input state matters).
+                // map to the virtual input. results in `vkey` (virtual key), `state` (input state)
+                // and `continuous` (true if the input is not discrete and `Negative` input state
+                // matters).
                 let (key, state) = match poll_event() {
                     NoEvent => break,
                     QuitEvent | KeyEvent(EscapeKey,_,_,_) => { return false; }
@@ -5262,14 +4852,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
                 if self.opts.is_exclusive() { loop; }
 
-                // Returns true if the given lane is previously pressed and
-                // now unpressed. When the virtual input is mapped to multiple
-                // actual inputs it can update the internal state but still
-                // return false.
-                let is_unpressed = |lane: Lane, continuous: bool,
-                                    state: InputState| {
-                    if state == Neutral || (continuous &&
-                                            self.joystate[*lane] != state) {
+                // Returns true if the given lane is previously pressed and now unpressed.
+                // When the virtual input is mapped to multiple actual inputs it can update
+                // the internal state but still return false.
+                let is_unpressed = |lane: Lane, continuous: bool, state: InputState| {
+                    if state == Neutral || (continuous && self.joystate[*lane] != state) {
                         if continuous {
                             self.joystate[*lane] = state; true
                         } else {
@@ -5283,12 +4870,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
                 };
 
-                // Returns true if the given lane is previously unpressed and
-                // now pressed. When the virtual input is mapped to multiple
-                // actual inputs it can update the internal state but still
-                // return false.
-                let is_pressed = |lane: Lane, continuous: bool,
-                                  state: InputState| {
+                // Returns true if the given lane is previously unpressed and now pressed.
+                // When the virtual input is mapped to multiple actual inputs it can update
+                // the internal state but still return false.
+                let is_pressed = |lane: Lane, continuous: bool, state: InputState| {
                     if state != Neutral {
                         if continuous {
                             self.joystate[*lane] = state; true
@@ -5302,16 +4887,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 };
 
                 let process_unpress = |lane: Lane| {
-                    // if LN grading is in progress and it is not within
-                    // the threshold then MISS grade is issued
+                    // if LN grading is in progress and it is not within the threshold then
+                    // MISS grade is issued
                     for pthru[*lane].each |&thru| {
                         let nextlndone = do thru.find_next_of_type |&obj| {
                             obj.object_lane() == Some(lane) &&
                             obj.is_lndone()
                         };
                         for nextlndone.each |&p| {
-                            let delta = self.bpm.measure_to_msec(p.time() -
-                                                                 self.line) *
+                            let delta = self.bpm.measure_to_msec(p.time() - self.line) *
                                         lineshorten * self.gradefactor;
                             if num::abs(delta) < BAD_CUTOFF {
                                 self.nograding[p.pos] = true;
@@ -5327,8 +4911,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     // plays the closest key sound
                     let soundable =
                         do pcur.find_closest_of_type(self.line) |&obj| {
-                            obj.object_lane() == Some(lane) &&
-                            obj.is_soundable()
+                            obj.object_lane() == Some(lane) && obj.is_soundable()
                         };
                     for soundable.each |&p| {
                         for p.sounds().each |&sref| {
@@ -5340,20 +4923,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     // the grading area
                     let gradable =
                         do pcur.find_closest_of_type(self.line) |&obj| {
-                            obj.object_lane() == Some(lane) &&
-                            obj.is_gradable()
+                            obj.object_lane() == Some(lane) && obj.is_gradable()
                         };
                     for gradable.each |&p| {
-                        if p.pos >= pcheck.pos && !self.nograding[p.pos] &&
-                                !p.is_lndone() {
-                            let dist = self.bpm.measure_to_msec(p.time() -
-                                                                self.line) *
+                        if p.pos >= pcheck.pos && !self.nograding[p.pos] && !p.is_lndone() {
+                            let dist = self.bpm.measure_to_msec(p.time() - self.line) *
                                        lineshorten * self.gradefactor;
                             if num::abs(dist) < BAD_CUTOFF {
                                 if p.is_lnstart() {
-                                    pthru[*lane] =
-                                        Some(pointer_with_pos(self.bms,
-                                                              p.pos));
+                                    pthru[*lane] = Some(pointer_with_pos(self.bms, p.pos));
                                 }
                                 self.nograding[p.pos] = true;
                                 self.update_grade_from_distance(dist);
@@ -5364,19 +4942,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 };
 
                 match (vkey, state) {
-                    (SpeedDownInput, Positive) |
-                    (SpeedDownInput, Negative) => {
-                        let current =
-                            self.targetspeed.get_or_default(self.playspeed);
+                    (SpeedDownInput, Positive) | (SpeedDownInput, Negative) => {
+                        let current = self.targetspeed.get_or_default(self.playspeed);
                         for next_speed_mark(current).each |&newspeed| {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
                     }
-                    (SpeedUpInput, Positive) |
-                    (SpeedUpInput, Negative) => {
-                        let current =
-                            self.targetspeed.get_or_default(self.playspeed);
+                    (SpeedUpInput, Positive) | (SpeedUpInput, Negative) => {
+                        let current = self.targetspeed.get_or_default(self.playspeed);
                         for previous_speed_mark(current).each |&newspeed| {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
@@ -5443,30 +5017,27 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pub fn show_result(&self, player: &Player);
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // graphic display
 
     /// An appearance for each lane. (C: `struct tkeykind` and `tkeyleft`)
     struct LaneStyle {
         /// The left position of the lane in the final screen. (C: `tkeyleft`)
         left: uint,
-        /// The left position of the lane in the object sprite.
-        /// (C: `spriteleft` field)
+        /// The left position of the lane in the object sprite. (C: `spriteleft` field)
         spriteleft: uint,
-        /// The left position of the lane in the bomb sprite.
-        /// (C: `spritebombleft` field)
+        /// The left position of the lane in the bomb sprite. (C: `spritebombleft` field)
         spritebombleft: uint,
         /// The width of lane. (C: `width` field)
         width: uint,
-        /// The base color of object. The actual `Gradient` for drawing is
-        /// derived from this color. (C: `basecolor` field)
+        /// The base color of object. The actual `Gradient` for drawing is derived from this color.
+        /// (C: `basecolor` field)
         basecolor: Color
     }
 
     pub impl LaneStyle {
-        /// Constructs a new `LaneStyle` object from given key kind and
-        /// the left (`Left(pos)`) or right (`Right(pos)`) position.
-        /// (C: `tkeykinds`)
+        /// Constructs a new `LaneStyle` object from given key kind and the left (`Left(pos)`) or
+        /// right (`Right(pos)`) position. (C: `tkeykinds`)
         fn from_kind(kind: KeyKind, pos: Either<uint,uint>) -> LaneStyle {
             let (spriteleft, spritebombleft, width, color) = match kind {
                 WhiteKey    => ( 25,   0, 25, RGB(0x80,0x80,0x80)),
@@ -5481,8 +5052,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 FootPedal   => (360, 280, 40, RGB(0x80,0xff,0x80)),
             };
             let left = pos.either(|&left| left, |&right| right - width);
-            LaneStyle { left: left, spriteleft: spriteleft,
-                        spritebombleft: spritebombleft,
+            LaneStyle { left: left, spriteleft: spriteleft, spritebombleft: spritebombleft,
                         width: width, basecolor: color }
         }
 
@@ -5491,23 +5061,18 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let left = self.spriteleft;
             let noteleft = self.spriteleft + SCREENW;
             let bombleft = self.spritebombleft + SCREENW;
-            assert!(sprite.get_width() as uint >=
-                    cmp::max(noteleft, bombleft) + self.width);
+            assert!(sprite.get_width() as uint >= cmp::max(noteleft, bombleft) + self.width);
 
             // render a background sprite (0 at top, <1 at bottom)
-            let backcolor = Gradient { zero: RGB(0,0,0),
-                                       one:  self.basecolor };
+            let backcolor = Gradient { zero: RGB(0,0,0), one: self.basecolor };
             for uint::range(140, SCREENH - 80) |i| {
-                sprite.fill_area((left, i), (self.width, 1),
-                                 backcolor.blend(i as int - 140, 1000));
+                sprite.fill_area((left, i), (self.width, 1), backcolor.blend(i as int - 140, 1000));
             }
 
             // render note and bomb sprites (1/2 at middle, 1 at border)
             let denom = self.width as int;
-            let notecolor = Gradient { zero: RGB(0xff,0xff,0xff),
-                                       one:  self.basecolor };
-            let bombcolor = Gradient { zero: RGB(0,0,0),
-                                       one:  RGB(0xc0,0,0) };
+            let notecolor = Gradient { zero: RGB(0xff,0xff,0xff), one: self.basecolor };
+            let bombcolor = Gradient { zero: RGB(0,0,0),          one: RGB(0xc0,0,0) };
             for uint::range(0, self.width / 2) |i| {
                 let num = (self.width - i) as int;
                 sprite.fill_area((noteleft+i, 0), (self.width-i*2, SCREENH),
@@ -5518,35 +5083,29 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         /// Renders the lane background to the screen from the sprite.
-        fn render_back(&self, screen: &Surface, sprite: &Surface,
-                       pressed: bool) {
-            screen.fill_area((self.left, 30), (self.width, SCREENH-110),
-                             RGB(0,0,0));
+        fn render_back(&self, screen: &Surface, sprite: &Surface, pressed: bool) {
+            screen.fill_area((self.left, 30), (self.width, SCREENH-110), RGB(0,0,0));
             if pressed {
-                screen.blit_area(sprite,
-                                 (self.spriteleft, 140), (self.left, 140),
+                screen.blit_area(sprite, (self.spriteleft, 140), (self.left, 140),
                                  (self.width, SCREENH-220));
             }
         }
 
         /// Renders an object to the screen from the sprite.
-        fn render_note(&self, screen: &Surface, sprite: &Surface,
-                       top: uint, bottom: uint) {
+        fn render_note(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
             screen.blit_area(sprite, (self.spriteleft + SCREENW, 0),
                              (self.left, top), (self.width, bottom - top));
         }
 
         /// Renders a bomb object to the screen from the sprite.
-        fn render_bomb(&self, screen: &Surface, sprite: &Surface,
-                       top: uint, bottom: uint) {
+        fn render_bomb(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
             screen.blit_area(sprite, (self.spritebombleft + SCREENW, 0),
                              (self.left, top), (self.width, bottom - top));
         }
     }
 
     /// Builds a list of `LaneStyle`s from the key specification.
-    fn build_lane_styles(keyspec: &KeySpec) -> (uint, Option<uint>,
-                                                ~[(Lane,LaneStyle)]) {
+    fn build_lane_styles(keyspec: &KeySpec) -> (uint, Option<uint>, ~[(Lane,LaneStyle)]) {
         let mut leftmost = 0, rightmost = SCREENW;
         let mut styles = ~[];
         for keyspec.each_left_lanes |&lane| {
@@ -5566,8 +5125,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             rightmost -= style.width + 1;
         }
 
-        let rightmost = if rightmost == SCREENW {None}
-                        else {Some(rightmost)};
+        let rightmost = if rightmost == SCREENW {None} else {Some(rightmost)};
         (leftmost, rightmost, styles)
     }
 
@@ -5585,21 +5143,19 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         // render panels
         do sprite.with_pixels |&pixels| {
-            let topgrad = Gradient { zero: RGB(0x60,0x60,0x60),
-                                     one:  RGB(0xc0,0xc0,0xc0) };
-            let botgrad = Gradient { zero: RGB(0x40,0x40,0x40),
-                                     one:  RGB(0xc0,0xc0,0xc0) };
+            let topgrad = Gradient { zero: RGB(0x60,0x60,0x60), one: RGB(0xc0,0xc0,0xc0) };
+            let botgrad = Gradient { zero: RGB(0x40,0x40,0x40), one: RGB(0xc0,0xc0,0xc0) };
             for int::range(-244, 556) |j| {
                 for int::range(-10, 20) |i| {
                     let c = (i*2+j*3+750) % 2000;
                     pixels.put_pixel((j+244) as uint, (i+10) as uint,
-                        topgrad.blend(850 - num::abs(c-1000), 700));
+                                     topgrad.blend(850 - num::abs(c-1000), 700));
                 }
                 for int::range(-20, 60) |i| {
                     let c = (i*3+j*2+750) % 2000;
                     let bottom = (SCREENH - 60) as int;
                     pixels.put_pixel((j+244) as uint, (i+bottom) as uint,
-                        botgrad.blend(850 - num::abs(c-1000), 700));
+                                     botgrad.blend(850 - num::abs(c-1000), 700));
                 }
             }
         }
@@ -5619,8 +5175,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     pixels.put_pixel(leftmost + j, (SCREENH-61) - i, black);
                     for rightmost.each |&right| {
                         pixels.put_pixel((right-j) - 1, 10 + i, black);
-                        pixels.put_pixel((right-j) - 1, (SCREENH-61) - i,
-                                         black);
+                        pixels.put_pixel((right-j) - 1, (SCREENH-61) - i, black);
                     }
                 }
             }
@@ -5664,8 +5219,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         lastbga: BGAState,
     }
 
-    pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec,
-                          screen: ~Surface, font: ~Font,
+    pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface, font: ~Font,
                           imgres: ~[ImageResource]) -> GraphicDisplay {
         let (leftmost, rightmost, styles) = build_lane_styles(keyspec);
         let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
@@ -5675,10 +5229,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         let display = GraphicDisplay {
             sprite: sprite, screen: screen, font: font, imgres: imgres,
-
-            leftmost: leftmost, rightmost: rightmost, lanestyles: styles,
-            bgax: bgax, bgay: bgay,
-
+            leftmost: leftmost, rightmost: rightmost, lanestyles: styles, bgax: bgax, bgay: bgay,
             poorlimit: None, gradelimit: None, lastbga: initial_bga_state(),
         };
 
@@ -5692,16 +5243,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     /// (C: `tgradestr` and `tgradecolor`)
     static GRADES: &'static [(&'static str,Gradient)] = &[
         // Rust: can we just use `Gradient()`???
-        ("MISS",  Gradient { zero: RGB(0xff,0xc0,0xc0),
-                             one:  RGB(0xff,0x40,0x40) }),
-        ("BAD",   Gradient { zero: RGB(0xff,0xc0,0xff),
-                             one:  RGB(0xff,0x40,0xff) }),
-        ("GOOD",  Gradient { zero: RGB(0xff,0xff,0xc0),
-                             one:  RGB(0xff,0xff,0x40) }),
-        ("GREAT", Gradient { zero: RGB(0xc0,0xff,0xc0),
-                             one:  RGB(0x40,0xff,0x40) }),
-        ("COOL",  Gradient { zero: RGB(0xc0,0xc0,0xff),
-                             one:  RGB(0x40,0x40,0xff) }),
+        ("MISS",  Gradient { zero: RGB(0xff,0xc0,0xc0), one: RGB(0xff,0x40,0x40) }),
+        ("BAD",   Gradient { zero: RGB(0xff,0xc0,0xff), one: RGB(0xff,0x40,0xff) }),
+        ("GOOD",  Gradient { zero: RGB(0xff,0xff,0xc0), one: RGB(0xff,0xff,0x40) }),
+        ("GREAT", Gradient { zero: RGB(0xc0,0xff,0xc0), one: RGB(0x40,0xff,0x40) }),
+        ("COOL",  Gradient { zero: RGB(0xc0,0xc0,0xff), one: RGB(0x40,0x40,0xff) }),
     ];
 
     impl GraphicDisplay {
@@ -5709,8 +5255,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let screen: &Surface = self.screen;
             let sprite: &Surface = self.sprite;
             screen.blit_area(sprite, (0,0), (0,0), (SCREENW,30));
-            screen.blit_area(sprite,
-                             (0,SCREENH-80), (0,SCREENH-80), (SCREENW,80));
+            screen.blit_area(sprite, (0,SCREENH-80), (0,SCREENH-80), (SCREENW,80));
         }
     }
 
@@ -5739,11 +5284,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             *&mut self.gradelimit = gradelimit;
 
             // fill the lanes to the border color
-            screen.fill_area((0, 30), (self.leftmost, SCREENH-110),
-                             RGB(0x40,0x40,0x40));
+            screen.fill_area((0, 30), (self.leftmost, SCREENH-110), RGB(0x40,0x40,0x40));
             for self.rightmost.each |&rightmost| {
-                screen.fill_area((rightmost, 30), (SCREENH-rightmost, 490),
-                                 RGB(0x40,0x40,0x40));
+                screen.fill_area((rightmost, 30), (SCREENH-rightmost, 490), RGB(0x40,0x40,0x40));
             }
             for self.lanestyles.each |&(lane,style)| {
                 style.render_back(screen, sprite, player.key_pressed(lane));
@@ -5754,8 +5297,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // render objects
             let time_to_y = |time| {
-                let adjusted = bms.adjust_object_position(player.bottom,
-                                                          time);
+                let adjusted = bms.adjust_object_position(player.bottom, time);
                 (SCREENH-70) - (400.0 * player.playspeed * adjusted) as uint
             };
             for self.lanestyles.each |&(lane,style)| {
@@ -5782,7 +5324,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             LNDone(lane0,_) if lane0 == lane => {
                                 let bottom = SCREENH-80;
                                 style.render_note(screen, sprite, y,
-                                    nextbottom.get_or_default(bottom));
+                                                  nextbottom.get_or_default(bottom));
                                 nextbottom = None;
                             }
                             Visible(lane0,_) if lane0 == lane => {
@@ -5805,14 +5347,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             }
 
             // render measure bars
-            for int::range(player.bottom.floor() as int,
-                           player.top.floor() as int + 1) |i| {
+            for int::range(player.bottom.floor() as int, player.top.floor() as int + 1) |i| {
                 let y = time_to_y(i as float);
-                screen.fill_area((0, y), (self.leftmost, 1),
-                                 RGB(0xc0,0xc0,0xc0));
+                screen.fill_area((0, y), (self.leftmost, 1), RGB(0xc0,0xc0,0xc0));
                 for self.rightmost.each |&rightmost| {
-                    screen.fill_area((rightmost, y), (800-rightmost, 1),
-                                     RGB(0xc0,0xc0,0xc0));
+                    screen.fill_area((rightmost, y), (800-rightmost, 1), RGB(0xc0,0xc0,0xc0));
                 }
             }
 
@@ -5821,25 +5360,19 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let gradelimit = gradelimit.get();
                 let (lastgrade,_) = player.lastgrade.get();
                 let (gradename,gradecolor) = GRADES[lastgrade as uint];
-                let delta =
-                    (cmp::max(gradelimit - player.now, 400) - 400) / 15;
+                let delta = (cmp::max(gradelimit - player.now, 400) - 400) / 15;
                 do screen.with_pixels |pixels| {
-                    font.print_string(pixels, self.leftmost/2,
-                                      SCREENH/2 - 40 - delta, 2, Centered,
-                                      gradename, gradecolor);
+                    font.print_string(pixels, self.leftmost/2, SCREENH/2 - 40 - delta, 2,
+                                      Centered, gradename, gradecolor);
                     if player.lastcombo > 1 {
-                        font.print_string(pixels, self.leftmost/2,
-                                          SCREENH/2 - 12 - delta, 1, Centered,
-                                          fmt!("%u COMBO", player.lastcombo),
-                                          Gradient(RGB(0xff,0xff,0xff),
-                                                   RGB(0x80,0x80,0x80)));
+                        font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
+                                          Centered, fmt!("%u COMBO", player.lastcombo),
+                                          Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
-                        font.print_string(pixels, self.leftmost/2,
-                                          SCREENH/2 + 2 - delta, 1,
+                        font.print_string(pixels, self.leftmost/2, SCREENH/2 + 2 - delta, 1,
                                           Centered, "(AUTO)",
-                                          Gradient(RGB(0xc0,0xc0,0xc0),
-                                                   RGB(0x40,0x40,0x40)));
+                                          Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
                     }
                 }
             }
@@ -5859,11 +5392,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let nominalplayspeed = player.nominal_playspeed();
                 font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
                                   fmt!("%4.1fx", nominalplayspeed), black);
-                font.print_string(pixels, self.leftmost-94, SCREENH-35,
-                                  1, LeftAligned,
-                                  fmt!("%02u:%02u / %02u:%02u",
-                                       elapsed/60, elapsed%60,
-                                       duration/60, duration%60), black);
+                font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, LeftAligned,
+                                  fmt!("%02u:%02u / %02u:%02u", elapsed/60, elapsed%60,
+                                                                duration/60, duration%60), black);
                 font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
                                   fmt!("@%9.4f", player.bottom), black);
                 font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
@@ -5878,24 +5409,19 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             // render gauge
             if !player.opts.is_autoplay() {
                 // cycles four times per measure, [0,40)
-                let cycle = (160.0 * player.startshorten *
-                             player.bottom).floor() % 40.0;
-                let width =
-                    if player.gauge < 0 {0}
-                    else {player.gauge * 400 / MAXGAUGE - (cycle as int)};
+                let cycle = (160.0 * player.startshorten * player.bottom).floor() % 40.0;
+                let width = if player.gauge < 0 {0}
+                            else {player.gauge * 400 / MAXGAUGE - (cycle as int)};
                 let width = ::util::cmp::clamp(5, width, 360);
-                let color =
-                    if player.gauge >= player.survival {RGB(0xc0,0,0)}
-                    else {RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0)};
+                let color = if player.gauge >= player.survival {RGB(0xc0,0,0)}
+                            else {RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0)};
                 screen.fill_area((4, SCREENH-12), (width, 8), color);
             }
 
             // render BGAs
             if player.opts.has_bga() {
-                let layers = if poorlimit.is_some() {&[PoorBGA]}
-                             else {&[Layer1, Layer2, Layer3]};
-                self.lastbga.render(self.screen, layers, self.imgres,
-                                    self.bgax, self.bgay);
+                let layers = if poorlimit.is_some() {&[PoorBGA]} else {&[Layer1, Layer2, Layer3]};
+                self.lastbga.render(self.screen, layers, self.imgres, self.bgax, self.bgay);
             }
 
             screen.flip();
@@ -5904,10 +5430,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         fn show_result(&self, player: &Player) {
             if player.opts.is_autoplay() { return; }
 
-            // check if the song reached the last gradable object (otherwise
-            // the game play was terminated by the user)
-            let nextgradable =
-                player.pcur.find_next_of_type(|obj| obj.is_gradable());
+            // check if the song reached the last gradable object (otherwise the game play was
+            // terminated by the user)
+            let nextgradable = player.pcur.find_next_of_type(|obj| obj.is_gradable());
             if nextgradable.is_some() { return; }
 
             if player.gauge >= player.survival {
@@ -5925,7 +5450,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // text display
 
     pub struct TextDisplay {
@@ -5943,8 +5468,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             do self.ticker.on_tick(player.now) {
                 let elapsed = (player.now - player.origintime) / 100;
                 let duration = (player.duration / 100.0) as uint;
-                update_line(fmt!("%02u:%02u.%u / %02u:%02u.%u (@%9.4f) \
-                                  | BPM %6.2f | %u / %d notes",
+                update_line(fmt!("%02u:%02u.%u / %02u:%02u.%u (@%9.4f) | BPM %6.2f | %u / %d notes",
                                  elapsed/600, elapsed/10%60, elapsed%10,
                                  duration/600, duration/10%60, duration%10,
                                  player.bottom, *player.bpm,
@@ -5957,7 +5481,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
     // BGA-only display
 
     pub struct BGAOnlyDisplay {
@@ -5971,8 +5495,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         lastbga: BGAState,
     }
 
-    pub fn BGAOnlyDisplay(screen: ~Surface,
-                          imgres: ~[ImageResource]) -> BGAOnlyDisplay {
+    pub fn BGAOnlyDisplay(screen: ~Surface, imgres: ~[ImageResource]) -> BGAOnlyDisplay {
         BGAOnlyDisplay { textdisplay: TextDisplay(), screen: screen,
                          imgres: imgres, lastbga: initial_bga_state() }
     }
@@ -5993,15 +5516,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
-    //------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------------------
 
 }
 
-//============================================================================
+//==================================================================================================
 // entry point
 
-/// Parses the BMS file, initializes the display, shows the loading screen and
-/// runs the game play loop. (C: `play`)
+/// Parses the BMS file, initializes the display, shows the loading screen and runs the game play
+/// loop. (C: `play`)
 pub fn play(opts: ~player::Options) {
     // parses the file and sanitizes it
     let r = ::core_compat::rand::Rng();
@@ -6023,8 +5546,7 @@ pub fn play(opts: ~player::Options) {
     for opts.modf.each |&modf| {
         player::apply_modf(bms, modf, &r, keyspec, 0, keyspec.split);
         if keyspec.split < keyspec.order.len() {
-            player::apply_modf(bms, modf, &r, keyspec,
-                               keyspec.split, keyspec.order.len());
+            player::apply_modf(bms, modf, &r, keyspec, keyspec.split, keyspec.order.len());
         }
     }
 
@@ -6050,12 +5572,11 @@ pub fn play(opts: ~player::Options) {
         // initialize the screen if required
         let mut screen = None;
         if opts.has_screen() {
-            screen = Some(player::init_video(opts.is_exclusive(),
-                                             opts.fullscreen));
+            screen = Some(player::init_video(opts.is_exclusive(), opts.fullscreen));
         }
 
-        // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }`
-        //       segfaults due to the moved `opts`. (#????)
+        // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }` segfaults due to
+        //       the moved `opts`.
         let atexit = if opts.is_exclusive() { || player::update_line(~"") }
                      else { || {} };
 
@@ -6065,15 +5586,13 @@ pub fn play(opts: ~player::Options) {
         let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
         let update_status;
         if !opts.is_exclusive() {
-            use sdl::video::Surface;
-            let screen_: &Surface = *screen.get_ref();
-            player::show_stagefile_screen(bms, infos, keyspec, opts,
-                                          screen_, font);
+            let screen_: &gfx::Surface = *screen.get_ref();
+            player::show_stagefile_screen(bms, infos, keyspec, opts, screen_, font);
             if opts.showinfo {
                 saved_screen = Some(player::save_screen_for_loading(screen_));
                 update_status = |path| {
-                    let screen: &Surface = *screen.get_ref();
-                    let saved_screen: &Surface = *saved_screen.get_ref();
+                    let screen: &gfx::Surface = *screen.get_ref();
+                    let saved_screen: &gfx::Surface = *saved_screen.get_ref();
                     player::graphic_update_status(path, screen, saved_screen,
                                                   font, &mut ticker, atexit)
                 };
@@ -6082,17 +5601,14 @@ pub fn play(opts: ~player::Options) {
             }
         } else if opts.showinfo {
             player::show_stagefile_noscreen(bms, infos, keyspec, opts);
-            update_status = |path| {
-                player::text_update_status(path, &mut ticker, atexit)
-            };
+            update_status = |path| player::text_update_status(path, &mut ticker, atexit);
         } else {
             update_status = |_path| {};
         }
 
         // wait for resources
         let start = ::sdl::get_ticks() + 3000;
-        let (sndres, imgres) =
-            player::load_resource(bms, opts, update_status);
+        let (sndres, imgres) = player::load_resource(bms, opts, update_status);
         if opts.showinfo {
             ticker.reset(); // force update
             update_status(None);
@@ -6102,12 +5618,10 @@ pub fn play(opts: ~player::Options) {
         // create the player and transfer ownership of other resources to it
         let duration = parser::bms_duration(bms, infos.originoffset,
                                             |sref| sndres[**sref].duration());
-        let mut player = player::Player(opts, bms, infos, duration,
-                                        keyspec, keymap, sndres);
+        let mut player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
 
         // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
-        fn loop_with_display<T:player::Display>(mut player: player::Player,
-                                                mut display: T) {
+        fn loop_with_display<T:player::Display>(mut player: player::Player, mut display: T) {
             while player.tick() {
                 display.render(&player);
             }
@@ -6122,12 +5636,10 @@ pub fn play(opts: ~player::Options) {
         match screen {
             Some(screen) => {
                 if player.opts.is_exclusive() {
-                    loop_with_display(player,
-                                      player::BGAOnlyDisplay(screen, imgres));
+                    loop_with_display(player, player::BGAOnlyDisplay(screen, imgres));
                 } else {
-                    let display =
-                        player::GraphicDisplay(player.opts, player.keyspec,
-                                               screen, font, imgres);
+                    let display = player::GraphicDisplay(player.opts, player.keyspec,
+                                                         screen, font, imgres);
                     loop_with_display(player, display);
                 }
             }
@@ -6191,8 +5703,8 @@ Environment Variables:
     util::exit(1);
 }
 
-/// The entry point. Parses the command line options and delegates other
-/// things to `play`. (C: `main`)
+/// The entry point. Parses the command line options and delegates other things to `play`.
+/// (C: `main`)
 pub fn main() {
     use player::*;
 
@@ -6225,7 +5737,9 @@ pub fn main() {
     let mut i = 1;
     while i < nargs {
         if !args[i].starts_with("-") {
-            if bmspath.is_none() { bmspath = Some(copy args[i]); }
+            if bmspath.is_none() {
+                bmspath = Some(copy args[i]);
+            }
         } else if args[i] == ~"--" {
             i += 1;
             if bmspath.is_none() && i < nargs {
@@ -6278,10 +5792,8 @@ pub fn main() {
                     'r' => { modf = Some(RandomModf); }
                     'R' => { modf = Some(RandomExModf); }
                     'k' => { preset = Some(fetch_arg('k').to_owned()); }
-                    'K' => {
-                        leftkeys = Some(fetch_arg('K').to_owned());
-                        rightkeys = Some(fetch_arg('K').to_owned());
-                    }
+                    'K' => { leftkeys = Some(fetch_arg('K').to_owned());
+                             rightkeys = Some(fetch_arg('K').to_owned()); }
                     'a' => {
                         match float::from_str(fetch_arg('a')) {
                             Some(speed) if speed > 0.0 => {
@@ -6301,9 +5813,7 @@ pub fn main() {
                         }
                     }
                     ' ' => {} // for ignored long options
-                    '1'..'9' => {
-                        playspeed = char::to_digit(c, 10).get() as float;
-                    }
+                    '1'..'9' => { playspeed = char::to_digit(c, 10).get() as float; }
                     _ => die!("Invalid option: -%c", c)
                 }
                 if !inside { break; }
@@ -6316,12 +5826,10 @@ pub fn main() {
     match bmspath {
         None => { usage(); }
         Some(bmspath) => {
-            let opts = ~Options {
-                bmspath: bmspath, mode: mode, modf: modf, bga: bga,
-                showinfo: showinfo, fullscreen: fullscreen,
-                joystick: joystick, preset: preset, leftkeys: leftkeys,
-                rightkeys: rightkeys, playspeed: playspeed
-            };
+            let opts = ~Options { bmspath: bmspath, mode: mode, modf: modf, bga: bga,
+                                  showinfo: showinfo, fullscreen: fullscreen, joystick: joystick,
+                                  preset: preset, leftkeys: leftkeys, rightkeys: rightkeys,
+                                  playspeed: playspeed };
             play(opts);
         }
     }
