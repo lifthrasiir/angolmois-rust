@@ -1078,8 +1078,7 @@ pub mod parser {
         /// due to handling of channel #03 (BPM is expected to be in hexadecimal).
         fn to_hex(self) -> Option<int> {
             let sixteens = *self / 36, ones = *self % 36;
-            if sixteens < 16 && ones < 16 {Some(sixteens * 16 + ones)}
-            else {None}
+            if sixteens < 16 && ones < 16 {Some(sixteens * 16 + ones)} else {None}
         }
     }
 
@@ -1819,40 +1818,79 @@ pub mod parser {
 
         let mut bms = Bms();
 
-        enum RndState { Process = 0, Ignore = 1, NoFurther = -1 }
-        struct Rnd {
+        /// The state of the block, for determining which lines should be processed.
+        enum BlockState {
+            /// Not contained in the #IF block. (C: `state == -1`)
+            Outside,
+            /// Active. (C: `state == 0`)
+            Process,
+            /// Inactive, but (for the purpose of #IF/#ELSEIF/#ELSE/#ENDIF structure) can move to
+            /// `Process` state when matching clause appears. (C: `state == 1`)
+            Ignore,
+            /// Inactive and won't be processed until the end of block. (C: `state == 2`)
+            NoFurther
+        }
+
+        impl BlockState {
+            /// Returns true if lines should be ignored in the current block given that the parent
+            /// block was active. (C: `state > 0`)
+            fn inactive(self) -> bool {
+                match self { Outside | Process => false, Ignore | NoFurther => true }
+            }
+        }
+
+        /**
+         * Block information. The parser keeps a list of nested blocks and determines if
+         * a particular line should be processed or not. (C: `struct rnd`)
+         *
+         * Angomlois actually recognizes only one kind of blocks, starting with #RANDOM or
+         * #SETRANDOM and ending with #ENDRANDOM or #END(IF) outside an #IF block. An #IF block is
+         * a state within #RANDOM, so it follows that #RANDOM/#SETRANDOM blocks can nest but #IF
+         * can't nest unless its direct parent is #RANDOM/#SETRANDOM.
+         */
+        struct Block {
+            /// A generated value if any. It can be `None` if this block is the topmost one (which
+            /// is actually not a block but rather a sentinel) or the last `#RANDOM` or `#SETRANDOM`
+            /// command was invalid, and #IF in that case will always evaluates to false. (C: `val`
+            /// field)
             val: Option<int>,
-            inside: bool,
-            /// (C: `ignore` field)
-            state: RndState,
+            /// The state of the block. (C: `state` field)
+            state: BlockState,
+            /// True if the parent block is already ignored so that this block should be ignored
+            /// no matter what `state` is. (C: `skip` field)
             skip: bool
         }
 
+        impl Block {
+            /// Returns true if lines should be ignored in the current block.
+            fn inactive(&self) -> bool { self.skip || self.state.inactive() }
+        }
+
         // Rust: #[deriving(Eq)] does not work inside the function. (#4913)
-        impl Eq for RndState {
-            fn eq(&self, other: &RndState) -> bool {
+        impl Eq for BlockState {
+            fn eq(&self, other: &BlockState) -> bool {
                 match (*self, *other) {
-                    (Process, Process) => true,
-                    (Ignore, Ignore) => true,
-                    (NoFurther, NoFurther) => true,
+                    (Outside, Outside) | (Process, Process) |
+                    (Ignore, Ignore) | (NoFurther, NoFurther) => true,
                     (_, _) => false
                 }
             }
-            fn ne(&self, other: &RndState) -> bool { !self.eq(other) }
+            fn ne(&self, other: &BlockState) -> bool { !self.eq(other) }
         }
-        impl Eq for Rnd {
-            fn eq(&self, other: &Rnd) -> bool {
+        impl Eq for Block {
+            fn eq(&self, other: &Block) -> bool {
                 // Rust: this is for using `ImmutableEqVector<T>::rposition`, which should have been
                 //       in `ImmutableVector<T>`.
-                self.val == other.val && self.inside == other.inside &&
-                self.state == other.state && self.skip == other.skip
+                self.val == other.val && self.state == other.state && self.skip == other.skip
             }
-            fn ne(&self, other: &Rnd) -> bool { !self.eq(other) }
+            fn ne(&self, other: &Block) -> bool { !self.eq(other) }
         }
 
-        let mut rnd = ~[Rnd { val: None, inside: false, state: Process, skip: false }];
+        let mut blk = ~[Block { val: None, state: Outside, skip: false }];
 
+        /// An unprocessed data line of BMS file.
         struct BmsLine { measure: uint, chan: Key, data: ~str }
+
         impl Ord for BmsLine {
             fn lt(&self, other: &BmsLine) -> bool {
                 self.measure < other.measure ||
@@ -1866,11 +1904,12 @@ pub mod parser {
             fn gt(&self, other: &BmsLine) -> bool { !self.le(other) }
         }
 
-        // (C: `bmsline`)
+        // A list of unprocessed data lines. They have to be sorted with a stable algorithm and
+        // processed in the order of measure number. (C: `bmsline`)
         let mut bmsline = ~[];
-        // (C: `bpmtab`)
+        // A table of BPMs. Maps to BMS #BPMxx command. (C: `bpmtab`)
         let mut bpmtab = ~[DefaultBPM, ..MAXKEY];
-        // (C: `stoptab`)
+        // A table of the length of scroll stoppers. Maps to BMS #STOP/#STP commands. (C: `stoptab`)
         let mut stoptab = ~[Seconds(0.0), ..MAXKEY];
 
         // Allows LNs to be specified as a consecutive row of same or non-00 alphanumeric keys (MGQ
@@ -1926,19 +1965,17 @@ pub mod parser {
 
             // Rust: mutable loan and immutable loan cannot coexist in the same block (although
             //       it's safe). (#4666)
-            assert!(!rnd.is_empty());
-            let state = { if rnd.last().skip {Ignore} else {rnd.last().state} }; // XXX #4666
-
-            match (prefix, state) {
+            assert!(!blk.is_empty());
+            match (prefix, { blk.last().inactive() }) { // XXX #4666
                 // #TITLE|#GENRE|#ARTIST|#STAGEFILE|#PATH_WAV <string>
-                ("TITLE", Process) => read!(string title),
-                ("GENRE", Process) => read!(string genre),
-                ("ARTIST", Process) => read!(string artist),
-                ("STAGEFILE", Process) => read!(string stagefile),
-                ("PATH_WAV", Process) => read!(string basepath),
+                ("TITLE", false) => read!(string title),
+                ("GENRE", false) => read!(string genre),
+                ("ARTIST", false) => read!(string artist),
+                ("STAGEFILE", false) => read!(string stagefile),
+                ("PATH_WAV", false) => read!(string basepath),
 
                 // #BPM <float> or #BPMxx <float>
-                ("BPM", Process) => {
+                ("BPM", false) => {
                     let mut key = Key(-1), bpm = 0.0;
                     if lex!(line; Key -> key, ws, float -> bpm) {
                         let Key(key) = key; bpmtab[key] = BPM(bpm);
@@ -1948,29 +1985,29 @@ pub mod parser {
                 }
 
                 // #PLAYER|#PLAYLEVEL|#RANK <int>
-                ("PLAYER", Process) => read!(value player),
-                ("PLAYLEVEL", Process) => read!(value playlevel),
-                ("RANK", Process) => read!(value rank),
+                ("PLAYER", false) => read!(value player),
+                ("PLAYLEVEL", false) => read!(value playlevel),
+                ("RANK", false) => read!(value rank),
 
                 // #LNTYPE <int>
-                ("LNTYPE", Process) => {
+                ("LNTYPE", false) => {
                     let mut lntype = 1;
                     if lex!(line; ws, int -> lntype) {
                         consecutiveln = (lntype == 2);
                     }
                 }
                 // #LNOBJ <key>
-                ("LNOBJ", Process) => {
+                ("LNOBJ", false) => {
                     let mut key = Key(-1);
                     if lex!(line; ws, Key -> key) { lnobj = Some(key); }
                 }
 
                 // #WAVxx|#BMPxx <path>
-                ("WAV", Process) => read!(path sndpath),
-                ("BMP", Process) => read!(path imgpath),
+                ("WAV", false) => read!(path sndpath),
+                ("BMP", false) => read!(path imgpath),
 
                 // #BGAxx yy <int> <int> <int> <int> <int> <int>
-                ("BGA", Process) => {
+                ("BGA", false) => {
                     let mut dst = Key(0), src = Key(0);
                     let mut bc = BlitCmd { dst: ImageRef(Key(0)), src: ImageRef(Key(0)),
                                            x1: 0, y1: 0, x2: 0, y2: 0, dx: 0, dy: 0 };
@@ -1984,7 +2021,7 @@ pub mod parser {
                 }
 
                 // #STOPxx <int>
-                ("STOP", Process) => {
+                ("STOP", false) => {
                     let mut key = Key(-1), duration = 0;
                     if lex!(line; Key -> key, ws, int -> duration) {
                         let Key(key) = key;
@@ -1993,7 +2030,7 @@ pub mod parser {
                 }
 
                 // #STP<int>.<int> <int>
-                ("STP", Process) => {
+                ("STP", false) => {
                     let mut measure = 0, frac = 0, duration = 0;
                     if lex!(line; Measure -> measure, '.', uint -> frac, ws,
                             int -> duration) && duration > 0 {
@@ -2012,7 +2049,7 @@ pub mod parser {
 
                         // do not generate a random value if the entire block is skipped (but it
                         // still marks the start of block)
-                        let inactive = {rnd.last().state != Process || rnd.last().skip};// XXX #4666
+                        let inactive = {blk.last().inactive()};// XXX #4666
                         let generated = do val.chain |val| {
                             // Rust: there should be `Option<T>::chain` if `T` is copyable.
                             if prefix == "SETRANDOM" {
@@ -2024,14 +2061,13 @@ pub mod parser {
                                 None
                             }
                         };
-                        rnd.push(Rnd { val: generated, inside: false,
-                                       state: Process, skip: inactive });
+                        blk.push(Block { val: generated, state: Outside, skip: inactive });
                     }
                 }
 
                 // #ENDRANDOM
                 ("ENDRANDOM", _) => {
-                    if rnd.len() > 1 { rnd.pop(); }
+                    if blk.len() > 1 { blk.pop(); }
                 }
 
                 // #IF|#ELSEIF <int>
@@ -2041,12 +2077,11 @@ pub mod parser {
                     if lex!(line; ws, int -> val) {
                         let val = if val <= 0 {None} else {Some(val)};
 
-                        // Rust: `rnd.last_ref()` may be useful?
-                        let last = &mut rnd[rnd.len() - 1];
-                        last.inside = true;
+                        // Rust: `blk.last_ref()` may be useful?
+                        let last = &mut blk[blk.len() - 1];
                         last.state =
-                            if prefix == "IF" || last.state == NoFurther {
-                                if val.is_none() || val == last.val {Ignore} else {Process}
+                            if (prefix == "IF" && !last.state.inactive()) || last.state == Ignore {
+                                if val.is_none() || val != last.val {Ignore} else {Process}
                             } else {
                                 NoFurther
                             };
@@ -2055,26 +2090,24 @@ pub mod parser {
 
                 // #ELSE
                 ("ELSE", _) => {
-                    let last = &mut rnd[rnd.len() - 1];
-                    last.inside = true;
+                    let last = &mut blk[blk.len() - 1];
                     last.state = if last.state == Ignore {Process} else {NoFurther};
                 }
 
                 // #END(IF)
                 ("END", _) => {
-                    for rnd.rposition(|&i| i.inside).each |idx| {
-                        rnd.truncate(idx + 1);
+                    for blk.rposition(|&i| i.state != Outside).each |&idx| {
+                        if idx > 0 { blk.truncate(idx + 1); }
                     }
 
                     { // XXX #4666
-                        let last = &mut rnd[rnd.len() - 1];
-                        last.inside = false;
-                        last.state = Process;
+                        let last = &mut blk[blk.len() - 1];
+                        last.state = Outside;
                     }
                 }
 
                 // #nnnmm:...
-                ("", Process) => {
+                ("", false) => {
                     let mut measure = 0, chan = Key(0), data = ~"";
                     if lex!(line; Measure -> measure, Key -> chan, ':', ws*, str -> data, ws*, !) {
                         bmsline.push(BmsLine { measure: measure, chan: chan, data: data })
@@ -2208,7 +2241,7 @@ pub mod parser {
 
                 // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5% of the full gauge) or
                 // instant death (ZZ)
-                0xD*36..0xE*36-1 => {
+                0xD*36..0xF*36-1 => {
                     let lane = Lane::from_channel(chan);
                     let damage = match *v {
                         1..200 => Some(GaugeDamage(*v as float / 200.0)),
@@ -2586,7 +2619,8 @@ pub mod parser {
         infos
     }
 
-    /// (C: `get_bms_duration`)
+    /// Calculates the duration of the loaded BMS file. `sound_length` should return the length of
+    /// sound resources or 0.0. (C: `get_bms_duration`)
     pub fn bms_duration(bms: &Bms, originoffset: float,
                         sound_length: &fn(SoundRef) -> float) -> float {
         let mut pos = originoffset;
@@ -2618,7 +2652,7 @@ pub mod parser {
             pos = obj.time;
         }
 
-        if *bpm > 0.0 {
+        if *bpm > 0.0 { // the chart scrolls backwards to `originoffset` for negative BPM
             let delta = bms.adjust_object_position(pos, (bms.nmeasures + 1) as float);
             time += bpm.measure_to_msec(delta);
         }
@@ -2628,6 +2662,8 @@ pub mod parser {
     //----------------------------------------------------------------------------------------------
     // modifiers
 
+    /// Applies a function to the object lane if any. This is used to shuffle the lanes without
+    /// modifying the relative time position.
     fn update_object_lane(obj: &mut Obj, f: &fn(Lane) -> Lane) {
         obj.data = match obj.data {
             Visible(lane,sref) => Visible(f(lane),sref),
@@ -2639,7 +2675,7 @@ pub mod parser {
         };
     }
 
-    /// (C: `shuffle_bms` with `MIRROR_MODF`)
+    /// Swaps given lanes in the reverse order. (C: `shuffle_bms` with `MIRROR_MODF`)
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
         let rlanes = vec::reversed(lanes);
@@ -2652,7 +2688,8 @@ pub mod parser {
         }
     }
 
-    /// (C: `shuffle_bms` with `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
+    /// Swaps given lanes in the random order. (C: `shuffle_bms` with
+    /// `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
     pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
@@ -2665,7 +2702,10 @@ pub mod parser {
         }
     }
 
-    /// (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
+    /// Swaps given lanes in the random order, where the order is determined per object.
+    /// `bms` should be first sanitized by `sanitize_bms`. It does not cause objects to move within
+    /// another LN object, or place two objects in the same or very close time position to the same
+    /// lane. (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
     pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
         let mut movable = vec::from_slice(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
@@ -3010,22 +3050,37 @@ pub mod gfx {
         }
     }
 
+    /// A scaling factor for the calculation of convolution kernel.
     static FP_SHIFT1: int = 11;
+    /// A scaling factor for the summation of weighted pixels.
     static FP_SHIFT2: int = 16;
 
-    /// (C: `bicubic_kernel`)
+    /// Returns `2^FP_SHIFT * W(x/y)` where `W(x)` is a bicubic kernel function. `y` should be
+    /// positive. (C: `bicubic_kernel`)
     fn bicubic_kernel(x: int, y: int) -> int {
         let x = num::abs(x);
         if x < y {
-            ((y*y - 2*x*x + x*x/y*x) << FP_SHIFT1) / (y*y)
+            // W(x/y) = 1/2 (2 - 5(x/y)^2 + 3(x/y)^3)
+            ((2*y*y - 5*x*x + 3*x*x/y*x) << (FP_SHIFT1-1)) / (y*y)
         } else if x < y * 2 {
-            ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << FP_SHIFT1) / (y*y)
+            // W(x/y) = 1/2 (4 - 8(x/y) + 5(x/y)^2 - (x/y)^3)
+            ((4*y*y - 8*x*y + 5*x*x - x*x/y*x) << (FP_SHIFT1-1)) / (y*y)
         } else {
             0
         }
     }
 
-    /// (C: `bicubic_interpolation`)
+    /**
+     * Performs the bicubic interpolation. `dest` should be initialized to the target dimension
+     * before calling this function. This function should be used only for the upscaling; it can do
+     * the downscaling somehow but technically its result is incorrect. (C: `bicubic_interpolation`)
+     *
+     * Well, this function is one of the ugliest functions in Angolmois, especially since it is
+     * a complicated (in terms of code complexity) and still poor (we normally use the matrix form
+     * instead) implementation of the algorithm. In fact, the original version of `bicubic_kernel`
+     * had even a slightly incorrect curve (`1/2 - x^2 + 1/2 x^3` instead of `1 - 5/2 x^2 +
+     * 3/2 x^3`). This function still remains here only because we don't use OpenGL...
+     */
     pub fn bicubic_interpolation(src: &SurfacePixels, dest: &SurfacePixels) {
         let w = dest.width as int - 1;
         let h = dest.height as int - 1;
@@ -3120,8 +3175,17 @@ pub mod gfx {
         pixels: ~[~[~[ZoomedFontRow]]]
     }
 
-    pub enum Alignment { LeftAligned, Centered, RightAligned }
+    /// An alignment mode of `Font::print_string`.
+    pub enum Alignment {
+        /// Coordinates specify the top-left corner of the bounding box.
+        LeftAligned,
+        /// Coordinates specify the top-center point of the bounding box.
+        Centered,
+        /// Coordinates specify the top-right corner of the bounding box.
+        RightAligned
+    }
 
+    /// Decompresses a bitmap font data. `Font::create_zoomed_font` is required for the actual use.
     pub fn Font() -> Font {
         // Delta-coded code words. (C: `words`)
         let dwords = [0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15, 1521, 15, 1537,
@@ -3151,7 +3215,7 @@ pub mod gfx {
               Zf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(\
               M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
-        /// (C: `fontdecompress`)
+        /// Decompresses a font data from `dwords` and `indices`. (C: `fontdecompress`)
         fn decompress(dwords: &[u16], indices: &str) -> ~[u16] {
             let mut words = ~[0];
             for dwords.each |&delta| {
@@ -3188,7 +3252,7 @@ pub mod gfx {
     }
 
     pub impl Font {
-        /// (C: `fontprocess`)
+        /// Creates a zoomed font of scale `zoom`. (C: `fontprocess`)
         fn create_zoomed_font(&mut self, zoom: uint) {
             assert!(zoom > 0);
             assert!(zoom <= (8 * sys::size_of::<ZoomedFontRow>()) / 8);
@@ -3234,8 +3298,9 @@ pub mod gfx {
             self.pixels.grow_set(zoom, &~[], pixels);
         }
 
-        /// Prints a glyph with given position and top/bottom color. This method is distinct from
-        /// `print_glyph` since the glyph #95 is used for the tick marker (character code -1 in C).
+        /// Prints a glyph with given position and color (possibly gradient). This method is
+        /// distinct from `print_glyph` since the glyph #95 is used for the tick marker
+        /// (character code -1 in C). (C: `printchar`)
         pub fn print_glyph<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
                                               zoom: uint, glyph: uint, color: ColorT) { // XXX #3984
             assert!(!self.pixels[zoom].is_empty());
@@ -3250,7 +3315,7 @@ pub mod gfx {
             }
         }
 
-        /// (C: `printchar`)
+        /// Prints a character with given position and color.
         pub fn print_char<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
                                              zoom: uint, c: char, color: ColorT) { // XXX #3984
             if !char::is_whitespace(c) {
@@ -3260,7 +3325,7 @@ pub mod gfx {
             }
         }
 
-        /// (C: `printstr`)
+        /// Prints a string with given position, alignment and color. (C: `printstr`)
         pub fn print_string<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
                                                zoom: uint, align: Alignment, s: &str,
                                                color: ColorT) { // XXX #3984
@@ -3325,60 +3390,68 @@ pub mod player {
         ExclusiveMode
     }
 
-    /// (C: `enum modf`)
+    /// Modifiers that affect the game data. (C: `enum modf`)
     #[deriving(Eq)]
     pub enum Modf {
-        /// (C: `MIRROR_MODF`)
+        /// Swaps all "key" (i.e. `KeyKind::counts_as_key` returns true) lanes in the reverse order.
+        /// See `player::apply_mirror_modf` for the detailed algorithm. (C: `MIRROR_MODF`)
         MirrorModf,
-        /// (C: `SHUFFLE_MODF`)
+        /// Swaps all "key" lanes in the random order. See `player::apply_shuffle_modf` for
+        /// the detailed algorithm. (C: `SHUFFLE_MODF`)
         ShuffleModf,
-        /// (C: `SHUFFLEEX_MODF`)
+        /// Swaps all lanes in the random order. (C: `SHUFFLEEX_MODF`)
         ShuffleExModf,
-        /// (C: `RANDOM_MODF`)
+        /// Swaps all "key" lanes in the random order, where the order is determined per object.
+        /// See `player::apply_random_modf` for the detailed algorithm. (C: `RANDOM_MODF`)
         RandomModf,
+        /// Swaps all lanes in the random order, where the order is determined per object.
         /// (C: `RANDOMEX_MODF`)
         RandomExModf
     }
 
-    /// (C: `enum bga`)
+    /// Specifies how the BGA is displayed. (C: `enum bga`)
     #[deriving(Eq)]
     pub enum Bga {
-        /// (C: `BGA_AND_MOVIE`)
+        /// Both the BGA image and movie is displayed. (C: `BGA_AND_MOVIE`)
         BgaAndMovie,
-        /// (C: `BGA_BUT_NO_MOVIE`)
+        /// The BGA is displayed but the movie is not loaded. (C: `BGA_BUT_NO_MOVIE`)
         BgaButNoMovie,
-        /// (C: `NO_BGA`)
+        /// The BGA is not displayed. When used with `ExclusiveMode` it also disables the graphical
+        /// display entirely. (C: `NO_BGA`)
         NoBga
     }
 
+    /// Global options set from the command line and environment variables.
     pub struct Options {
+        /// A path to the BMS file. Used for finding the resource when `BMS::basepath` is not set.
         /// (C: `bmspath`)
         bmspath: ~str,
-        /// (C: `opt_mode`)
+        /// Game play mode. (C: `opt_mode`)
         mode: Mode,
-        /// (C: `opt_modf`)
+        /// Modifiers that affect the game data. (C: `opt_modf`)
         modf: Option<Modf>,
-        /// (C: `opt_bga`)
+        /// Specifies how the BGA is displayed. (C: `opt_bga`)
         bga: Bga,
-        /// (C: `opt_showinfo`)
+        /// True if the metadata (either overlaid in the loading screen or printed separately
+        /// in the console) is displayed. (C: `opt_showinfo`)
         showinfo: bool,
-        /// (C: `opt_fullscreen`)
+        /// True if the full screen is enabled. (C: `opt_fullscreen`)
         fullscreen: bool,
-        /// (C: `opt_joystick`)
+        /// An index to the joystick device if any. (C: `opt_joystick`)
         joystick: Option<uint>,
-        /// (C: `preset`)
+        /// A key specification preset name if any. (C: `preset`)
         preset: Option<~str>,
-        /// (C: `leftkeys`)
+        /// A left-hand-side key specification if any. (C: `leftkeys`)
         leftkeys: Option<~str>,
-        /// (C: `rightkeys`)
+        /// A right-hand-side key specification if any. Can be an empty string. (C: `rightkeys`)
         rightkeys: Option<~str>,
-        /// (C: `playspeed`)
+        /// An initial play speed. (C: `playspeed`)
         playspeed: float,
     }
 
     pub impl Options {
         fn rel_path(&self, path: &str) -> Path {
-            Path(self.bmspath).dir_path().push_rel(&Path(path))
+            Path(self.bmspath).dir_path().push_rel(&Path(path)) // TODO
         }
 
         /// Returns true if the exclusive mode is enabled. This enables a text-based interface.
@@ -3403,6 +3476,7 @@ pub mod player {
     //----------------------------------------------------------------------------------------------
     // bms utilities
 
+    /// Parses a key specification from the options.
     pub fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
@@ -3460,7 +3534,9 @@ pub mod player {
         Ok(keyspec)
     }
 
-    /// (C: `shuffle_bms`)
+    /// Applies given modifier to the game data. The target lanes of the modifier is determined
+    /// from given key specification. This function should be called twice for the Couple Play,
+    /// since 1P and 2P should be treated separately. (C: `shuffle_bms`)
     pub fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf, r: &R, keyspec: &KeySpec,
                                                 begin: uint, end: uint) {
         let mut lanes = ~[];
@@ -3707,6 +3783,7 @@ pub mod player {
 
     /// (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: &fn(&str) -> Option<~str>) -> KeyMap {
+        /// Finds an SDL virtual key with the given name. Matching is done case-insensitively.
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
             let name = name.to_lower();
             unsafe {
