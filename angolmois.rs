@@ -1704,8 +1704,8 @@ pub mod parser {
 
         /// List of objects sorted by the position. (C: `objs`)
         objs: ~[Obj],
-        /// The scaling factor of measures. Defaults to 1.0. (C: `shorten`)
-        shorten: ~[float],
+        /// The scaling factor of measures. Defaults to 1.0. (C: `shortens`)
+        shortens: ~[float],
         /// The number of measures after the origin, i.e. the length of the BMS file. The play stops
         /// after the last measure. (C: `length`)
         nmeasures: uint
@@ -1716,17 +1716,17 @@ pub mod parser {
         Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
               player: SinglePlay, playlevel: 0, rank: 2, initbpm: DefaultBPM,
               sndpath: [None, ..MAXKEY], imgpath: [None, ..MAXKEY], blitcmd: ~[], objs: ~[],
-              shorten: ~[], nmeasures: 0 }
+              shortens: ~[], nmeasures: 0 }
     }
 
     pub impl Bms {
         /// Returns a scaling factor of given measure number. The default scaling factor is 1.0, and
-        /// that value applies to any out-of-bound measures.
-        fn shorten_factor(&self, measure: int) -> float {
-            if measure < 0 || measure as uint >= self.shorten.len() {
+        /// that value applies to any out-of-bound measures. (C: `shorten`)
+        fn shorten(&self, measure: int) -> float {
+            if measure < 0 || measure as uint >= self.shortens.len() {
                 1.0
             } else {
-                self.shorten[measure as uint]
+                self.shortens[measure as uint]
             }
         }
 
@@ -1735,7 +1735,7 @@ pub mod parser {
         /// then `adjust_object_time(0.0, 2.0)` results in `5.0`. (C: `adjust_object_time`)
         fn adjust_object_time(&self, base: float, offset: float) -> float {
             let basemeasure = base.floor() as int;
-            let baseshorten = self.shorten_factor(basemeasure);
+            let baseshorten = self.shorten(basemeasure);
             let basefrac = base - basemeasure as float;
             let tonextmeasure = (1.0 - basefrac) * baseshorten;
             if offset < tonextmeasure {
@@ -1743,11 +1743,11 @@ pub mod parser {
             } else {
                 let mut offset = offset - tonextmeasure;
                 let mut i = basemeasure + 1;
-                let mut curshorten = self.shorten_factor(i);
+                let mut curshorten = self.shorten(i);
                 while offset >= curshorten {
                     offset -= curshorten;
                     i += 1;
-                    curshorten = self.shorten_factor(i);
+                    curshorten = self.shorten(i);
                 }
                 i as float + offset / curshorten
             }
@@ -1762,10 +1762,10 @@ pub mod parser {
             let timemeasure = time.floor() as int;
             let basefrac = base - basemeasure as float;
             let timefrac = time - timemeasure as float;
-            let mut pos = timefrac * self.shorten_factor(timemeasure) -
-                          basefrac * self.shorten_factor(basemeasure);
+            let mut pos = timefrac * self.shorten(timemeasure) -
+                          basefrac * self.shorten(basemeasure);
             for int::range(basemeasure, timemeasure) |i| {
-                pos += self.shorten_factor(i);
+                pos += self.shorten(i);
             }
             pos
         }
@@ -2267,7 +2267,7 @@ pub mod parser {
                 let mut shorten = 0.0;
                 if lex!(line.data; ws*, float -> shorten) {
                     if shorten > 0.001 {
-                        bms.shorten.grow_set(line.measure, &1.0, shorten);
+                        bms.shortens.grow_set(line.measure, &1.0, shorten);
                     }
                 }
             } else {
@@ -4619,7 +4619,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let now = get_ticks();
         let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
-        let startshorten = bms.shorten_factor(originoffset as int);
+        let startshorten = bms.shorten(originoffset as int);
         let gradefactor = 1.5 - cmp::min(bms.rank, 5) as float * 0.25;
         let initialgauge = MAXGAUGE * 500 / 1000;
         let survival = MAXGAUGE * 293 / 1000;
@@ -4823,21 +4823,26 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 }
             };
 
+            // Breaks a continuity at given virtual time.
+            let break_continuity = |at: float| {
+                assert!(at >= self.startoffset);
+                self.starttime += (self.bpm.measure_to_msec(at - self.startoffset) *
+                                   self.startshorten) as uint;
+                self.startoffset = at;
+            };
+
             // process the measure scale factor change
             let bottommeasure = self.bottom.floor();
-            let curshorten = bms.shorten_factor(bottommeasure as int);
+            let curshorten = bms.shorten(bottommeasure as int);
             if bottommeasure >= -1.0 && self.startshorten != curshorten {
-                let measurediff = bottommeasure as float - self.startoffset;
-                self.starttime += (self.bpm.measure_to_msec(measurediff) *
-                                   self.startshorten) as uint;
-                self.startoffset = bottommeasure;
+                break_continuity(bottommeasure);
                 self.startshorten = curshorten;
             }
 
             //self.line = bms.adjust_object_time(self.bottom, 0.03 / self.playspeed);
             self.line = self.bottom;
             self.top = bms.adjust_object_time(self.bottom, 1.25 / self.playspeed);
-            let lineshorten = bms.shorten_factor(self.line.floor() as int);
+            let lineshorten = bms.shorten(self.line.floor() as int);
 
             // apply object-like effects while advancing to new `pcur`
             pfront.seek_until(self.bottom);
@@ -4851,8 +4856,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         self.bga[layer as uint] = iref;
                     }
                     SetBPM(newbpm) => {
-                        self.starttime = self.now;
-                        self.startoffset = self.bottom;
+                        break_continuity(obj.time);
                         self.bpm = newbpm;
                     }
                     Stop(duration) => {
@@ -4877,7 +4881,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             if !self.opts.is_autoplay() {
                 for pcheck.iter_to(pcur) |&obj| {
                     let dist = self.bpm.measure_to_msec(self.line - obj.time) *
-                               bms.shorten_factor(obj.measure()) * self.gradefactor;
+                               bms.shorten(obj.measure()) * self.gradefactor;
                     if dist < BAD_CUTOFF { break; }
                     if !self.nograding[pcheck.pos] {
                         for obj.object_lane().each |&Lane(lane)| {
@@ -5182,7 +5186,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     /// Builds a list of `LaneStyle`s from the key specification.
-    fn build_lane_styles(keyspec: &KeySpec) -> (uint, Option<uint>, ~[(Lane,LaneStyle)]) {
+    fn build_lane_styles(keyspec: &KeySpec) ->
+                                    Result<(uint, Option<uint>, ~[(Lane,LaneStyle)]), ~str> {
         let mut leftmost = 0, rightmost = SCREENW;
         let mut styles = ~[];
         for keyspec.each_left_lanes |&lane| {
@@ -5192,6 +5197,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let style = LaneStyle::from_kind(kind, Left(leftmost));
             styles.push((lane, style));
             leftmost += style.width + 1;
+            if leftmost > SCREENW - 20 {
+                return Err(~"The screen can't hold that many lanes");
+            }
         }
         for keyspec.each_right_lanes |&lane| {
             let kind = keyspec.kinds[*lane];
@@ -5199,11 +5207,33 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let kind = kind.get();
             let style = LaneStyle::from_kind(kind, Right(rightmost));
             styles.push((lane, style));
+            if rightmost < leftmost + 40 {
+                return Err(~"The screen can't hold that many lanes");
+            }
             rightmost -= style.width + 1;
         }
+        let mut rightmost = if rightmost == SCREENW {None} else {Some(rightmost)};
 
-        let rightmost = if rightmost == SCREENW {None} else {Some(rightmost)};
-        (leftmost, rightmost, styles)
+        // move lanes to the center if there are too small number of lanes
+        let cutoff = 165;
+        if leftmost < cutoff {
+            for uint::range(0, keyspec.split) |i| {
+                let mut (lane, style) = styles[i];
+                style.left += (cutoff - leftmost) / 2;
+                styles[i] = (lane, style);
+            }
+            leftmost = cutoff;
+        }
+        if rightmost.map_default(false, |&x| x > SCREENW - cutoff) {
+            for uint::range(keyspec.split, styles.len()) |i| {
+                let mut (lane, style) = styles[i];
+                style.left -= (rightmost.get() - (SCREENW - cutoff)) / 2;
+                styles[i] = (lane, style);
+            }
+            rightmost = Some(SCREENW - cutoff);
+        }
+
+        Ok((leftmost, rightmost, styles))
     }
 
     /// Creates a sprite. (C: sprite construction portion of `play_prepare`)
@@ -5297,8 +5327,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface, font: ~Font,
-                          imgres: ~[ImageResource]) -> GraphicDisplay {
-        let (leftmost, rightmost, styles) = build_lane_styles(keyspec);
+                          imgres: ~[ImageResource]) -> Result<GraphicDisplay,~str> {
+        let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
+            Ok(styles) => styles,
+            Err(err) => { return Err(err); }
+        };
         let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
         let bgax = leftmost + (centerwidth - BGAW) / 2;
         let bgay = (SCREENH - BGAH) / 2;
@@ -5314,7 +5347,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         display.restore_panel();
         display.screen.flip();
 
-        display
+        Ok(display)
     }
 
     /// (C: `tgradestr` and `tgradecolor`)
@@ -5359,6 +5392,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.lastbga.update(&player.bga, self.imgres);
             *&mut self.poorlimit = poorlimit;
             *&mut self.gradelimit = gradelimit;
+
+            // render BGAs (should render before the lanes since lanes can overlap with BGAs)
+            if player.opts.has_bga() {
+                let layers = if poorlimit.is_some() {&[PoorBGA]} else {&[Layer1, Layer2, Layer3]};
+                self.lastbga.render(self.screen, layers, self.imgres, self.bgax, self.bgay);
+            }
 
             // fill the lanes to the border color
             screen.fill_area((0, 30), (self.leftmost, SCREENH-110), RGB(0x40,0x40,0x40));
@@ -5493,12 +5532,6 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let color = if player.gauge >= player.survival {RGB(0xc0,0,0)}
                             else {RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0)};
                 screen.fill_area((4, SCREENH-12), (width, 8), color);
-            }
-
-            // render BGAs
-            if player.opts.has_bga() {
-                let layers = if poorlimit.is_some() {&[PoorBGA]} else {&[Layer1, Layer2, Layer3]};
-                self.lastbga.render(self.screen, layers, self.imgres, self.bgax, self.bgay);
             }
 
             screen.flip();
@@ -5715,9 +5748,12 @@ pub fn play(opts: ~player::Options) {
                 if player.opts.is_exclusive() {
                     loop_with_display(player, player::BGAOnlyDisplay(screen, imgres));
                 } else {
-                    let display = player::GraphicDisplay(player.opts, player.keyspec,
-                                                         screen, font, imgres);
-                    loop_with_display(player, display);
+                    let display_ = player::GraphicDisplay(player.opts, player.keyspec,
+                                                          screen, font, imgres);
+                    match display_ {
+                        Ok(display) => loop_with_display(player, display),
+                        Err(err) => die!("%s", err)
+                    }
                 }
             }
             None => {
