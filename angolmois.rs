@@ -542,6 +542,13 @@ pub mod util {
         }
     }
 
+    /**
+     * Extensions to rust-sdl. This comprises of additional bindings for SDL_mixer and a minimal
+     * but functional binding for SMPEG.
+     *
+     * NOTE: Some of these additions will be eventually sent to rust-sdl and are not subject to
+     * the above copyright notice.
+     */
     pub mod sdl {
         pub mod mixer {
             use core::libc::c_int;
@@ -599,7 +606,6 @@ pub mod util {
             }
         }
 
-        /// A minimal binding to smpeg.
         pub mod mpeg {
             use core::libc::{c_int, c_float};
             use sdl::video::Surface;
@@ -1886,6 +1892,7 @@ pub mod parser {
             fn ne(&self, other: &Block) -> bool { !self.eq(other) }
         }
 
+        // A list of nested blocks. (C: `rnd`)
         let mut blk = ~[Block { val: None, state: Outside, skip: false }];
 
         /// An unprocessed data line of BMS file.
@@ -2741,6 +2748,7 @@ pub mod parser {
 //==================================================================================================
 // graphics
 
+/// Graphic utilities.
 pub mod gfx {
     use sdl::Rect;
     pub use sdl::video::*;
@@ -3353,7 +3361,7 @@ pub mod gfx {
 
 /**
  * Game play logics. This module contains whooping 2000+ lines of code, reflecting the fact that
- * Angolmois is not well refactored.
+ * Angolmois is not well refactored. (In fact, the game logic is usually hard to refactor, right?)
  */
 pub mod player {
     use sdl::*;
@@ -3450,6 +3458,7 @@ pub mod player {
     }
 
     pub impl Options {
+        /// TODO doc
         fn rel_path(&self, path: &str) -> Path {
             Path(self.bmspath).dir_path().push_rel(&Path(path)) // TODO
         }
@@ -3574,24 +3583,33 @@ pub mod player {
         }
     }
 
+    /// Writes a line to the console without advancing to the next line. `s` should be short enough
+    /// to be replaced (currently up to 72 bytes).
     pub fn update_line(s: &str) {
         io::stderr().write_str(fmt!("\r%s\r%s", str::repeat(~" ", 72), s));
     }
 
+    /// A periodic timer for thresholding the rate of information display.
     pub struct Ticker {
-        ///
+        /// Minimal required milliseconds after the last display.
         interval: uint,
-        /// (C: `lastinfo`)
+        /// The timestamp at the last display. It is a return value from `sdl::get_ticks` and
+        /// measured in milliseconds. May be a `None` if the ticker is at the initial state or
+        /// has been reset by `reset` method. (C: `lastinfo`)
         lastinfo: Option<uint>
     }
 
+    /// Returns a new ticker with a default display interval.
     pub fn Ticker() -> Ticker {
+        /// A reasonable interval for the console and graphic display. Currently set to about 21fps.
         /// (C: `INFO_INTERVAL`)
         static INFO_INTERVAL: uint = 47;
         Ticker { interval: INFO_INTERVAL, lastinfo: None }
     }
 
     pub impl Ticker {
+        /// Calls `f` only when required milliseconds have passed after the last display.
+        /// `now` should be a return value from `sdl::get_ticks`.
         fn on_tick(&mut self, now: uint, f: &fn()) {
             if self.lastinfo.map_default(true, |&t| now - t >= self.interval) {
                 self.lastinfo = Some(now);
@@ -3599,6 +3617,7 @@ pub mod player {
             }
         }
 
+        /// Lets the next call to `on_tick` always call the callback.
         fn reset(&mut self) {
             self.lastinfo = None;
         }
@@ -3607,10 +3626,16 @@ pub mod player {
     //----------------------------------------------------------------------------------------------
     // initialization
 
+    /// An internal sampling rate for SDL_mixer. Every chunk loaded is first converted to
+    /// this sampling rate for the purpose of mixing.
     static SAMPLERATE: i32 = 44100;
+
+    /// The number of bytes in the chunk converted to an internal sampling rate.
     static BYTESPERSEC: i32 = SAMPLERATE * 2 * 2; // stereo, 16 bits/sample
 
-    /// (C: `init_video`)
+    /// Creates a small screen for BGAs (`BGAW` by `BGAH` pixels) if `exclusive` is set,
+    /// or a full-sized screen (`SCREENW` by `SCREENH` pixels) otherwise. `fullscreen` is ignored
+    /// when `exclusive` is set. (C: `init_video`)
     pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
         let result =
             if exclusive {
@@ -3632,7 +3657,7 @@ pub mod player {
         screen
     }
 
-    /// (C: `init_ui`)
+    /// Initializes an SDL, SDL_image and SDL_mixer. (C: `init_ui`)
     pub fn init_sdl() {
         if !init([InitVideo, InitAudio, InitJoystick]) {
             die!("SDL Initialization Failure: %s", get_error());
@@ -3644,6 +3669,7 @@ pub mod player {
         }
     }
 
+    /// Initializes a joystick with given index.
     pub fn init_joystick(joyidx: uint) -> ~joy::Joystick {
         joy::ll::SDL_JoystickEventState(1); // TODO rust-sdl patch
         match joy::Joystick::open(joyidx as int) {
@@ -3779,9 +3805,10 @@ pub mod player {
                             (None, &[SpeedUpInput])] ),
     ];
 
+    /// An input mapping, i.e. a mapping from the actual input to the virtual input.
     pub type KeyMap = ::core_compat::hashmap::HashMap<Input,VirtualInput>;
 
-    /// (C: `read_keymap`)
+    /// Reads an input mapping from the environment variables. (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: &fn(&str) -> Option<~str>) -> KeyMap {
         /// Finds an SDL virtual key with the given name. Matching is done case-insensitively.
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
@@ -3798,6 +3825,7 @@ pub mod player {
             None
         }
 
+        /// Parses an `Input` value from the string. E.g. `"backspace"`, `"button 2"` or `"axis 0"`.
         fn parse_input(s: &str) -> Option<Input> {
             let mut idx = 0;
             let s = s.trim();
@@ -4039,8 +4067,13 @@ match Chunk::from_wav(&fullpath) {
         [None, None, None, Some(ImageRef(Key(0)))]
     }
 
+    /// A trait for BGA state.
     trait BGAStateOps {
+        /// Updates the BGA state. This method prepares given image resources for the next
+        /// rendering, notably by starting and stopping the movie playback.
         fn update(&mut self, current: &BGAState, imgres: &[ImageResource]);
+        /// Renders the image resources for the specified layers to the specified region of
+        /// `screen`.
         fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
                   x: uint, y: uint);
     }
@@ -4430,26 +4463,66 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //----------------------------------------------------------------------------------------------
     // game play logics
 
+    /// Grades. Angolmois performs the time-based grading as long as possible (it can go wrong when
+    /// the object is near the discontinuity due to the current implementation strategy).
     #[deriving(Eq)]
     enum Grade {
-        MISS  = 0,
-        BAD   = 1,
-        GOOD  = 2,
+        /**
+         * Issued when the player did not input the object at all, the player was pressing the key
+         * while a bomb passes through the corresponding lane, or failed to unpress the key within
+         * the grading area for the end of LN. Resets the combo number, decreases the gauge
+         * by severe amount (`MISS_DAMAGE` unless specified by the bomb) and displays the POOR BGA
+         * for moments.
+         *
+         * Several games also use separate grading areas for empty lanes next to the object,
+         * in order to avoid continuing the consecutive run ("combo") of acceptable grades by
+         * just pressing every keys in the correct timing instead of pressing only lanes containing
+         * objects. While this system is not a bad thing (and there are several BMS implementations
+         * that use it), it is tricky to implement for the all situations. Angolmois currently
+         * does not use this system due to the complexity.
+         */
+        MISS = 0,
+        /// Issued when the player inputed the object and the normalized time difference (that is,
+        /// the time difference multiplied by `Player::gradefactor`) between the input point and
+        /// the object is between `GOOD_CUTOFF` and `BAD_CUTOFF` milliseconds. Resets the combo
+        /// number, decreases the gauge by moderate amount (`BAD_DAMAGE`) and displays the POOR BGA
+        /// for moments.
+        BAD  = 1,
+        /// Issued when the player inputed the object and the normalized time difference is between
+        /// `GREAT_CUTOFF` and `GOOD_CUTOFF` milliseconds. Both the combo number and gauge is
+        /// left unchanged.
+        GOOD = 2,
+        /// Issued when the player inputed the object and the normalized time difference is between
+        /// `COOL_CUTOFF` and `GREAT_CUTOFF` milliseconds. The combo number is increased by one and
+        /// the gauge is replenished by small amount.
         GREAT = 3,
-        COOL  = 4,
+        /// Issued when the player inputed the object and the normalized time difference is less
+        /// than `COOL_CUTOFF` milliseconds. The combo number is increased by one and the gauge is
+        /// replenished by large amount.
+        COOL = 4,
     }
 
+    /// Required time difference in milliseconds to get at least COOL grade.
     static COOL_CUTOFF: float = 14.4;
+    /// Required time difference in milliseconds to get at least GREAT grade.
     static GREAT_CUTOFF: float = 48.0;
+    /// Required time difference in milliseconds to get at least GOOD grade.
     static GOOD_CUTOFF: float = 84.0;
+    /// Required time difference in milliseconds to get at least BAD grade.
     static BAD_CUTOFF: float = 144.0;
 
+    /// The number of available grades.
     static NGRADES: uint = 5;
 
+    /// The maximum (internal) value for the gauge.
     static MAXGAUGE: int = 512;
+    /// A base score per exact input. Actual score can increase by the combo (up to 2x) or decrease
+    /// by the larger time difference.
     static SCOREPERNOTE: float = 300.0;
 
+    /// A damage due to the MISS grading. Only applied when the grading is not due to the bomb.
     static MISS_DAMAGE: Damage = GaugeDamage(0.059);
+    /// A damage due to the BAD grading.
     static BAD_DAMAGE: Damage = GaugeDamage(0.030);
 
     /// Game play states independent to the display.
@@ -5093,8 +5166,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
     }
 
+    /// Display interface.
     pub trait Display {
+        /// Renders the current information from `player` to the screen or console. Called after
+        /// each call to `Player::tick`.
         pub fn render(&mut self, player: &Player);
+        /// Shows the game play result from `player` to the screen or console. Called only once.
         pub fn show_result(&self, player: &Player);
     }
 
@@ -5297,35 +5374,44 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         sprite
     }
 
+    /// Full-featured graphic display. Used for the normal game play and automatic play mode.
     pub struct GraphicDisplay {
-        /// (C: `sprite`)
+        /// Sprite surface generated by `create_sprite`. (C: `sprite`)
         sprite: ~Surface,
-        /// (C: `screen`)
+        /// Display screen. (C: `screen`)
         screen: ~Surface,
-        ///
+        /// Bitmap font.
         font: ~Font,
-        /// (C: `imgres`)
+        /// Image resources. (C: `imgres`)
         imgres: ~[ImageResource],
 
-        /// (C: `tpanel1`)
+        /// The leftmost X coordinate of the area next to the lanes, that is, the total width of
+        /// left-hand-side lanes. (C: `tpanel1`)
         leftmost: uint,
-        /// (C: `tpanel2`)
+        /// The rightmost X coordinate of the area next to the lanes, that is, the screen width
+        /// minus the total width of right-hand-side lanes if any. `None` indicates the absence of
+        /// right-hand-side lanes. (C: `tpanel2`)
         rightmost: Option<uint>,
-        /// (C: `tkey` and `tkeyleft`)
+        /// The order and appearance of lanes. (C: `tkey` and `tkeyleft`)
         lanestyles: ~[(Lane,LaneStyle)],
-        /// (C: `tbgax`)
+        /// The left coordinate of the BGA. (C: `tbgax`)
         bgax: uint,
-        /// (C: `tbgay`)
+        /// The top coordinate of the BGA. (C: `tbgay`)
         bgay: uint,
 
+        /// If not `None`, indicates that the POOR BGA should be displayed until this timestamp.
         /// (C: `poorlimit`)
         poorlimit: Option<uint>,
-        /// (C: `gradetime`)
+        /// If not `None`, indicates that the grading information should be displayed until
+        /// this timestamp. (C: `gradetime`)
         gradelimit: Option<uint>,
-        ///
+        /// Currently known state of BGAs.
         lastbga: BGAState,
     }
 
+    /// Creates a new graphic display from the options, key specification, pre-allocated (usually
+    /// by `init_video`) screen, pre-created bitmap fonts and pre-loaded image resources. The last
+    /// three are owned by the display, others are not (in fact, should be owned by `Player`).
     pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface, font: ~Font,
                           imgres: ~[ImageResource]) -> Result<GraphicDisplay,~str> {
         let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
@@ -5350,7 +5436,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         Ok(display)
     }
 
-    /// (C: `tgradestr` and `tgradecolor`)
+    /// The list of grade names and corresponding color scheme. (C: `tgradestr` and `tgradecolor`)
     static GRADES: &'static [(&'static str,Gradient)] = &[
         // Rust: can we just use `Gradient()`???
         ("MISS",  Gradient { zero: RGB(0xff,0xc0,0xc0), one: RGB(0xff,0x40,0x40) }),
@@ -5361,6 +5447,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     ];
 
     impl GraphicDisplay {
+        /// Restores the panels by blitting upper and bottom panels to the screen.
         fn restore_panel(&self) {
             let screen: &Surface = self.screen;
             let sprite: &Surface = self.sprite;
@@ -5563,10 +5650,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //----------------------------------------------------------------------------------------------
     // text display
 
+    /// Text-only display. Used for the exclusive mode with BGA disabled.
     pub struct TextDisplay {
+        /// Ticker used for printing to the console.
         ticker: Ticker
     }
 
+    /// Creates a new text-only display.
     pub fn TextDisplay() -> TextDisplay {
         TextDisplay { ticker: Ticker() }
     }
@@ -5594,17 +5684,20 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     //----------------------------------------------------------------------------------------------
     // BGA-only display
 
+    /// BGA-only display. Used for the exclusive mode with BGA enabled.
     pub struct BGAOnlyDisplay {
-        ///
+        /// The underlying text-only display (as the BGA-only display lacks the on-screen display).
         textdisplay: TextDisplay,
-        /// (C: `screen`)
+        /// Display screen. (C: `screen`)
         screen: ~Surface,
-        /// (C: `imgres`)
+        /// Image resources. (C: `imgres`)
         imgres: ~[ImageResource],
-        ///
+        /// Currently known state of BGAs.
         lastbga: BGAState,
     }
 
+    /// Creates a new BGA-only display from the pre-created screen (usually by `init_video`) and
+    /// pre-loaded image resources.
     pub fn BGAOnlyDisplay(screen: ~Surface, imgres: ~[ImageResource]) -> BGAOnlyDisplay {
         BGAOnlyDisplay { textdisplay: TextDisplay(), screen: screen,
                          imgres: imgres, lastbga: initial_bga_state() }
@@ -5873,12 +5966,15 @@ pub fn main() {
 
             let mut inside = true;
             for shortargs.each_chari_byte |j, c| {
+                // Reads the argument of the option. Option string should be consumed first.
                 let fetch_arg = |opt| {
                     let off = if inside {j+1} else {j};
                     let nextarg =
                         if inside && off < nshortargs {
+                            // remaining portion of `args[i]` is an argument
                             shortargs.slice_to_end(off)
                         } else {
+                            // `args[i+1]` is an argument as a whole
                             i += 1;
                             if i < nargs {
                                 let arg: &str = args[i];
@@ -5935,7 +6031,9 @@ pub fn main() {
         i += 1;
     }
 
+    // shows a file dialog if the path to the BMS file is missing and the system supports it
     //if bmspath.is_none() { bmspath = filedialog(); }
+
     match bmspath {
         None => { usage(); }
         Some(bmspath) => {
