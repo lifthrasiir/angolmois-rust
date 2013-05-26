@@ -20,12 +20,9 @@
 
 /*!
  * This is a direct, one-to-one translation of Angolmois to Rust programming language.
- * [Angolmois][angolmois] is a [BM98][bm98]-like minimalistic music video game which supports
- * the [BMS format][bms] for playing.
- * 
- * [angolmois]: http://mearie.org/projects/angolmois/
- * [bms]: http://en.wikipedia.org/wiki/Be-Music_Source
- * [bm98]: http://bm98.yaneu.com/bm98/
+ * [Angolmois](http://mearie.org/projects/angolmois/) is
+ * a [BM98](http://bm98.yaneu.com/bm98/)-like minimalistic music video game which supports
+ * the [BMS format](http://en.wikipedia.org/wiki/Be-Music_Source) for playing.
  * 
  * Angolmois is a combination of string parsing, path manipulation, two-dimensional graphics and
  * complex game play carefully packed into some thousand lines of code. This translation is intended
@@ -34,12 +31,17 @@
  * 
  * Angolmois is distributed under GNU GPL version 2+, so is this translation. The portions of it is
  * intended to be sent as a patch to Rust, so those portions are licensed under Apache License 2.0
- * and MIT license.
- * 
- * Unlike the original Angolmois code (which sacrifices most comments due to code size concerns),
- * the Rust version has much more comments which can be beneficial for understanding Angolmois
- * itself too.
- * 
+ * and MIT license. Also note that:
+ *
+ * - This code is known to compile with the following combinations of rustc and rust-sdl:
+ *   - rustc 0.6 + rust-sdl `999abbc` 2013-04-13, with `--cfg legacy` option
+ *   - rustc 0.6 `b6a0d40` 2013-05-22 (pre-0.7) + rust-sdl `efa4b24` 2013-05-12 (an unmerged branch
+ *     from sstewartgallus/rust-sdl)
+ *
+ * - Unlike the original Angolmois code (which sacrifices most comments due to code size concerns),
+ *   the Rust version has much more comments which can be beneficial for understanding Angolmois
+ *   itself too.
+ *
  * # Key
  * 
  * The following notations are used in the comments and documentations.
@@ -838,6 +840,141 @@ pub mod util {
         }
     }
 
+    /// Win32 API wrappers.
+    #[cfg(target_os = "win32")]
+    pub mod win32 {
+        pub mod ll {
+            use core::libc::{c_int, c_uint, c_void};
+            use core::libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
+
+            pub type HWND = HANDLE;
+            pub type HINSTANCE = HANDLE;
+
+            pub static OFN_HIDEREADONLY: DWORD = 4;
+
+            pub struct OPENFILENAMEW {
+                lStructSize: DWORD,
+                hwndOwner: HWND,
+                hInstance: HINSTANCE,
+                lpstrFilter: LPCWSTR,
+                lpstrCustomFilter: LPWSTR,
+                nMaxCustFilter: DWORD,
+                nFilterIndex: DWORD,
+                lpstrFile: LPWSTR,
+                nMaxFile: DWORD,
+                lpstrFileTitle: LPWSTR,
+                nMaxFileTitle: DWORD,
+                lpstrInitialDir: LPCWSTR,
+                lpstrTitle: LPCWSTR,
+                Flags: DWORD,
+                nFileOffset: WORD,
+                nFileExtension: WORD,
+                lpstrDefExt: LPCWSTR,
+                lCustData: DWORD,
+                lpfnHook: *(), // XXX LPOFNHOOKPROC = fn(HWND,c_uint,WPARAM,LPARAM)->c_uint
+                lpTemplateName: LPCWSTR,
+                pvReserved: *c_void,
+                dwReserved: DWORD,
+                FlagsEx: DWORD,
+            }
+
+            pub struct FILETIME {
+                dwLowDateTime: DWORD,
+                dwHighDateTime: DWORD,
+            }
+
+            pub struct WIN32_FIND_DATAA {
+                dwFileAttributes: DWORD,
+                ftCreationTime: FILETIME,
+                ftLastAccessTime: FILETIME,
+                ftLastWriteTime: FILETIME,
+                nFileSizeHigh: DWORD,
+                nFileSizeLow: DWORD,
+                dwReserved0: DWORD,
+                dwReserved1: DWORD,
+                cFileName: [CHAR, ..260],
+            }
+
+            #[link_args = "-lkernel32"]
+            #[abi = "stdcall"]
+            pub extern "stdcall" {
+                fn FindFirstFileA(lpFileName: LPCSTR, lpFindFileData: *WIN32_FIND_DATAA) -> HANDLE;
+                fn FindNextFileA(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAA) -> BOOL;
+                fn FindClose(hFindFile: HANDLE) -> BOOL;
+            }
+
+            #[link_args = "-luser32"]
+            #[abi = "stdcall"]
+            pub extern "stdcall" {
+                fn MessageBoxW(hWnd: HWND, lpText: LPCWSTR, lpCaption: LPCWSTR,
+                               uType: c_uint) -> c_int;
+            }
+
+            #[link_args = "-lcomdlg32"]
+            #[abi = "stdcall"]
+            pub extern "stdcall" {
+                fn GetOpenFileNameW(lpofn: *OPENFILENAMEW) -> BOOL;
+            }
+        }
+    }
+
+    /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
+    /// refused to do so or the platform is unsupported. (C: `filedialog`)
+    #[cfg(target_os = "win32")]
+    pub fn get_path_from_dialog() -> Option<~str> {
+        use core::{str, vec};
+
+        let filter =
+            "All Be-Music Source File (*.bms;*.bme;*.bml;*.pms)\x00*.bms;*.bme;*.bml;*.pms\x00\
+             Be-Music Source File (*.bms)\x00*.bms\x00\
+             Extended Be-Music Source File (*.bme)\x00*.bme\x00\
+             Longnote Be-Music Source File (*.bml)\x00*.bml\x00\
+             Po-Mu Source File (*.pms)\x00*.pms\x00\
+             All Files (*.*)\x00*.*\x00\x00";
+        do vec::as_imm_buf(str::to_utf16(filter)) |filter, _| {
+            do vec::as_imm_buf(str::to_utf16("Choose a file to play\x00")) |title, _| {
+                let mut buf = [0u16, ..512];
+                let ret = do vec::as_mut_buf(buf) |buf, bufsize| {
+                    let ofn = win32::ll::OPENFILENAMEW {
+                        lStructSize: sys::size_of::<win32::ll::OPENFILENAMEW>() as libc::DWORD,
+                        lpstrFilter: filter,
+                        lpstrFile: buf,
+                        nMaxFile: bufsize as libc::DWORD,
+                        lpstrTitle: title,
+                        Flags: win32::ll::OFN_HIDEREADONLY,
+
+                        // zero-initialized fields
+                        hwndOwner: ptr::mut_null(), hInstance: ptr::mut_null(),
+                        lpstrCustomFilter: ptr::mut_null(), nMaxCustFilter: 0, nFilterIndex: 0,
+                        lpstrFileTitle: ptr::mut_null(), nMaxFileTitle: 0,
+                        lpstrInitialDir: ptr::null(), nFileOffset: 0, nFileExtension: 0,
+                        lpstrDefExt: ptr::null(), lCustData: 0, lpfnHook: ptr::null(),
+                        lpTemplateName: ptr::null(), pvReserved: ptr::null(),
+                        dwReserved: 0, FlagsEx: 0,
+                    };
+                    unsafe {win32::ll::GetOpenFileNameW(cast::transmute(&ofn))}
+                };
+                if ret != 0 {
+                    let path: &[u16] = match buf.position_elem(&0) {
+                        Some(idx) => buf.slice(0, idx),
+                        // Rust: why can't we cast `&[u16, ..512]` to `&[u16]`?!
+                        None => buf.slice(0, buf.len())
+                    };
+                    Some(str::from_utf16(path))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
+    /// refused to do so or the platform is unsupported. (C: `filedialog`)
+    #[cfg(not(target_os = "win32"))]
+    pub fn get_path_from_dialog() -> Option<~str> {
+        None
+    }
+
     /*
      * A lexer barely powerful enough to parse BMS format. Comparable to C's `sscanf`.
      *
@@ -1084,9 +1221,7 @@ pub mod util {
  *
  * More detailed information about BMS format, including surveys about how different implementations
  * (so called BMS players) react to underspecified features or edge cases, can be found at [BMS
- * command memo][bmscmds].
- *
- * [bmscmds]: http://hitkey.nekokan.dyndns.info/cmds.htm
+ * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
     use core_compat::iter;
@@ -6079,7 +6214,9 @@ pub fn main() {
     }
 
     // shows a file dialog if the path to the BMS file is missing and the system supports it
-    //if bmspath.is_none() { bmspath = filedialog(); }
+    if bmspath.is_none() {
+        bmspath = util::get_path_from_dialog();
+    }
 
     match bmspath {
         None => { usage(); }
