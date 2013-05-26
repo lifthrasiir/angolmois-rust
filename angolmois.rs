@@ -78,6 +78,59 @@ pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 //==================================================================================================
 // utility declarations
 
+/// For the compatibility with the 0.6 release.
+mod core_compat {
+    pub mod hashmap {
+        pub use core::hashmap::*;
+        #[cfg(legacy)] pub use HashMap = core::hashmap::linear::LinearMap;
+        #[cfg(legacy)] pub use HashSet = core::hashmap::linear::LinearSet;
+    }
+
+    pub mod str {
+        #[cfg(not(legacy))] pub trait StrLegacyUtil {
+            fn to_upper(&self) -> ~str;
+            fn to_lower(&self) -> ~str;
+        }
+        #[cfg(not(legacy))] impl<'self> StrLegacyUtil for &'self str {
+            fn to_upper(&self) -> ~str {
+                self.to_ascii().to_upper().to_str_ascii()
+            }
+            fn to_lower(&self) -> ~str {
+                self.to_ascii().to_lower().to_str_ascii()
+            }
+        }
+    }
+
+    pub mod to_bytes {
+        pub use core::to_bytes::*;
+        #[cfg(legacy)] pub type Ret = ();
+        #[cfg(not(legacy))] pub type Ret = bool;
+        #[cfg(not(legacy))] pub fn iter_bytes_2<A:IterBytes,B:IterBytes>(a: &A, b: &B, lsb0: bool,
+                                                                         f: Cb) -> bool {
+            a.iter_bytes(lsb0, f) && b.iter_bytes(lsb0, f)
+        }
+    }
+
+    #[cfg(legacy)]
+    pub mod iter {
+        pub type Ret = ();
+        pub static EarlyExit: Ret = ();
+        pub static Finished: Ret = ();
+    }
+
+    #[cfg(not(legacy))]
+    pub mod iter {
+        pub type Ret = bool;
+        pub static EarlyExit: Ret = false;
+        pub static Finished: Ret = true;
+    }
+
+    pub mod rand {
+        pub use core::rand::*;
+        #[cfg(not(legacy))] pub fn Rng() -> IsaacRng { rng() }
+    }
+}
+
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> ~str {
     let args = os::args();
@@ -125,19 +178,21 @@ pub mod util {
      * to the above copyright notice.
      */
     pub mod str {
+        use core_compat::iter;
         use core::str::*;
 
         static tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
 
         /// Iterates over the chars in a string, with byte indices.
-        pub fn each_chari_byte(s: &str, it: &fn(uint, char) -> bool) {
+        pub fn each_chari_byte(s: &str, it: &fn(uint, char) -> bool) -> iter::Ret {
             let mut pos = 0u;
             let len = s.len();
             while pos < len {
                 let CharRange {ch, next} = char_range_at(s, pos);
-                if !it(pos, ch) { break; }
+                if !it(pos, ch) { return iter::EarlyExit; }
                 pos = next;
             }
+            iter::Finished
         }
 
         /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid UTF-8 sequence with
@@ -210,7 +265,7 @@ pub mod util {
         /// Returns a length of the longest prefix of given string, which `int::from_str` accepts
         /// without a failure, if any.
         pub fn scan_int(s: &str) -> Option<uint> {
-            if s.starts_with(~"-") || s.starts_with(~"+") {
+            if s.starts_with("-") || s.starts_with("+") {
                 scan_uint(s.slice_to_end(1u)).map(|&pos| pos + 1u)
             } else {
                 scan_uint(s)
@@ -276,7 +331,7 @@ pub mod util {
         /// Remaining extensions to `str`.
         pub trait StrUtil {
             /// Iterates over the chars in a string, with byte indices.
-            fn each_chari_byte(&self, it: &fn(uint, char) -> bool);
+            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> iter::Ret;
 
             /// Given a potentially invalid UTF-8 string, fixes an invalid UTF-8 string with given
             /// error handler.
@@ -300,7 +355,7 @@ pub mod util {
         }
 
         impl<'self> StrUtil for &'self str {
-            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) {
+            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> iter::Ret {
                 each_chari_byte(*self, it)
             }
             fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str {
@@ -406,10 +461,11 @@ pub mod util {
      * subject to the above copyright notice.
      */
     pub mod iter {
+        use core_compat::iter;
 
         pub trait OptionalIter<A> {
             /// Like `each()`, but only iterates through the value inside options.
-            fn each_some(&self, blk: &fn(v: &A) -> bool);
+            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret;
         }
 
     }
@@ -421,35 +477,37 @@ pub mod util {
      * to the above copyright notice.
      */
     pub mod vec {
+        use core_compat::iter;
         use core::vec::*;
 
         /// Like `each()`, but only iterates through the value inside options.
         #[inline(always)]
-        pub fn each_some<'r,A>(vec: &'r [Option<A>], blk: &fn(v: &'r A) -> bool) {
+        pub fn each_some<'r,A>(vec: &'r [Option<A>], blk: &fn(v: &'r A) -> bool) -> iter::Ret {
             for each(vec) |e| {
                 for e.each |v| {
-                    if !blk(v) { return; }
+                    if !blk(v) { return iter::EarlyExit; }
                 }
             }
+            iter::Finished
         }
 
         impl<'self,A> ::util::iter::OptionalIter<A> for &'self [Option<A>] {
             #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &A) -> bool) {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret {
                 each_some(*self, blk)
             }
         }
 
         impl<A> ::util::iter::OptionalIter<A> for ~[Option<A>] {
             #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &A) -> bool) {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret {
                 each_some(*self, blk)
             }
         }
 
         impl<A> ::util::iter::OptionalIter<A> for @[Option<A>] {
             #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &A) -> bool) {
+            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret {
                 each_some(*self, blk)
             }
         }
@@ -997,35 +1055,6 @@ pub mod util {
 
 }
 
-/// For the compatibility with the 0.6 release.
-mod core_compat {
-    pub mod hashmap {
-        pub use core::hashmap::*;
-        #[cfg(legacy)] pub use HashMap = core::hashmap::linear::LinearMap;
-        #[cfg(legacy)] pub use HashSet = core::hashmap::linear::LinearSet;
-    }
-
-    pub mod str {
-        #[cfg(not(legacy))] pub trait StrLegacyUtil {
-            fn to_upper(&self) -> ~str;
-            fn to_lower(&self) -> ~str;
-        }
-        #[cfg(not(legacy))] impl<'self> StrLegacyUtil for &'self str {
-            fn to_upper(&self) -> ~str {
-                self.to_ascii().to_upper().to_str_ascii()
-            }
-            fn to_lower(&self) -> ~str {
-                self.to_ascii().to_lower().to_str_ascii()
-            }
-        }
-    }
-
-    pub mod rand {
-        pub use core::rand::*;
-        #[cfg(not(legacy))] pub fn Rng() -> IsaacRng { rng() }
-    }
-}
-
 //==================================================================================================
 // bms parser
 
@@ -1060,6 +1089,7 @@ mod core_compat {
  * [bmscmds]: http://hitkey.nekokan.dyndns.info/cmds.htm
  */
 pub mod parser {
+    use core_compat::iter;
     use core::rand::*;
 
     //----------------------------------------------------------------------------------------------
@@ -1812,7 +1842,7 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
-    pub fn parse_bms_from_reader<R:RngUtil>(f: @io::Reader, r: &R) -> Result<Bms,~str> {
+    pub fn parse_bms_from_reader<R:RngUtil>(f: @io::Reader, r: &mut R) -> Result<Bms,~str> {
         /// The list of recognized prefixes of directives. The longest prefix should come first.
         /// Also note that not all recognized prefixes are processed (counterexample being `ENDSW`).
         /// (C: `bmsheader`)
@@ -1935,7 +1965,7 @@ pub mod parser {
 
             // skip non-command lines
             let line = line.trim_left();
-            if !line.starts_with(~"#") { loop; }
+            if !line.starts_with("#") { loop; }
             let line = line.slice_to_end(1);
 
             // search for header prefix. the header list (`bmsheader`) is in the decreasing order
@@ -2188,7 +2218,7 @@ pub mod parser {
                 10 => { add(Obj::SetBGA(t, Layer3, Some(v))); }
 
                 // channels #1x/2x: visible object, possibly LNs when #LNOBJ is in active
-                1*36..3*36-1 => {
+                36/*1*36*/..107/*3*36-1*/ => {
                     let lane = Lane::from_channel(chan);
                     if lnobj.is_some() && lnobj == Some(v) {
                         // change the last inserted visible object to the start of LN if any.
@@ -2204,13 +2234,13 @@ pub mod parser {
                 }
 
                 // channels #3x/4x: invisible object
-                3*36..5*36-1 => {
+                108/*3*36*/..179/*5*36-1*/ => {
                     let lane = Lane::from_channel(chan);
                     add(Obj::Invisible(t, lane, Some(v)));
                 }
 
                 // channels #5x/6x, #LNTYPE 1: LN endpoints
-                5*36..7*36-1 if !consecutiveln => {
+                180/*5*36*/..251/*7*36-1*/ if !consecutiveln => {
                     let lane = Lane::from_channel(chan);
 
                     // a pair of non-00 alphanumeric keys designate one LN. if there are an odd
@@ -2224,7 +2254,7 @@ pub mod parser {
                 }
 
                 // channels #5x/6x, #LNTYPE 2: LN areas
-                5*36..7*36-1 if consecutiveln => {
+                180/*5*36*/..251/*7*36-1*/ if consecutiveln => {
                     let lane = Lane::from_channel(chan);
 
                     // one non-00 alphanumeric key, in the absence of other information, inserts one
@@ -2248,7 +2278,7 @@ pub mod parser {
 
                 // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5% of the full gauge) or
                 // instant death (ZZ)
-                0xD*36..0xF*36-1 => {
+                468/*0xD*36*/..539/*0xF*36-1*/ => {
                     let lane = Lane::from_channel(chan);
                     let damage = match *v {
                         1..200 => Some(GaugeDamage(*v as float / 200.0)),
@@ -2312,7 +2342,7 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
-    pub fn parse_bms<R:RngUtil>(bmspath: &str, r: &R) -> Result<Bms,~str> {
+    pub fn parse_bms<R:RngUtil>(bmspath: &str, r: &mut R) -> Result<Bms,~str> {
         do io::file_reader(&Path(bmspath)).chain |f| {
             parse_bms_from_reader(f, r)
         }
@@ -2347,13 +2377,13 @@ pub mod parser {
         }
 
         /// Iterates over lanes on the left side, from left to right.
-        fn each_left_lanes(&self, f: &fn(&Lane) -> bool) {
+        fn each_left_lanes(&self, f: &fn(&Lane) -> bool) -> iter::Ret {
             assert!(self.split <= self.order.len());
             self.order.slice(0, self.split).each(f)
         }
 
         /// Iterates over lanes on the right side if any, from left to right.
-        fn each_right_lanes(&self, f: &fn(&Lane) -> bool) {
+        fn each_right_lanes(&self, f: &fn(&Lane) -> bool) -> iter::Ret {
             assert!(self.split <= self.order.len());
             self.order.slice(self.split, self.order.len()).each(f)
         }
@@ -2370,7 +2400,7 @@ pub mod parser {
             }
             s = s2;
             match (chan, KeyKind::from_char(kind)) {
-                (Key(1*36..3*36-1), Some(kind)) => {
+                (Key(36/*1*36*/..107/*3*36-1*/), Some(kind)) => {
                     specs.push((Lane(*chan as uint - 1*36), kind));
                 }
                 (_, _) => { return None; }
@@ -2697,7 +2727,7 @@ pub mod parser {
 
     /// Swaps given lanes in the random order. (C: `shuffle_bms` with
     /// `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
-    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
+    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
         for vec::zip_slice(lanes, shuffled).each |&(Lane(from), to)| {
@@ -2713,8 +2743,8 @@ pub mod parser {
     /// `bms` should be first sanitized by `sanitize_bms`. It does not cause objects to move within
     /// another LN object, or place two objects in the same or very close time position to the same
     /// lane. (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
-    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &R, lanes: &[Lane]) {
-        let mut movable = vec::from_slice(lanes);
+    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
+        let mut movable = lanes.to_owned();
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
 
         let mut lasttime = float::neg_infinity;
@@ -3016,45 +3046,60 @@ pub mod gfx {
     pub trait SurfacePixelsUtil {
         /// Grants the direct access to pixels. Also locks the surface as needed, so you can't blit
         /// during working with pixels.
-        fn with_pixels<R>(&self, f: &fn(pixels: &SurfacePixels) -> R) -> R;
+        fn with_pixels<R>(&self, f: &fn(pixels: &mut SurfacePixels) -> R) -> R;
     }
 
     impl SurfacePixelsUtil for Surface {
-        fn with_pixels<R>(&self, f: &fn(pixels: &SurfacePixels) -> R) -> R {
+        fn with_pixels<R>(&self, f: &fn(pixels: &mut SurfacePixels) -> R) -> R {
             do self.with_lock |pixels| {
                 let fmt = unsafe {(*self.raw).format};
                 let pitch = unsafe {(*self.raw).pitch / 4 as uint};
                 let pixels = unsafe {cast::transmute(pixels)};
-                f(&SurfacePixels { fmt: fmt,
-                                   width: self.get_width() as uint,
-                                   height: self.get_height() as uint,
-                                   pitch: pitch, pixels: pixels })
+                let mut proxy = SurfacePixels { fmt: fmt, width: self.get_width() as uint,
+                                                height: self.get_height() as uint,
+                                                pitch: pitch, pixels: pixels };
+                f(&mut proxy)
+            }
+        }
+    }
+
+    /// Returns a pixel at given position. (C: `getpixel`)
+    //
+    // Rust: this and subsequent `*_pixel` functions are required due to the incorrect lifetime
+    //       inference in 0.6 borrowck algorithm. This problem has been fixed in 0.7 with a new
+    //       flow-sensitive borrowck, but for now we keep them.
+    pub fn get_pixel(surface: &SurfacePixels, x: uint, y: uint) -> Color {
+        Color::from_mapped(surface.pixels[x + y * surface.pitch], surface.fmt)
+    }
+
+    /// Sets a pixel to given position. (C: `putpixel`)
+    pub fn put_pixel(surface: &mut SurfacePixels, x: uint, y: uint, c: Color) {
+        surface.pixels[x + y * surface.pitch] = c.to_mapped(surface.fmt);
+    }
+
+    /// Sets or blends (if `c` is `RGBA`) a pixel to given position. (C: `putblendedpixel`)
+    pub fn put_blended_pixel(surface: &mut SurfacePixels, x: uint, y: uint, c: Color) {
+        match c {
+            RGB(*) => put_pixel(surface, x, y, c),
+            RGBA(r,g,b,a) => match get_pixel(surface, x, y) {
+                RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
+                    let grad = Gradient { zero: RGB(r,g,b), one: RGB(r2,g2,b2) };
+                    put_pixel(surface, x, y, grad.blend(a as int, 255));
+                }
             }
         }
     }
 
     impl<'self> SurfacePixels<'self> {
         /// Returns a pixel at given position. (C: `getpixel`)
-        pub fn get_pixel(&self, x: uint, y: uint) -> Color {
-            Color::from_mapped(self.pixels[x + y * self.pitch], self.fmt)
-        }
+        pub fn get_pixel(&self, x: uint, y: uint) -> Color { get_pixel(self, x, y) }
 
         /// Sets a pixel to given position. (C: `putpixel`)
-        pub fn put_pixel(&self, x: uint, y: uint, c: Color) {
-            self.pixels[x + y * self.pitch] = c.to_mapped(self.fmt);
-        }
+        pub fn put_pixel(&mut self, x: uint, y: uint, c: Color) { put_pixel(self, x, y, c) }
 
         /// Sets or blends (if `c` is `RGBA`) a pixel to given position. (C: `putblendedpixel`)
-        pub fn put_blended_pixel(&self, x: uint, y: uint, c: Color) {
-            match c {
-                RGB(*) => self.put_pixel(x, y, c),
-                RGBA(r,g,b,a) => match self.get_pixel(x, y) {
-                    RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
-                        let grad = Gradient { zero: RGB(r,g,b), one: RGB(r2,g2,b2) };
-                        self.put_pixel(x, y, grad.blend(a as int, 255));
-                    }
-                }
-            }
+        pub fn put_blended_pixel(&mut self, x: uint, y: uint, c: Color) {
+            put_blended_pixel(self, x, y, c)
         }
     }
 
@@ -3089,7 +3134,7 @@ pub mod gfx {
      * had even a slightly incorrect curve (`1/2 - x^2 + 1/2 x^3` instead of `1 - 5/2 x^2 +
      * 3/2 x^3`). This function still remains here only because we don't use OpenGL...
      */
-    pub fn bicubic_interpolation(src: &SurfacePixels, dest: &SurfacePixels) {
+    pub fn bicubic_interpolation(src: &SurfacePixels, dest: &mut SurfacePixels) {
         let w = dest.width as int - 1;
         let h = dest.height as int - 1;
         let ww = src.width as int - 1;
@@ -3124,7 +3169,7 @@ pub mod gfx {
                 let r = ::util::cmp::clamp(0, r >> FP_SHIFT2, 255) as u8;
                 let g = ::util::cmp::clamp(0, g >> FP_SHIFT2, 255) as u8;
                 let b = ::util::cmp::clamp(0, b >> FP_SHIFT2, 255) as u8;
-                dest.put_pixel(i as uint, j as uint, RGB(r, g, b));
+                put_pixel(dest, i as uint, j as uint, RGB(r, g, b)); // XXX incorrect lifetime
 
                 dy += hh;
                 if dy > h {
@@ -3309,7 +3354,7 @@ pub mod gfx {
         /// Prints a glyph with given position and color (possibly gradient). This method is
         /// distinct from `print_glyph` since the glyph #95 is used for the tick marker
         /// (character code -1 in C). (C: `printchar`)
-        pub fn print_glyph<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
+        pub fn print_glyph<ColorT:Blend+Copy>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
                                               zoom: uint, glyph: uint, color: ColorT) { // XXX #3984
             assert!(!self.pixels[zoom].is_empty());
             for uint::range(0, 16 * zoom) |iy| {
@@ -3317,14 +3362,14 @@ pub mod gfx {
                 let rowcolor = color.blend(iy as int, 16 * zoom as int);
                 for uint::range(0, 8 * zoom) |ix| {
                     if ((row >> ix) & 1) != 0 {
-                        pixels.put_pixel(x + ix, y + iy, rowcolor);
+                        put_pixel(pixels, x + ix, y + iy, rowcolor); // XXX incorrect lifetime
                     }
                 }
             }
         }
 
         /// Prints a character with given position and color.
-        pub fn print_char<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
+        pub fn print_char<ColorT:Blend+Copy>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
                                              zoom: uint, c: char, color: ColorT) { // XXX #3984
             if !char::is_whitespace(c) {
                 let c = c as uint;
@@ -3334,7 +3379,7 @@ pub mod gfx {
         }
 
         /// Prints a string with given position, alignment and color. (C: `printstr`)
-        pub fn print_string<ColorT:Blend+Copy>(&self, pixels: &SurfacePixels, x: uint, y: uint,
+        pub fn print_string<ColorT:Blend+Copy>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
                                                zoom: uint, align: Alignment, s: &str,
                                                color: ColorT) { // XXX #3984
             let mut x = match align {
@@ -3372,6 +3417,7 @@ pub mod player {
     use util::sdl::mpeg::*;
     use parser::*;
     use gfx::*;
+    use core_compat::{hashmap, to_bytes, iter};
 
     /// The width of screen, unless the exclusive mode.
     pub static SCREENW: uint = 800;
@@ -3490,7 +3536,7 @@ pub mod player {
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
-                    if opts.preset.is_none() && opts.bmspath.to_lower().ends_with(~".pms") {
+                    if opts.preset.is_none() && opts.bmspath.to_lower().ends_with(".pms") {
                         Some(~"pms")
                     } else {
                         copy opts.preset
@@ -3546,8 +3592,8 @@ pub mod player {
     /// Applies given modifier to the game data. The target lanes of the modifier is determined
     /// from given key specification. This function should be called twice for the Couple Play,
     /// since 1P and 2P should be treated separately. (C: `shuffle_bms`)
-    pub fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf, r: &R, keyspec: &KeySpec,
-                                                begin: uint, end: uint) {
+    pub fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf, r: &mut R,
+                                                keyspec: &KeySpec, begin: uint, end: uint) {
         let mut lanes = ~[];
         for uint::range(begin, end) |i| {
             let lane = keyspec.order[i];
@@ -3586,7 +3632,7 @@ pub mod player {
     /// Writes a line to the console without advancing to the next line. `s` should be short enough
     /// to be replaced (currently up to 72 bytes).
     pub fn update_line(s: &str) {
-        io::stderr().write_str(fmt!("\r%s\r%s", str::repeat(~" ", 72), s));
+        io::stderr().write_str(fmt!("\r%s\r%s", str::repeat(" ", 72), s));
     }
 
     /// A periodic timer for thresholding the rate of information display.
@@ -3653,7 +3699,7 @@ pub mod player {
         if !exclusive {
             mouse::set_cursor_visible(false);
         }
-        wm::set_caption(::version(), ~"");
+        wm::set_caption(::version(), "");
         screen
     }
 
@@ -3693,12 +3739,11 @@ pub mod player {
     }
 
     impl IterBytes for Input {
-        fn iter_bytes(&self, lsb0: bool, f: ::core::to_bytes::Cb) {
-            use core::to_bytes::iter_bytes_2;
+        fn iter_bytes(&self, lsb0: bool, f: to_bytes::Cb) -> to_bytes::Ret {
             match *self {
-                KeyInput(key) => iter_bytes_2(&0u8, &(key as uint), lsb0, f),
-                JoyAxisInput(axis) => iter_bytes_2(&1u8, &axis, lsb0, f),
-                JoyButtonInput(button) => iter_bytes_2(&2u8, &button, lsb0, f)
+                KeyInput(key) => to_bytes::iter_bytes_2(&0u8, &(key as uint), lsb0, f),
+                JoyAxisInput(axis) => to_bytes::iter_bytes_2(&1u8, &axis, lsb0, f),
+                JoyButtonInput(button) => to_bytes::iter_bytes_2(&2u8, &button, lsb0, f)
             }
         }
     }
@@ -3806,7 +3851,7 @@ pub mod player {
     ];
 
     /// An input mapping, i.e. a mapping from the actual input to the virtual input.
-    pub type KeyMap = ::core_compat::hashmap::HashMap<Input,VirtualInput>;
+    pub type KeyMap = hashmap::HashMap<Input,VirtualInput>;
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: &fn(&str) -> Option<~str>) -> KeyMap {
@@ -3838,7 +3883,7 @@ pub mod player {
             }
         }
 
-        let mut map = ::core_compat::hashmap::HashMap::new();
+        let mut map = hashmap::HashMap::new();
         let add_mapping = |kind: Option<KeyKind>, input: Input, vinput: VirtualInput| {
             if kind.map_default(true, |&kind| vinput.active_in_key_spec(kind, keyspec)) {
                 map.insert(input, vinput);
@@ -4003,7 +4048,7 @@ match Chunk::from_wav(&fullpath) {
             }
         }
 
-        if path.to_lower().ends_with(~".mpg") {
+        if path.to_lower().ends_with(".mpg") {
             if opts.has_movie() {
                 let fullpath = opts.rel_path(path); // TODO resolve
                 match MPEG::from_path(&fullpath) {
@@ -4131,7 +4176,7 @@ match Chunk::from_wav(&fullpath) {
         let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
 
         do screen.with_pixels |pixels| {
-            font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2, Centered, ~"loading bms file...",
+            font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2, Centered, "loading bms file...",
                               Gradient(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
         }
         screen.flip();
@@ -4154,10 +4199,10 @@ match Chunk::from_wav(&fullpath) {
                 let fg = Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
                 for uint::range(0, SCREENW) |i| {
                     for uint::range(0, 42) |j| {
-                        pixels.put_blended_pixel(i, j, bg);
+                        put_blended_pixel(pixels, i, j, bg); // XXX incorrect lifetime
                     }
                     for uint::range(SCREENH-20, SCREENH) |j| {
-                        pixels.put_blended_pixel(i, j, bg);
+                        put_blended_pixel(pixels, i, j, bg); // XXX incorrect lifetime
                     }
                 }
                 font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
@@ -4250,7 +4295,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     let path = if path.len() < 63 {path} else {path.slice(0, 63).to_owned()};
                     update_line(~"Loading: " + path);
                 }
-                None => { update_line(~"Loading done."); }
+                None => { update_line("Loading done."); }
             }
         }
         check_exit(atexit);
@@ -4353,15 +4398,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// Iterates over objects starting from the current object, until the first object which
         /// time is past the limit is reached.
-        fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) {
+        fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) -> iter::Ret {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
                 let current = &bms.objs[self.pos];
-                if current.time >= limit { break; }
-                if !f(current) { break; }
+                if current.time >= limit { return iter::EarlyExit; }
+                if !f(current) { return iter::EarlyExit; }
                 self.pos += 1;
             }
+            iter::Finished
         }
 
         /// Seeks to the object pointed by the other pointer.
@@ -4374,15 +4420,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// Iterates over objects starting from the current object, until the object pointed by
         /// the other pointer is reached.
-        fn iter_to(&mut self, limit: Pointer, f: &fn(&Obj) -> bool) {
+        fn iter_to(&mut self, limit: Pointer, f: &fn(&Obj) -> bool) -> iter::Ret {
             assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
             assert!(limit.pos <= bms.objs.len());
             while self.pos < limit.pos {
                 let current = &bms.objs[self.pos];
-                if !f(current) { break; }
+                if !f(current) { return iter::EarlyExit; }
                 self.pos += 1;
             }
+            iter::Finished
         }
 
         /// Seeks to the end of objects.
@@ -4392,14 +4439,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         /// Iterates over objects starting from the current object.
-        fn iter_to_end(&mut self, f: &fn(&Obj) -> bool) {
+        fn iter_to_end(&mut self, f: &fn(&Obj) -> bool) -> iter::Ret {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
                 let current = &bms.objs[self.pos];
-                if !f(current) { break; }
+                if !f(current) { return iter::EarlyExit; }
                 self.pos += 1;
             }
+            iter::Finished
         }
 
         /// Finds the next object that satisfies given condition if any, without updating itself.
@@ -5326,20 +5374,20 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         // render panels
-        do sprite.with_pixels |&pixels| {
+        do sprite.with_pixels |pixels| {
             let topgrad = Gradient { zero: RGB(0x60,0x60,0x60), one: RGB(0xc0,0xc0,0xc0) };
             let botgrad = Gradient { zero: RGB(0x40,0x40,0x40), one: RGB(0xc0,0xc0,0xc0) };
             for int::range(-244, 556) |j| {
                 for int::range(-10, 20) |i| {
                     let c = (i*2+j*3+750) % 2000;
-                    pixels.put_pixel((j+244) as uint, (i+10) as uint,
-                                     topgrad.blend(850 - num::abs(c-1000), 700));
+                    put_pixel(pixels, (j+244) as uint, (i+10) as uint, // XXX incorrect lifetime
+                              topgrad.blend(850 - num::abs(c-1000), 700));
                 }
                 for int::range(-20, 60) |i| {
                     let c = (i*3+j*2+750) % 2000;
                     let bottom = (SCREENH - 60) as int;
-                    pixels.put_pixel((j+244) as uint, (i+bottom) as uint,
-                                     botgrad.blend(850 - num::abs(c-1000), 700));
+                    put_pixel(pixels, (j+244) as uint, (i+bottom) as uint, // XXX incorrect lifetime
+                              botgrad.blend(850 - num::abs(c-1000), 700));
                 }
             }
         }
@@ -5351,15 +5399,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let gapwidth = rightgap - leftgap;
         sprite.fill_area((leftgap, 0), (gapwidth, 30), black);
         sprite.fill_area((leftgap, SCREENH-80), (gapwidth, 80), black);
-        do sprite.with_pixels |&pixels| {
+        do sprite.with_pixels |pixels| {
             for uint::range(0, 20) |i| {
                 for uint::range_rev(20, 0) |j| {
                     if i*i + j*j <= 400 { break; } // circled border
-                    pixels.put_pixel(leftmost + j, 10 + i, black);
-                    pixels.put_pixel(leftmost + j, (SCREENH-61) - i, black);
+                    put_pixel(pixels, leftmost + j, 10 + i, black); // XXX incorrect lifetime
+                    put_pixel(pixels, leftmost + j, (SCREENH-61) - i, black); // XXX
                     for rightmost.each |&right| {
-                        pixels.put_pixel((right-j) - 1, 10 + i, black);
-                        pixels.put_pixel((right-j) - 1, (SCREENH-61) - i, black);
+                        put_pixel(pixels, (right-j) - 1, 10 + i, black); // XXX incorrect lifetime
+                        put_pixel(pixels, (right-j) - 1, (SCREENH-61) - i, black); // XXX
                     }
                 }
             }
@@ -5677,7 +5725,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         fn show_result(&self, _player: &Player) {
-            update_line(~"");
+            update_line("");
         }
     }
 
@@ -5730,8 +5778,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 /// loop. (C: `play`)
 pub fn play(opts: ~player::Options) {
     // parses the file and sanitizes it
-    let r = ::core_compat::rand::Rng();
-    let mut bms = match parser::parse_bms(opts.bmspath, &r) {
+    let mut r = ::core_compat::rand::Rng();
+    let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
         Ok(bms) => ~bms,
         Err(err) => die!("Couldn't load BMS file: %s", err)
     };
@@ -5747,9 +5795,9 @@ pub fn play(opts: ~player::Options) {
 
     // applies the modifier if any
     for opts.modf.each |&modf| {
-        player::apply_modf(bms, modf, &r, keyspec, 0, keyspec.split);
+        player::apply_modf(bms, modf, &mut r, keyspec, 0, keyspec.split);
         if keyspec.split < keyspec.order.len() {
-            player::apply_modf(bms, modf, &r, keyspec, keyspec.split, keyspec.order.len());
+            player::apply_modf(bms, modf, &mut r, keyspec, keyspec.split, keyspec.order.len());
         }
     }
 
@@ -5779,9 +5827,8 @@ pub fn play(opts: ~player::Options) {
         }
 
         // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }` segfaults due to
-        //       the moved `opts`.
-        let atexit = if opts.is_exclusive() { || player::update_line(~"") }
-                     else { || {} };
+        //       the moved `opts`. (#2202)
+        let atexit = if opts.is_exclusive() { || player::update_line("") } else { || {} };
 
         // render the loading screen
         let mut ticker = player::Ticker();
@@ -5821,7 +5868,7 @@ pub fn play(opts: ~player::Options) {
         // create the player and transfer ownership of other resources to it
         let duration = parser::bms_duration(bms, infos.originoffset,
                                             |sref| sndres[**sref].duration());
-        let mut player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
+        let player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
 
         // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
         fn loop_with_display<T:player::Display>(mut player: player::Player, mut display: T) {
