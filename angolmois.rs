@@ -34,9 +34,9 @@
  * and MIT license. Also note that:
  *
  * - This code is known to compile with the following combinations of rustc and rust-sdl:
- *   - rustc 0.6 + rust-sdl `999abbc` 2013-04-13, with `--cfg legacy` option
- *   - rustc 0.6 `b6a0d40` 2013-05-22 (pre-0.7) + rust-sdl `efa4b24` 2013-05-12 (an unmerged branch
- *     from sstewartgallus/rust-sdl)
+ *     - rustc 0.6 + rust-sdl `999abbc` 2013-04-13, with `--cfg legacy` option
+ *     - rustc 0.6 `510d0f2` 2013-05-25 (pre-0.7) + rust-sdl `efa4b24` 2013-05-12 (an unmerged
+ *       branch from sstewartgallus/rust-sdl) + `s/core::/std::/g` in rust-sdl
  *
  * - Unlike the original Angolmois code (which sacrifices most comments due to code size concerns),
  *   the Rust version has much more comments which can be beneficial for understanding Angolmois
@@ -61,10 +61,13 @@
 #[comment = "Angolmois"];
 #[license = "GPLv2+"];
 
-extern mod std;
+// Rust: core/std in 0.6 are named to std/extra in 0.7. fortunately we can alias the external crate
+//       to consistent names, which are in this case core/extra.
+#[cfg(legacy)] extern mod extra (name = "std");
+#[cfg(not(legacy))] extern mod extra;
+#[cfg(not(legacy))] extern mod core (name = "std");
 extern mod sdl;
 
-use core::io::{ReaderUtil, WriterUtil};
 use core::num::Round;
 
 // see below for specifics.
@@ -142,36 +145,6 @@ pub fn exename() -> ~str {
 /// Utility functions.
 #[macro_escape]
 pub mod util {
-
-    /// Immediately terminates the program with given exit code.
-    pub fn exit(exitcode: int) -> ! {
-        // Rust: `os::set_exit_status` doesn't immediately terminate the program.
-        unsafe { libc::exit(exitcode as libc::c_int); }
-    }
-
-    /// Exits with an error message. Internally used in the `die!` macro
-    /// below.
-    pub fn die(s: ~str) -> ! {
-        ::core::io::stderr().write_line(fmt!("%s: %s", ::exename(), s));
-        exit(1)
-    }
-
-    /// Prints an warning message. Internally used in the `warn!` macro below.
-    pub fn warn(s: ~str) {
-        ::core::io::stderr().write_line(fmt!("*** Warning: %s", s));
-    }
-
-    // Exits with a formatted error message. (C: `die`)
-    //
-    // Rust: this comment cannot be a doc comment (yet).
-    macro_rules! die(
-        ($($e:expr),+) => (::util::die(fmt!($($e),+)))
-    )
-
-    // Prints a formatted warning message. (C: `warn`)
-    macro_rules! warn(
-        ($($e:expr),+) => (::util::warn(fmt!($($e),+)))
-    )
 
     /**
      * String utilities for Rust. Parallels to `core::str`.
@@ -285,6 +258,13 @@ pub mod util {
                     Some(pos)
                 }
             }
+        }
+
+        /// Work with a null-terminated UTF-16 buffer of the string. Useful for calling Win32 API.
+        pub fn as_utf16_c_str<T>(s: &str, f: &fn(*u16) -> T) -> T {
+            let mut s16 = str::to_utf16(s);
+            s16.push(0u16);
+            do vec::as_imm_buf(s16) |buf, _| { f(buf) }
         }
 
         /// Region-dependent extensions to `str`. (Separated from `StrUtil` for the compatibility
@@ -918,11 +898,54 @@ pub mod util {
         }
     }
 
+    /// Immediately terminates the program with given exit code.
+    pub fn exit(exitcode: int) -> ! {
+        // Rust: `os::set_exit_status` doesn't immediately terminate the program.
+        unsafe { libc::exit(exitcode as libc::c_int); }
+    }
+
+    /// Exits with an error message. Internally used in the `die!` macro below.
+    #[cfg(target_os = "win32")]
+    pub fn die(s: ~str) -> ! {
+        use util::str::as_utf16_c_str;
+        do as_utf16_c_str(::exename()) |caption| {
+            do as_utf16_c_str(s) |text| {
+                unsafe { win32::ll::MessageBoxW(ptr::mut_null(), text, caption, 0); }
+            }
+        }
+        exit(1)
+    }
+
+    /// Exits with an error message. Internally used in the `die!` macro below.
+    #[cfg(not(target_os = "win32"))]
+    pub fn die(s: ~str) -> ! {
+        ::core::io::stderr().write_line(fmt!("%s: %s", ::exename(), s));
+        exit(1)
+    }
+
+    /// Prints an warning message. Internally used in the `warn!` macro below.
+    pub fn warn(s: ~str) {
+        ::core::io::stderr().write_line(fmt!("*** Warning: %s", s));
+    }
+
+    // Exits with a formatted error message. (C: `die`)
+    //
+    // Rust: this comment cannot be a doc comment (yet).
+    macro_rules! die(
+        ($($e:expr),+) => (::util::die(fmt!($($e),+)))
+    )
+
+    // Prints a formatted warning message. (C: `warn`)
+    macro_rules! warn(
+        ($($e:expr),+) => (::util::warn(fmt!($($e),+)))
+    )
+
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(target_os = "win32")]
     pub fn get_path_from_dialog() -> Option<~str> {
         use core::{str, vec};
+        use util::str::as_utf16_c_str;
 
         let filter =
             "All Be-Music Source File (*.bms;*.bme;*.bml;*.pms)\x00*.bms;*.bme;*.bml;*.pms\x00\
@@ -930,9 +953,9 @@ pub mod util {
              Extended Be-Music Source File (*.bme)\x00*.bme\x00\
              Longnote Be-Music Source File (*.bml)\x00*.bml\x00\
              Po-Mu Source File (*.pms)\x00*.pms\x00\
-             All Files (*.*)\x00*.*\x00\x00";
-        do vec::as_imm_buf(str::to_utf16(filter)) |filter, _| {
-            do vec::as_imm_buf(str::to_utf16("Choose a file to play\x00")) |title, _| {
+             All Files (*.*)\x00*.*\x00";
+        do as_utf16_c_str(filter) |filter| {
+            do as_utf16_c_str("Choose a file to play") |title| {
                 let mut buf = [0u16, ..512];
                 let ret = do vec::as_mut_buf(buf) |buf, bufsize| {
                     let ofn = win32::ll::OPENFILENAMEW {
@@ -2433,7 +2456,7 @@ pub mod parser {
         };
 
         // loops over the sorted bmslines
-        ::std::sort::tim_sort(bmsline);
+        ::extra::sort::tim_sort(bmsline);
         for bmsline.each |line| {
             if *line.chan == 2 {
                 let mut shorten = 0.0;
@@ -2621,7 +2644,7 @@ pub mod parser {
 
     /// Fixes a problematic data. (C: `sanitize_bms`)
     pub fn sanitize_bms(bms: &mut Bms) {
-        ::std::sort::tim_sort(bms.objs);
+        ::extra::sort::tim_sort(bms.objs);
 
         fn sanitize(objs: &mut [Obj], to_type: &fn(&Obj) -> Option<uint>,
                     merge_types: &fn(uint) -> uint) {
@@ -2791,8 +2814,8 @@ pub mod parser {
         infos
     }
 
-    /// Calculates the duration of the loaded BMS file. `sound_length` should return the length of
-    /// sound resources or 0.0. (C: `get_bms_duration`)
+    /// Calculates the duration of the loaded BMS file in seconds. `sound_length` should return
+    /// the length of sound resources in seconds or 0.0. (C: `get_bms_duration`)
     pub fn bms_duration(bms: &Bms, originoffset: float,
                         sound_length: &fn(SoundRef) -> float) -> float {
         let mut pos = originoffset;
@@ -2804,7 +2827,7 @@ pub mod parser {
             time += bpm.measure_to_msec(delta);
             match obj.data {
                 Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) => {
-                    sndtime = cmp::max(sndtime, time + sound_length(sref));
+                    sndtime = cmp::max(sndtime, time + sound_length(sref) * 1000.0);
                 }
                 SetBPM(BPM(newbpm)) => {
                     if newbpm > 0.0 {
@@ -2828,7 +2851,7 @@ pub mod parser {
             let delta = bms.adjust_object_position(pos, (bms.nmeasures + 1) as float);
             time += bpm.measure_to_msec(delta);
         }
-        cmp::max(time, sndtime)
+        cmp::max(time, sndtime) / 1000.0
      }
 
     //----------------------------------------------------------------------------------------------
@@ -3639,11 +3662,6 @@ pub mod player {
     }
 
     pub impl Options {
-        /// TODO doc
-        fn rel_path(&self, path: &str) -> Path {
-            Path(self.bmspath).dir_path().push_rel(&Path(path)) // TODO
-        }
-
         /// Returns true if the exclusive mode is enabled. This enables a text-based interface.
         /// (C: `opt_mode >= EXCLUSIVE_MODE`)
         fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
@@ -4068,6 +4086,92 @@ pub mod player {
     //----------------------------------------------------------------------------------------------
     // resource management
 
+    /// Alternative file extensions for sound resources. (C: `SOUND_EXTS`)
+    static SOUND_EXTS: &'static [&'static str] = &[".WAV", ".OGG", ".MP3"];
+    /// Alternative file extensions for image resources. (C: `IMAGE_EXTS`)
+    static IMAGE_EXTS: &'static [&'static str] = &[".BMP", ".PNG", ".JPG", ".JPEG", ".GIF"];
+
+    /// Returns a specified or implied resource directory from the BMS file.
+    fn get_basedir(bms: &Bms, opts: &Options) -> Path {
+        // TODO this logic assumes that #PATH_WAV is always interpreted as a native path, which
+        // the C version doesn't assume. this difference barely makes the practical issue though.
+        match bms.basepath {
+            Some(ref basepath) => { let basepath: &str = *basepath; Path(basepath) }
+            None => Path(opts.bmspath).dir_path()
+        }
+    }
+
+    /**
+     * Resolves the specified resource path to the actual path if possible. May fail, but its
+     * success doesn't guarantee that the resource should be read without a failure either.
+     * (C: `resolve_relative_path`)
+     *
+     * The actual resolution is complicated by the fact that many BMSes assume the case-insensitive
+     * matching on file names and the coexistence between WAV resources and MP3 resources while
+     * keeping the same BMS file. Therefore Angolmois adopted the following resolution rules:
+     *
+     * 1. Both `/` and `\` are accepted as a directory separator.
+     * 2. Path components including file names are matched case-insensitively. If there are multiple
+     *    matches then any one can be used, even when a better match exists.
+     * 3. If the initial match on the file name fails, and the file name does contain an extension,
+     *    then a list of alternative extensions is applied with the same matching procedure.
+     */
+    fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
+        let mut parts = ~[];
+        for path.each_split(|c| c == '/' || c == '\\') |part| {
+            if part.is_empty() { loop; }
+            parts.push(part);
+        }
+        if parts.is_empty() { return None; }
+
+        let mut cur = basedir.clone();
+        let lastpart = parts.pop();
+        for parts.each |part| {
+            // early exit if the intermediate path does not exist or is not a directory
+            if !os::path_is_dir(&cur) { return None; }
+
+            let part = part.to_upper();
+            let mut found = false;
+            for os::list_dir(&cur).each |&next| {
+                if next == ~"." || next == ~".." { loop; }
+                if next.to_upper() == part {
+                    cur = cur.push(next);
+                    found = true;
+                    break;
+                }
+            }
+            if !found { return None; }
+        }
+
+        if !os::path_is_dir(&cur) { return None; }
+
+        let lastpart = lastpart.to_upper();
+        for os::list_dir(&cur).each |&next| {
+            if next == ~"." || next == ~".." { loop; }
+            let next_ = next.to_upper();
+            let mut found = (next_ == lastpart);
+            if !found {
+                match str::rfind_char(next_, '.') {
+                    Some(idx) => {
+                        let nextnoext = next_.slice(0, idx).to_owned();
+                        for exts.each |ext| {
+                            if nextnoext + ext.to_owned() == lastpart {
+                                found = true;
+                                break;
+                            }
+                        }
+                    }
+                    None => {} // does not try alternative extensions if there was no extension
+                }
+            }
+            if found {
+                return Some(cur.push(next));
+            }
+        }
+
+        None
+    }
+
     /// Sound resource associated to `SoundRef`. It contains the actual SDL_mixer chunk that can be
     /// readily played. (C: the type of `sndres`)
     enum SoundResource {
@@ -4105,18 +4209,16 @@ pub mod player {
     }
 
     /// Loads a sound resource.
-    fn load_sound(key: Key, path: &str, opts: &Options) -> SoundResource {
-        let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
-        match Chunk::from_wav(&fullpath) {
+    fn load_sound(key: Key, path: &str, basedir: &Path) -> SoundResource {
+        let res = match resolve_relative_path(basedir, path, SOUND_EXTS) {
+            Some(fullpath) => Chunk::from_wav(&fullpath),
+            None => Err(~"not found")
+        };
+        match res {
             Ok(res) => Sound(@res),
             Err(_) => {
-let fullpath = fullpath.with_filetype("ogg");
-match Chunk::from_wav(&fullpath) {
-    Ok(res) => Sound(@res),
-    Err(_) => {
                 warn!("failed to load sound #WAV%s (%s)", key.to_str(), path);
                 NoSound
-}}
             }
         }
     }
@@ -4163,7 +4265,7 @@ match Chunk::from_wav(&fullpath) {
     }
 
     /// Loads an image resource.
-    fn load_image(key: Key, path: &str, opts: &Options) -> ImageResource {
+    fn load_image(key: Key, path: &str, opts: &Options, basedir: &Path) -> ImageResource {
         /// Converts a surface to the native display format, while preserving a transparency or
         /// setting a color key if required.
         fn to_display_format(surface: ~Surface) -> Result<~Surface,~str> {
@@ -4185,8 +4287,11 @@ match Chunk::from_wav(&fullpath) {
 
         if path.to_lower().ends_with(".mpg") {
             if opts.has_movie() {
-                let fullpath = opts.rel_path(path); // TODO resolve
-                match MPEG::from_path(&fullpath) {
+                let res = match resolve_relative_path(basedir, path, []) {
+                    Some(fullpath) => MPEG::from_path(&fullpath),
+                    None => Err(~"not found")
+                };
+                match res {
                     Ok(movie) => {
                         let surface = @new_surface(BGAW, BGAH);
                         movie.enable_video(true);
@@ -4198,11 +4303,14 @@ match Chunk::from_wav(&fullpath) {
                 }
             }
         } else if opts.has_bga() {
-            let fullpath = opts.rel_path(path); // TODO SOUND_EXTS
-            let res = do img::load(&fullpath).chain |surface| {
-                do to_display_format(surface).chain |surface| {
-                    Ok(Image(@surface))
-                }
+            let res = match resolve_relative_path(basedir, path, IMAGE_EXTS) {
+                Some(fullpath) =>
+                    do img::load(&fullpath).chain |surface| {
+                        do to_display_format(surface).chain |surface| {
+                            Ok(Image(@surface))
+                        }
+                    },
+                None => Err(~"not found")
             };
             match res {
                 Ok(res) => { return res; },
@@ -4318,14 +4426,16 @@ match Chunk::from_wav(&fullpath) {
 
         do screen.with_pixels |pixels| {
             for bms.stagefile.each |&path| {
-                let path = opts.rel_path(path);
-                match img::load(&path).chain(|s| s.display_format()) {
-                    Ok(surface) => {
-                        do surface.with_pixels |srcpixels| {
-                            bicubic_interpolation(srcpixels, pixels);
+                let basedir = get_basedir(bms, opts);
+                for resolve_relative_path(&basedir, path, IMAGE_EXTS).each |&path| {
+                    match img::load(&path).chain(|s| s.display_format()) {
+                        Ok(surface) => {
+                            do surface.with_pixels |srcpixels| {
+                                bicubic_interpolation(srcpixels, pixels);
+                            }
                         }
+                        Err(_) => {}
                     }
-                    Err(_) => {}
                 }
             }
 
@@ -4367,11 +4477,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     /// loaded. (C: `load_resource`)
     pub fn load_resource(bms: &Bms, opts: &Options,
                          callback: &fn(Option<~str>)) -> (~[SoundResource], ~[ImageResource]) {
+        let basedir = get_basedir(bms, opts);
+
         let sndres = do bms.sndpath.mapi |i, &path| {
             match path {
                 Some(path) => {
                     callback(Some(copy path));
-                    load_sound(Key(i as int), path, opts)
+                    load_sound(Key(i as int), path, &basedir)
                 },
                 None => NoSound
             }
@@ -4380,7 +4492,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             match path {
                 Some(path) => {
                     callback(Some(copy path));
-                    load_image(Key(i as int), path, opts)
+                    load_image(Key(i as int), path, opts, &basedir)
                 },
                 None => NoImage
             }
@@ -5769,8 +5881,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // render panel
             let elapsed = (player.now - player.origintime) / 1000;
-            let duration = (player.duration / 1000.0) as uint;
-            let durationmsec = player.duration as uint;
+            let duration = player.duration as uint;
+            let durationmsec = (player.duration * 1000.0) as uint;
             do screen.with_pixels |pixels| {
                 let black = RGB(0,0,0);
                 font.print_string(pixels, 10, 8, 1, LeftAligned,
