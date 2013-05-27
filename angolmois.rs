@@ -139,7 +139,7 @@ mod core_compat {
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> ~str {
     let args = os::args();
-    if args.is_empty() {~"angolmois"} else {copy args[0]}
+    if args.is_empty() {~"angolmois"} else {args[0].clone()}
 }
 
 /// Utility functions.
@@ -3134,7 +3134,7 @@ pub mod gfx {
     //----------------------------------------------------------------------------------------------
     // color
 
-    /// Extracts a red, green, blue components from given color.
+    /// Extracts red, green, blue components from given color.
     fn to_rgb(c: Color) -> (u8, u8, u8) {
         match c { RGB(r, g, b) | RGBA(r, g, b, _) => (r, g, b) }
     }
@@ -3484,10 +3484,9 @@ pub mod gfx {
                         if r < c            { mask |= 4; } // upper right
                         if r + c < zoom - 1 { mask |= 8; } // upper left
 
-                        // if `zoom` is odd, drawing four corner triangles
-                        // leaves one center pixel intact since we don't draw
-                        // diagonals for aesthetic reason. such case must be
-                        // specially handled.
+                        // if `zoom` is odd, drawing four corner triangles leaves one center pixel
+                        // intact since we don't draw diagonals for aesthetic reason. such case
+                        // must be specially handled.
                         if (v & mask) != 0 || v == 15 {
                             pixels[glyph][zoomrow+r] |= 1 << (zoomcol+c);
                         }
@@ -3692,20 +3691,20 @@ pub mod player {
                     if opts.preset.is_none() && opts.bmspath.to_lower().ends_with(".pms") {
                         Some(~"pms")
                     } else {
-                        copy opts.preset
+                        opts.preset.clone()
                     };
                 match preset_to_key_spec(bms, preset) {
                     Some(leftright) => leftright,
                     None => {
                         return Err(fmt!("Invalid preset name: %s",
-                                        opts.preset.map_default(~"", |&v| copy v)));
+                                        opts.preset.map_default(~"", |&v| v.clone())));
                     }
                 }
             } else {
                 // Rust: `Option` of managed pointer is not easy to use due to
                 //       implicit move. `Option<T>::clone_default` maybe?
-                (opts.leftkeys.map_default(~"", |&v| copy v),
-                 opts.rightkeys.map_default(~"", |&v| copy v))
+                (opts.leftkeys.map_default(~"", |&v| v.clone()),
+                 opts.rightkeys.map_default(~"", |&v| v.clone()))
             };
 
         let mut keyspec = ~KeySpec { split: 0, order: ~[], kinds: ~[None, ..NLANES] };
@@ -4406,9 +4405,9 @@ pub mod player {
                         bms.playlevel, *bms.initbpm, if infos.hasbpmchange {~"?"} else {~""},
                         infos.nnotes, if infos.nnotes == 1 {~""} else {~"s"}, keyspec.nkeys(),
                         if infos.haslongnote {~"-LN"} else {~""});
-        let title = (copy bms.title).get_or_default(~"");
-        let genre = (copy bms.genre).get_or_default(~"");
-        let artist = (copy bms.artist).get_or_default(~"");
+        let title = bms.title.clone().get_or_default(~"");
+        let genre = bms.genre.clone().get_or_default(~"");
+        let artist = bms.artist.clone().get_or_default(~"");
         (meta, title, genre, artist)
     }
 
@@ -4482,7 +4481,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let sndres = do bms.sndpath.mapi |i, &path| {
             match path {
                 Some(path) => {
-                    callback(Some(copy path));
+                    callback(Some(path.clone()));
                     load_sound(Key(i as int), path, &basedir)
                 },
                 None => NoSound
@@ -4491,7 +4490,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let mut imgres = do bms.imgpath.mapi |i, &path| {
             match path {
                 Some(path) => {
-                    callback(Some(copy path));
+                    callback(Some(path.clone()));
                     load_image(Key(i as int), path, opts, &basedir)
                 },
                 None => NoImage
@@ -6238,12 +6237,12 @@ pub fn main() {
     while i < nargs {
         if !args[i].starts_with("-") {
             if bmspath.is_none() {
-                bmspath = Some(copy args[i]);
+                bmspath = Some(args[i].clone());
             }
         } else if args[i] == ~"--" {
             i += 1;
             if bmspath.is_none() && i < nargs {
-                bmspath = Some(copy args[i]);
+                bmspath = Some(args[i].clone());
             }
             break;
         } else {
