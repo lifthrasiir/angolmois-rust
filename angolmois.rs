@@ -56,7 +56,7 @@
 #[link(name = "angolmois",
        vers = "2.0.0-alpha2",
        uuid = "0E85EA95-BE62-4E0F-B811-8C1EC46C46EC",
-       url = "https://github.com/lifthrasiir/angolmois/")];
+       url = "https://github.com/lifthrasiir/angolmois-rust/")];
 
 #[comment = "Angolmois"];
 #[license = "GPLv2+"];
@@ -6158,6 +6158,7 @@ pub fn usage() {
     io::stderr().write_str(fmt!("\
 %s -- the simple BMS player
 http://mearie.org/projects/angolmois/
+https://github.com/lifthrasiir/angolmois-rust/
 
 Usage: %s <options> <path>
   Accepts any BMS, BME, BML or PMS file.
