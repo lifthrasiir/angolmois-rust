@@ -34,9 +34,7 @@
  * and MIT license. Also note that:
  *
  * - This code is known to compile with the following combinations of rustc and rust-sdl:
- *     - rustc 0.6 + rust-sdl `999abbc` 2013-04-13, with `--cfg legacy` option
- *     - rustc 0.6 `510d0f2` 2013-05-25 (pre-0.7) + rust-sdl `efa4b24` 2013-05-12 (an unmerged
- *       branch from sstewartgallus/rust-sdl) + `s/core::/std::/g` in rust-sdl
+ *     - rustc 0.7 + rust-sdl `48cb490` 2013-07-02 (an unmerged branch from sstewartgallus/rust-sdl)
  *
  * - Unlike the original Angolmois code (which sacrifices most comments due to code size concerns),
  *   the Rust version has much more comments which can be beneficial for understanding Angolmois
@@ -51,6 +49,15 @@
  *   issue number like #1234.
  * * XXX - should be fixed as soon as Rust issue is gone.
  * * TODO - other problems unrelated to Rust.
+ *
+ * # Common Issues
+ *
+ * Those issues are common enough that they have to be discussed before the source code.
+ *
+ * * #3511 - iterator needs to ensure its underlying object available but rvalue lifetime is too
+ *           short for it. rooting the underlying object is necessary for now.
+ * * #7363 - implicit borrowing of stack closures is currently disabled due to the soundness issue.
+ *           can be worked around by wrapping a reference to the closure to another closure.
  */
 
 #[link(name = "angolmois",
@@ -61,21 +68,16 @@
 #[comment = "Angolmois"];
 #[license = "GPLv2+"];
 
-// Rust: core/std in 0.6 are named to std/extra in 0.7. fortunately we can alias the external crate
-//       to consistent names, which are in this case core/extra.
-#[cfg(legacy)] extern mod extra (name = "std");
-#[cfg(not(legacy))] extern mod extra;
-#[cfg(not(legacy))] extern mod core (name = "std");
+extern mod extra;
 extern mod sdl;
 
-use core::num::Round;
+use std::{char, uint, float, str};
+use std::num::Round;
 
 // see below for specifics.
 use self::util::str::*;
 use self::util::option::*;
-use self::util::iter::*;
 use self::util::io::*;
-use self::core_compat::str::*;
 
 /// Returns a version string. (C: `VERSION`)
 pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
@@ -83,98 +85,31 @@ pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 //==================================================================================================
 // utility declarations
 
-/// For the compatibility with the 0.6 release.
-mod core_compat {
-    pub mod hashmap {
-        pub use core::hashmap::*;
-        #[cfg(legacy)] pub use HashMap = core::hashmap::linear::LinearMap;
-        #[cfg(legacy)] pub use HashSet = core::hashmap::linear::LinearSet;
-    }
-
-    pub mod str {
-        #[cfg(not(legacy))] pub trait StrLegacyUtil {
-            fn to_upper(&self) -> ~str;
-            fn to_lower(&self) -> ~str;
-        }
-        #[cfg(not(legacy))] impl<'self> StrLegacyUtil for &'self str {
-            fn to_upper(&self) -> ~str {
-                self.to_ascii().to_upper().to_str_ascii()
-            }
-            fn to_lower(&self) -> ~str {
-                self.to_ascii().to_lower().to_str_ascii()
-            }
-        }
-    }
-
-    pub mod to_bytes {
-        pub use core::to_bytes::*;
-        #[cfg(legacy)] pub type Ret = ();
-        #[cfg(not(legacy))] pub type Ret = bool;
-        #[cfg(not(legacy))] pub fn iter_bytes_2<A:IterBytes,B:IterBytes>(a: &A, b: &B, lsb0: bool,
-                                                                         f: Cb) -> bool {
-            a.iter_bytes(lsb0, f) && b.iter_bytes(lsb0, f)
-        }
-    }
-
-    #[cfg(legacy)]
-    pub mod iter {
-        pub type Ret = ();
-        pub static EarlyExit: Ret = ();
-        pub static Finished: Ret = ();
-    }
-
-    #[cfg(not(legacy))]
-    pub mod iter {
-        pub type Ret = bool;
-        pub static EarlyExit: Ret = false;
-        pub static Finished: Ret = true;
-    }
-
-    pub mod rand {
-        pub use core::rand::*;
-        #[cfg(not(legacy))] pub fn Rng() -> IsaacRng { rng() }
-    }
-}
-
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> ~str {
-    let args = os::args();
+    let args = std::os::args();
     if args.is_empty() {~"angolmois"} else {args[0].clone()}
 }
 
 /// Utility functions.
 #[macro_escape]
 pub mod util {
-
     /**
-     * String utilities for Rust. Parallels to `core::str`.
+     * String utilities for Rust. Parallels to `std::str`.
      *
      * NOTE: Some of these additions will be eventually sent to `libcore/str.rs` and are not subject
      * to the above copyright notice.
      */
     pub mod str {
-        use core_compat::iter;
-        use core::str::*;
+        use std::str::*;
 
         static tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
-
-        /// Iterates over the chars in a string, with byte indices.
-        pub fn each_chari_byte(s: &str, it: &fn(uint, char) -> bool) -> iter::Ret {
-            let mut pos = 0u;
-            let len = s.len();
-            while pos < len {
-                let CharRange {ch, next} = char_range_at(s, pos);
-                if !it(pos, ch) { return iter::EarlyExit; }
-                pos = next;
-            }
-            iter::Finished
-        }
 
         /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid UTF-8 sequence with
         /// given error handler.
         pub fn fix_utf8(v: &[u8], handler: &fn(&[u8]) -> ~[u8]) -> ~[u8] {
             let mut i = 0u;
-            let total = vec::len::<u8>(v);
+            let total = v.len();
             let mut result = ~[];
             while i < total {
                 let chend = i + utf8_char_width(v[i]);
@@ -184,92 +119,28 @@ pub mod util {
                 }
                 if j == chend {
                     assert!(i != chend);
-                    result = vec::append(result, v.slice(i, j));
+                    result = ::std::vec::append(result, v.slice(i, j));
                 } else {
-                    result = vec::append(result, handler(v.slice(i, j)));
+                    result = ::std::vec::append(result, handler(v.slice(i, j)));
                 }
                 i = j;
             }
             result
         }
 
-        /// Given a potentially invalid UTF-8 string, fixes an invalid UTF-8 string with given error
-        /// handler.
-        pub fn fix_utf8_str(s: &str, handler: &fn(&[u8]) -> ~str) -> ~str {
-            from_fixed_utf8_bytes(to_bytes(s), handler)
-        }
-
         /// Converts a vector of bytes to a UTF-8 string. Any invalid UTF-8 sequences are fixed with
         /// given error handler.
         pub fn from_fixed_utf8_bytes(v: &[u8], handler: &fn(&[u8]) -> ~str) -> ~str {
-            let newhandler: &fn(&[u8]) -> ~[u8] =
-                |v: &[u8]| -> ~[u8] { to_bytes(handler(v)) };
+            let newhandler: &fn(&[u8]) -> ~[u8] = |v: &[u8]| -> ~[u8] {
+                let ret = handler(v);
+                ret.as_bytes().to_owned()
+            };
             let bytes = fix_utf8(v, newhandler);
             unsafe { raw::from_bytes(bytes) }
         }
 
-        /// Counts the number of bytes in the complete UTF-8 sequences up to `limit` bytes in `s`
-        /// starting from `start`.
-        pub fn count_bytes_upto<'b>(s: &'b str, start: uint, limit: uint) -> uint {
-            assert!(is_char_boundary(s, start));
-            let limit = start + limit;
-            let l = len(s);
-            assert!(limit < l);
-            let mut end = start;
-            loop {
-                assert!(end < l);
-                let next = char_range_at(s, end).next;
-                if next > limit { break; }
-                end = next;
-            }
-            end - start
-        }
-
-        /// Returns a length of the longest prefix of given string, which `uint::from_str` accepts
-        /// without a failure, if any.
-        //
-        // Rust: actually, it is better to have `{uint,int,float}::from_str` returning an option.
-        pub fn scan_uint(s: &str) -> Option<uint> {
-            match find(s, |c| !('0' <= c && c <= '9')) {
-                Some(first) if first > 0u => Some(first),
-                None if s.len() > 0u => Some(s.len()),
-                _ => None
-            }
-        }
-
-        /// Returns a length of the longest prefix of given string, which `int::from_str` accepts
-        /// without a failure, if any.
-        pub fn scan_int(s: &str) -> Option<uint> {
-            if s.starts_with("-") || s.starts_with("+") {
-                scan_uint(s.slice_to_end(1u)).map(|&pos| pos + 1u)
-            } else {
-                scan_uint(s)
-            }
-        }
-
-        /// Returns a length of the longest prefix of given string, which `float::from_str` accepts
-        /// without a failure, if any.
-        pub fn scan_float(s: &str) -> Option<uint> {
-            do scan_int(s).chain |pos| {
-                if s.len() > pos && s.char_at(pos) == '.' {
-                    let pos2 = scan_uint(s.slice_to_end(pos + 1u));
-                    pos2.map(|&pos2| pos + pos2 + 1u)
-                } else {
-                    Some(pos)
-                }
-            }
-        }
-
-        /// Work with a null-terminated UTF-16 buffer of the string. Useful for calling Win32 API.
-        pub fn as_utf16_c_str<T>(s: &str, f: &fn(*u16) -> T) -> T {
-            let mut s16 = str::to_utf16(s);
-            s16.push(0u16);
-            do vec::as_imm_buf(s16) |buf, _| { f(buf) }
-        }
-
-        /// Region-dependent extensions to `str`. (Separated from `StrUtil` for the compatibility
-        /// reason.)
-        pub trait StrRegionUtil<'self> {
+        /// Extensions to `str`.
+        pub trait StrUtil<'self> {
             /// Returns a slice of the given string starting from `begin`.
             ///
             /// # Failure
@@ -286,34 +157,9 @@ pub mod util {
             /// If `begin` does not point to valid characters or beyond the last character of
             /// the string, or `end` points beyond the last character of the string
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str;
-        }
 
-        // Rust: 0.6 and pre-0.7 differs from the implicitness/explicitness of trait region
-        //       parameters, and the syntax is mutually exclusive.
-        #[cfg(legacy)]
-        impl<'self> StrRegionUtil for &'self str {
-            fn slice_to_end(&self, begin: uint) -> &'self str {
-                slice(*self, begin, len(*self))
-            }
-            fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
-                slice(*self, begin, begin + count_bytes_upto(*self, begin, end))
-            }
-        }
-
-        #[cfg(not(legacy))]
-        impl<'self> StrRegionUtil<'self> for &'self str {
-            fn slice_to_end(&self, begin: uint) -> &'self str {
-                slice(*self, begin, len(*self))
-            }
-            fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
-                slice(*self, begin, begin + count_bytes_upto(*self, begin, end))
-            }
-        }
-
-        /// Remaining extensions to `str`.
-        pub trait StrUtil {
             /// Iterates over the chars in a string, with byte indices.
-            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> iter::Ret;
+            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> bool;
 
             /// Given a potentially invalid UTF-8 string, fixes an invalid UTF-8 string with given
             /// error handler.
@@ -325,6 +171,8 @@ pub mod util {
 
             /// Returns a length of the longest prefix of given string, which `uint::from_str`
             /// accepts without a failure, if any.
+            //
+            // Rust: actually, it is better to have `{uint,int,float}::from_str` returning a tuple.
             fn scan_uint(&self) -> Option<uint>;
 
             /// Returns a length of the longest prefix of given string, which `int::from_str`
@@ -334,21 +182,97 @@ pub mod util {
             /// Returns a length of the longest prefix of given string, which `float::from_str`
             /// accepts without a failure, if any.
             fn scan_float(&self) -> Option<uint>;
+
+            /// Converts all ASCII letters (A-Z/a-z, no accent) to uppercase.
+            fn to_ascii_upper(&self) -> ~str;
+
+            /// Converts all ASCII letters (A-Z/a-z, no accent) to lowercase.
+            fn to_ascii_lower(&self) -> ~str;
+
+            /// Work with a null-terminated UTF-16 buffer of the string. Useful for calling
+            /// Win32 API.
+            fn as_utf16_c_str<T>(&self, f: &fn(*u16) -> T) -> T;
         }
 
-        impl<'self> StrUtil for &'self str {
-            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> iter::Ret {
-                each_chari_byte(*self, it)
+        impl<'self> StrUtil<'self> for &'self str {
+            fn slice_to_end(&self, begin: uint) -> &'self str {
+                self.slice(begin, self.len())
             }
+
+            fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
+                self.slice(begin, begin + self.count_bytes_upto(begin, end))
+            }
+
+            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> bool {
+                let mut pos = 0u;
+                let len = self.len();
+                while pos < len {
+                    let CharRange {ch, next} = self.char_range_at(pos);
+                    if !it(pos, ch) { return false; }
+                    pos = next;
+                }
+                true
+            }
+
             fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str {
-                fix_utf8_str(*self, handler)
+                from_fixed_utf8_bytes(self.as_bytes(), handler)
             }
+
             fn count_bytes_upto(&self, start: uint, limit: uint) -> uint {
-                count_bytes_upto(*self, start, limit)
+                assert!(self.is_char_boundary(start));
+                let limit = start + limit;
+                let l = self.len();
+                assert!(limit < l);
+                let mut end = start;
+                loop {
+                    assert!(end < l);
+                    let next = self.char_range_at(end).next;
+                    if next > limit { break; }
+                    end = next;
+                }
+                end - start
             }
-            fn scan_uint(&self) -> Option<uint> { scan_uint(*self) }
-            fn scan_int(&self) -> Option<uint> { scan_int(*self) }
-            fn scan_float(&self) -> Option<uint> { scan_float(*self) }
+
+            fn scan_uint(&self) -> Option<uint> {
+                match self.find(|c| !('0' <= c && c <= '9')) {
+                    Some(first) if first > 0u => Some(first),
+                    None if self.len() > 0u => Some(self.len()),
+                    _ => None
+                }
+            }
+
+            fn scan_int(&self) -> Option<uint> {
+                if self.starts_with("-") || self.starts_with("+") {
+                    self.slice_to_end(1u).scan_uint().map(|&pos| pos + 1u)
+                } else {
+                    self.scan_uint()
+                }
+            }
+
+            fn scan_float(&self) -> Option<uint> {
+                do self.scan_int().chain |pos| {
+                    if self.len() > pos && self.char_at(pos) == '.' {
+                        let pos2 = self.slice_to_end(pos + 1u).scan_uint();
+                        pos2.map(|&pos2| pos + pos2 + 1u)
+                    } else {
+                        Some(pos)
+                    }
+                }
+            }
+
+            fn to_ascii_upper(&self) -> ~str {
+                unsafe { self.to_ascii_nocheck() }.to_upper().to_str_ascii()
+            }
+
+            fn to_ascii_lower(&self) -> ~str {
+                unsafe { self.to_ascii_nocheck() }.to_lower().to_str_ascii()
+            }
+
+            fn as_utf16_c_str<T>(&self, f: &fn(*u16) -> T) -> T {
+                let mut s16 = self.to_utf16();
+                s16.push(0u16);
+                do ::std::vec::as_imm_buf(s16) |buf, _| { f(buf) }
+            }
         }
 
         /// A trait which provides `prefix_shifted` method. Similar to `str::starts_with`, but with
@@ -362,7 +286,7 @@ pub mod util {
         impl ShiftablePrefix for char {
             fn prefix_shifted(&self, s: &str) -> Option<~str> {
                 if !s.is_empty() {
-                    let CharRange {ch, next} = char_range_at(s, 0u);
+                    let CharRange {ch, next} = s.char_range_at(0u);
                     if ch == *self {
                         return Some(s.slice_to_end(next).to_owned());
                     }
@@ -384,7 +308,7 @@ pub mod util {
     }
 
     /**
-     * Option utilities for Rust. Parallels to `core::option`.
+     * Option utilities for Rust. Parallels to `std::option`.
      *
      * NOTE: Some of these additions will be eventually sent to `libcore/option.rs` and are not
      * subject to the above copyright notice.
@@ -396,7 +320,7 @@ pub mod util {
         #[inline(always)]
         pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool) -> Option<T> {
             match opt {
-                Some(t) => if f(t) {Some(t)} else {None},
+                Some(t) => if f(copy t) {Some(t)} else {None},
                 None => None
             }
         }
@@ -407,9 +331,9 @@ pub mod util {
         pub fn merge<T:Copy>(lhs: Option<T>, rhs: Option<T>, f: &fn(T, T) -> T) -> Option<T> {
             match (lhs, rhs) {
                 (None, None) => None,
-                (_,    None) => lhs,
-                (None, _   ) => rhs,
-                (Some(ref lhs), Some(ref rhs)) => Some(f(*lhs, *rhs))
+                (lhs,  None) => lhs,
+                (None, rhs ) => rhs,
+                (Some(ref lhs), Some(ref rhs)) => Some(f(copy *lhs, copy *rhs))
             }
         }
 
@@ -437,67 +361,7 @@ pub mod util {
     }
 
     /**
-     * Iterator utilities for Rust. Parallels to `core::iter`.
-     *
-     * NOTE: Some of these additions will be eventually sent to `libcore/iter.rs` and are not
-     * subject to the above copyright notice.
-     */
-    pub mod iter {
-        use core_compat::iter;
-
-        pub trait OptionalIter<A> {
-            /// Like `each()`, but only iterates through the value inside options.
-            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret;
-        }
-
-    }
-
-    /**
-     * Vector utilities for Rust. Parallels to `core::vec`.
-     *
-     * NOTE: Some of these additions will be eventually sent to `libcore/vec.rs` and are not subject
-     * to the above copyright notice.
-     */
-    pub mod vec {
-        use core_compat::iter;
-        use core::vec::*;
-
-        /// Like `each()`, but only iterates through the value inside options.
-        #[inline(always)]
-        pub fn each_some<'r,A>(vec: &'r [Option<A>], blk: &fn(v: &'r A) -> bool) -> iter::Ret {
-            for each(vec) |e| {
-                for e.each |v| {
-                    if !blk(v) { return iter::EarlyExit; }
-                }
-            }
-            iter::Finished
-        }
-
-        impl<'self,A> ::util::iter::OptionalIter<A> for &'self [Option<A>] {
-            #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret {
-                each_some(*self, blk)
-            }
-        }
-
-        impl<A> ::util::iter::OptionalIter<A> for ~[Option<A>] {
-            #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret {
-                each_some(*self, blk)
-            }
-        }
-
-        impl<A> ::util::iter::OptionalIter<A> for @[Option<A>] {
-            #[inline(always)]
-            fn each_some(&self, blk: &fn(v: &A) -> bool) -> iter::Ret {
-                each_some(*self, blk)
-            }
-        }
-
-    }
-
-    /**
-     * I/O utilities for Rust. Parallels to `core::io`.
+     * I/O utilities for Rust. Parallels to `std::io`.
      *
      * NOTE: Some of these additions will be eventually sent to `libcore/io.rs` and are not subject
      * to the above copyright notice.
@@ -528,7 +392,7 @@ pub mod util {
 
             fn each_fixed_utf8_line(&self, handler: &fn(&[u8]) -> ~str, it: &fn(&str) -> bool) {
                 while !self.eof() {
-                    if !it(self.read_and_fix_utf8_line(handler)) { break; }
+                    if !it(self.read_and_fix_utf8_line(|buf| handler(buf))) { break; } // XXX #7363
                 }
             }
         }
@@ -536,7 +400,7 @@ pub mod util {
     }
 
     /**
-     * Comparison routines for Rust. Parallels to `core::cmp`.
+     * Comparison routines for Rust. Parallels to `std::cmp`.
      *
      * NOTE: Some of these additions will be eventually sent to `libcore/cmp.rs` and are not subject
      * to the above copyright notice.
@@ -553,31 +417,27 @@ pub mod util {
     }
 
     /**
-     * Hash table routines for Rust. Parallels to `core::hashmap`.
+     * Hash table routines for Rust. Parallels to `std::hashmap`.
      *
      * NOTE: Some of these additions will be eventually sent to `libcore/hashmap.rs` and are not
      * subject to the above copyright notice.
      */
     pub mod hashmap {
-        use core_compat::hashmap::*;
+        use std::hashmap::*;
 
         /// Constructs a new map from a vector of key-value pairs.
-        //
-        // TODO make this constructible from any suitable iterator
         pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)]) -> HashMap<K,V> {
             let mut map = HashMap::new();
             map.reserve_at_least(items.len());
-            for items.each |&(k,v)| { map.insert(k, v); }
+            for items.iter().advance |&(k,v)| { map.insert(k, v); }
             map
         }
 
         /// Constructs a new set from a vector of key-value pairs.
-        //
-        // TODO make this constructible from any suitable iterator
         pub fn set_from_vec<V:Eq+Hash+IterBytes>(items: &[V]) -> HashSet<V> {
             let mut set = HashSet::new();
             set.reserve_at_least(items.len());
-            for items.each |&v| { set.insert(v); }
+            for items.iter().advance |&v| { set.insert(v); }
             set
         }
     }
@@ -591,10 +451,10 @@ pub mod util {
      */
     pub mod sdl {
         pub mod mixer {
-            use core::libc::c_int;
+            use std::libc::c_int;
 
             pub mod ll {
-                use core::libc::c_int;
+                use std::libc::c_int;
                 pub extern {
                     fn Mix_Volume(channel: c_int, volume: c_int) -> c_int;
                     fn Mix_ReserveChannels(num: c_int) -> c_int;
@@ -605,9 +465,11 @@ pub mod util {
 
             pub fn num_playing(channel: Option<c_int>) -> c_int {
                 use sdl::mixer;
-                match channel {
-                    Some(channel) => mixer::ll::Mix_Playing(channel),
-                    None => mixer::ll::Mix_Playing(-1)
+                unsafe {
+                    match channel {
+                        Some(channel) => mixer::ll::Mix_Playing(channel),
+                        None => mixer::ll::Mix_Playing(-1)
+                    }
                 }
             }
 
@@ -647,12 +509,13 @@ pub mod util {
         }
 
         pub mod mpeg {
-            use core::libc::{c_int, c_float};
+            use std::libc::{c_int, c_float};
+            use std::ptr::null;
             use sdl::video::Surface;
             use self::ll::SMPEGstatus;
 
             pub mod ll {
-                use core::libc::{c_void, c_int, c_char, c_float, c_double};
+                use std::libc::{c_void, c_int, c_char, c_float, c_double};
                 use sdl::video::ll::{SDL_RWops, SDL_Surface};
                 use sdl::audio::ll::SDL_AudioSpec;
                 pub struct SMPEG { priv opaque: () }
@@ -724,16 +587,16 @@ pub mod util {
             }
 
             impl Drop for MPEG {
-                pub fn finalize(&self) {
+                pub fn drop(&self) {
                     unsafe { ll::SMPEG_delete(self.raw); }
                 }
             }
 
-            pub impl MPEG {
-                fn from_path(path: &Path) -> Result<~MPEG, ~str> {
+            impl MPEG {
+                pub fn from_path(path: &Path) -> Result<~MPEG, ~str> {
                     let raw = unsafe {
-                        do str::as_c_str(path.to_str()) |buf| {
-                            ll::SMPEG_new(buf, ptr::null(), 0)
+                        do path.to_str().as_c_str() |buf| {
+                            ll::SMPEG_new(buf, null(), 0)
                         }
                     };
 
@@ -741,79 +604,79 @@ pub mod util {
                     else { Ok(wrap_mpeg(raw)) }
                 }
 
-                fn status(&self) -> SMPEGstatus {
+                pub fn status(&self) -> SMPEGstatus {
                     unsafe { ll::SMPEG_status(self.raw) }
                 }
 
-                fn set_volume(&self, volume: int) {
+                pub fn set_volume(&self, volume: int) {
                     unsafe { ll::SMPEG_setvolume(self.raw, volume as c_int); }
                 }
 
-                fn set_display(&self, surface: &Surface) {
+                pub fn set_display(&self, surface: &Surface) {
                     unsafe {
-                        ll::SMPEG_setdisplay(self.raw, surface.raw, ptr::null(), ptr::null());
+                        ll::SMPEG_setdisplay(self.raw, surface.raw, null(), null());
                     }
                 }
 
-                fn enable_video(&self, enable: bool) {
+                pub fn enable_video(&self, enable: bool) {
                     unsafe { ll::SMPEG_enablevideo(self.raw, enable as c_int); }
                 }
 
-                fn enable_audio(&self, enable: bool) {
+                pub fn enable_audio(&self, enable: bool) {
                     unsafe { ll::SMPEG_enableaudio(self.raw, enable as c_int); }
                 }
 
-                fn set_loop(&self, repeat: bool) {
+                pub fn set_loop(&self, repeat: bool) {
                     unsafe { ll::SMPEG_loop(self.raw, repeat as c_int); }
                 }
 
-                fn resize(&self, width: int, height: int) {
+                pub fn resize(&self, width: int, height: int) {
                     unsafe { ll::SMPEG_scaleXY(self.raw, width as c_int, height as c_int); }
                 }
 
-                fn scale_by(&self, scale: int) {
+                pub fn scale_by(&self, scale: int) {
                     unsafe { ll::SMPEG_scale(self.raw, scale as c_int); }
                 }
 
-                fn move(&self, x: int, y: int) {
+                pub fn move(&self, x: int, y: int) {
                     unsafe { ll::SMPEG_move(self.raw, x as c_int, y as c_int); }
                 }
 
-                fn set_display_region(&self, x: int, y: int, w: int, h: int) {
+                pub fn set_display_region(&self, x: int, y: int, w: int, h: int) {
                     unsafe {
                         ll::SMPEG_setdisplayregion(self.raw, x as c_int, y as c_int,
                                                    w as c_int, h as c_int);
                     }
                 }
 
-                fn play(&self) {
+                pub fn play(&self) {
                     unsafe { ll::SMPEG_play(self.raw); }
                 }
 
-                fn pause(&self) {
+                pub fn pause(&self) {
                     unsafe { ll::SMPEG_pause(self.raw); }
                 }
 
-                fn stop(&self) {
+                pub fn stop(&self) {
                     unsafe { ll::SMPEG_stop(self.raw); }
                 }
 
-                fn rewind(&self) {
+                pub fn rewind(&self) {
                     unsafe { ll::SMPEG_rewind(self.raw); }
                 }
 
-                fn seek(&self, bytes: int) {
+                pub fn seek(&self, bytes: int) {
                     unsafe { ll::SMPEG_seek(self.raw, bytes as c_int); }
                 }
 
-                fn skip(&self, seconds: float) {
+                pub fn skip(&self, seconds: float) {
                     unsafe { ll::SMPEG_skip(self.raw, seconds as c_float); }
                 }
 
-                fn get_error(&self) -> ~str {
+                pub fn get_error(&self) -> ~str {
                     unsafe {
                         let cstr = ll::SMPEG_error(self.raw);
-                        str::raw::from_c_str(cast::transmute(&cstr))
+                        ::str::raw::from_c_str(::std::cast::transmute(&cstr))
                     }
                 }
             }
@@ -824,8 +687,8 @@ pub mod util {
     #[cfg(target_os = "win32")]
     pub mod win32 {
         pub mod ll {
-            use core::libc::{c_int, c_uint, c_void};
-            use core::libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
+            use std::libc::{c_int, c_uint, c_void};
+            use std::libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
 
             pub type HWND = HANDLE;
             pub type HINSTANCE = HANDLE;
@@ -900,17 +763,17 @@ pub mod util {
 
     /// Immediately terminates the program with given exit code.
     pub fn exit(exitcode: int) -> ! {
-        // Rust: `os::set_exit_status` doesn't immediately terminate the program.
-        unsafe { libc::exit(exitcode as libc::c_int); }
+        // Rust: `std::os::set_exit_status` doesn't immediately terminate the program.
+        unsafe { ::std::libc::exit(exitcode as ::std::libc::c_int); }
     }
 
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(target_os = "win32")]
     pub fn die(s: ~str) -> ! {
-        use util::str::as_utf16_c_str;
-        do as_utf16_c_str(::exename()) |caption| {
-            do as_utf16_c_str(s) |text| {
-                unsafe { win32::ll::MessageBoxW(ptr::mut_null(), text, caption, 0); }
+        use util::str::StrUtil;
+        do ::exename().as_utf16_c_str() |caption| {
+            do s.as_utf16_c_str() |text| {
+                unsafe { win32::ll::MessageBoxW(::std::ptr::mut_null(), text, caption, 0); }
             }
         }
         exit(1)
@@ -919,13 +782,13 @@ pub mod util {
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(not(target_os = "win32"))]
     pub fn die(s: ~str) -> ! {
-        ::core::io::stderr().write_line(fmt!("%s: %s", ::exename(), s));
+        ::std::io::stderr().write_line(fmt!("%s: %s", ::exename(), s));
         exit(1)
     }
 
     /// Prints an warning message. Internally used in the `warn!` macro below.
     pub fn warn(s: ~str) {
-        ::core::io::stderr().write_line(fmt!("*** Warning: %s", s));
+        ::std::io::stderr().write_line(fmt!("*** Warning: %s", s));
     }
 
     // Exits with a formatted error message. (C: `die`)
@@ -944,8 +807,8 @@ pub mod util {
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(target_os = "win32")]
     pub fn get_path_from_dialog() -> Option<~str> {
-        use core::{str, vec};
-        use util::str::as_utf16_c_str;
+        use std::ptr::{null, mut_null};
+        use util::str::StrUtil;
 
         let filter =
             "All Be-Music Source File (*.bms;*.bme;*.bml;*.pms)\x00*.bms;*.bme;*.bml;*.pms\x00\
@@ -954,28 +817,29 @@ pub mod util {
              Longnote Be-Music Source File (*.bml)\x00*.bml\x00\
              Po-Mu Source File (*.pms)\x00*.pms\x00\
              All Files (*.*)\x00*.*\x00";
-        do as_utf16_c_str(filter) |filter| {
-            do as_utf16_c_str("Choose a file to play") |title| {
+        do filter.as_utf16_c_str() |filter| {
+            do "Choose a file to play".as_utf16_c_str() |title| {
                 let mut buf = [0u16, ..512];
-                let ret = do vec::as_mut_buf(buf) |buf, bufsize| {
+                let ret = do ::std::vec::as_mut_buf(buf) |buf, bufsize| {
+                    let ofnsz = ::std::sys::size_of::<win32::ll::OPENFILENAMEW>();
                     let ofn = win32::ll::OPENFILENAMEW {
-                        lStructSize: sys::size_of::<win32::ll::OPENFILENAMEW>() as libc::DWORD,
+                        lStructSize: ofnsz as ::std::libc::DWORD,
                         lpstrFilter: filter,
                         lpstrFile: buf,
-                        nMaxFile: bufsize as libc::DWORD,
+                        nMaxFile: bufsize as ::std::libc::DWORD,
                         lpstrTitle: title,
                         Flags: win32::ll::OFN_HIDEREADONLY,
 
                         // zero-initialized fields
-                        hwndOwner: ptr::mut_null(), hInstance: ptr::mut_null(),
-                        lpstrCustomFilter: ptr::mut_null(), nMaxCustFilter: 0, nFilterIndex: 0,
-                        lpstrFileTitle: ptr::mut_null(), nMaxFileTitle: 0,
-                        lpstrInitialDir: ptr::null(), nFileOffset: 0, nFileExtension: 0,
-                        lpstrDefExt: ptr::null(), lCustData: 0, lpfnHook: ptr::null(),
-                        lpTemplateName: ptr::null(), pvReserved: ptr::null(),
+                        hwndOwner: mut_null(), hInstance: mut_null(),
+                        lpstrCustomFilter: mut_null(), nMaxCustFilter: 0, nFilterIndex: 0,
+                        lpstrFileTitle: mut_null(), nMaxFileTitle: 0,
+                        lpstrInitialDir: null(), nFileOffset: 0, nFileExtension: 0,
+                        lpstrDefExt: null(), lCustData: 0, lpfnHook: null(),
+                        lpTemplateName: null(), pvReserved: null(),
                         dwReserved: 0, FlagsEx: 0,
                     };
-                    unsafe {win32::ll::GetOpenFileNameW(cast::transmute(&ofn))}
+                    unsafe {win32::ll::GetOpenFileNameW(::std::cast::transmute(&ofn))}
                 };
                 if ret != 0 {
                     let path: &[u16] = match buf.position_elem(&0) {
@@ -983,7 +847,7 @@ pub mod util {
                         // Rust: why can't we cast `&[u16, ..512]` to `&[u16]`?!
                         None => buf.slice(0, buf.len())
                     };
-                    Some(str::from_utf16(path))
+                    Some(::std::str::from_utf16(path))
                 } else {
                     None
                 }
@@ -1030,8 +894,8 @@ pub mod util {
      * - `Measure [-> e2]`: Consumes exactly three digits and optionally saves it to `e2`.
      *   (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed by a call to `atoi`)
      */
-    // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex support will make this
-    //         obsolete in the future, but not now.
+    // Rust: - there is no `std::libc::sscanf` due to the varargs. maybe regex support will make
+    //         this obsolete in the future, but not now.
     //       - multiple statements do not expand correctly. (#4375)
     //       - it is desirable to have a matcher only accepts an integer literal or string literal,
     //         not a generic expression.
@@ -1044,11 +908,11 @@ pub mod util {
 
         ($e:expr; int -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            // Rust: num::from_str_bytes_common does not recognize a number followed by garbage,
-            //       so we need to parse it ourselves.
+            // Rust: `std::num::from_str_bytes_common` does not recognize a number followed
+            //        by garbage, so we need to parse it ourselves.
             do _line.scan_int().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
-                do int::from_str(_prefix).map_default(false) |&_value| {
+                do ::std::int::from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
                     lex!(_line.slice_to_end(_endpos); $($tail)*)
                 }
@@ -1058,7 +922,7 @@ pub mod util {
             let _line: &str = $e;
             do _line.scan_uint().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
-                do uint::from_str(_prefix).map_default(false) |&_value| {
+                do ::std::uint::from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
                     lex!(_line.slice_to_end(_endpos); $($tail)*)
                 }
@@ -1068,7 +932,7 @@ pub mod util {
             let _line: &str = $e;
             do _line.scan_float().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
-                do float::from_str(_prefix).map_default(false) |&_value| {
+                do ::std::float::from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
                     lex!(_line.slice_to_end(_endpos); $($tail)*)
                 }
@@ -1106,9 +970,9 @@ pub mod util {
         ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                let str::CharRange {ch:_ch, next:_pos} = str::char_range_at(_line, 0);
-                $dst = _ch;
-                lex!(_line.slice_to_end(_pos); $($tail)*)
+                let _range = _line.char_range_at(0);
+                $dst = _range.ch;
+                lex!(_line.slice_to_end(_range.next); $($tail)*)
             } else {
                 false
             }
@@ -1127,7 +991,7 @@ pub mod util {
             // Rust: this is plain annoying.
             if _line.len() >= 3 && _isdigit(_line.char_at(0)) && _isdigit(_line.char_at(1)) &&
                     _isdigit(_line.char_at(2)) {
-                $dst = uint::from_str(_line.slice(0u, 3u)).unwrap();
+                $dst = ::std::uint::from_str(_line.slice(0u, 3u)).unwrap();
                 lex!(_line.slice_to_end(3u); $($tail)*)
             } else {
                 false
@@ -1137,15 +1001,15 @@ pub mod util {
 
         ($e:expr; ws, $($tail:tt)*) => ({
             let _line: &str = $e;
-            if !_line.is_empty() && char::is_whitespace(_line.char_at(0)) {
-                lex!(str::trim_left(_line); $($tail)*)
+            if !_line.is_empty() && _line.char_at(0).is_whitespace() {
+                lex!(_line.trim_left(); $($tail)*)
             } else {
                 false
             }
         });
         ($e:expr; ws*, $($tail:tt)*) => ({
             let _line: &str = $e;
-            lex!(str::trim_left(_line); $($tail)*)
+            lex!(_line.trim_left(); $($tail)*)
         });
         ($e:expr; int, $($tail:tt)*) => ({
             let mut _dummy: int = 0;
@@ -1247,8 +1111,9 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use core_compat::iter;
-    use core::rand::*;
+    use std::{int, uint, float, str, vec, cmp};
+    use std::rand::*;
+    use util::str::StrUtil;
 
     //----------------------------------------------------------------------------------------------
     // alphanumeric key
@@ -1261,17 +1126,18 @@ pub mod parser {
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
     pub static MAXKEY: int = 36*36;
 
-    pub impl Key {
+    impl Key {
         /// Returns if the alphanumeric key is in the proper range. Angolmois supports the full
         /// range of 00-ZZ (0-1295) for every case.
-        fn is_valid(self) -> bool {
+        pub fn is_valid(self) -> bool {
             0 <= *self && *self < MAXKEY
         }
 
         /// Re-reads the alphanumeric key as a hexadecimal number if possible. This is required
         /// due to handling of channel #03 (BPM is expected to be in hexadecimal).
-        fn to_hex(self) -> Option<int> {
-            let sixteens = *self / 36, ones = *self % 36;
+        pub fn to_hex(self) -> Option<int> {
+            let sixteens = *self / 36;
+            let ones = *self % 36;
             if sixteens < 16 && ones < 16 {Some(sixteens * 16 + ones)} else {None}
         }
     }
@@ -1304,9 +1170,9 @@ pub mod parser {
     /// The maximum number of lanes. (C: `NNOTECHANS`)
     pub static NLANES: uint = 72;
 
-    pub impl Lane {
+    impl Lane {
         /// Converts the channel number to the lane number.
-        fn from_channel(chan: Key) -> Lane {
+        pub fn from_channel(chan: Key) -> Lane {
             let player = match *chan / 36 {
                 1 | 3 | 5 | 0xD => 0,
                 2 | 4 | 6 | 0xE => 1,
@@ -1360,18 +1226,18 @@ pub mod parser {
         Button5,
     }
 
-    pub impl KeyKind {
+    impl KeyKind {
         /// Returns a list of all supported key kinds.
         //
         // Rust: can this method be generated on the fly?
-        fn all() -> &'static [KeyKind] {
+        pub fn all() -> &'static [KeyKind] {
             &[WhiteKey, WhiteKeyAlt, BlackKey, Scratch, FootPedal,
               Button1, Button2, Button3, Button4, Button5]
         }
 
         /// Converts a mnemonic character to an appropriate key kind. Used for parsing a key
         /// specification (see also `KeySpec`).
-        fn from_char(c: char) -> Option<KeyKind> {
+        pub fn from_char(c: char) -> Option<KeyKind> {
             match c {
                 'a' => Some(WhiteKey),
                 'y' => Some(WhiteKeyAlt),
@@ -1389,7 +1255,7 @@ pub mod parser {
 
         /// Converts an appropriate key kind to a mnemonic character. Used for environment variables
         /// (see also `read_keymap`).
-        fn to_char(self) -> char {
+        pub fn to_char(self) -> char {
             match self {
                 WhiteKey    => 'a',
                 WhiteKeyAlt => 'y',
@@ -1411,7 +1277,7 @@ pub mod parser {
          * practice of counting "keys" in many games (e.g. Beatmania IIDX has 8 lanes including one
          * scratch but commonly said to have 7 "keys").
          */
-        fn counts_as_key(self) -> bool {
+        pub fn counts_as_key(self) -> bool {
             self != Scratch && self != FootPedal
         }
     }
@@ -1450,12 +1316,12 @@ pub mod parser {
     #[deriving(Eq)]
     pub struct BPM(float);
 
-    pub impl BPM {
+    impl BPM {
         /// Converts a measure to a millisecond. (C: `MEASURE_TO_MSEC`)
-        fn measure_to_msec(self, measure: float) -> float { measure * 240000.0 / *self }
+        pub fn measure_to_msec(self, measure: float) -> float { measure * 240000.0 / *self }
 
         /// Converts a millisecond to a measure. (C: `MSEC_TO_MEASURE`)
-        fn msec_to_measure(self, msec: float) -> float { msec * *self / 240000.0 }
+        pub fn msec_to_measure(self, msec: float) -> float { msec * *self / 240000.0 }
     }
 
     /// A duration from the particular point. It may be specified in measures or seconds. Used in
@@ -1463,9 +1329,9 @@ pub mod parser {
     #[deriving(Eq)]
     pub enum Duration { Seconds(float), Measures(float) }
 
-    pub impl Duration {
+    impl Duration {
         /// Calculates the actual milliseconds from the current BPM.
-        fn to_msec(&self, bpm: BPM) -> float {
+        pub fn to_msec(&self, bpm: BPM) -> float {
             match *self {
                 Seconds(secs) => secs * 1000.0,
                 Measures(measures) => bpm.measure_to_msec(measures)
@@ -1731,62 +1597,62 @@ pub mod parser {
         data: ObjData
     }
 
-    pub impl Obj {
+    impl Obj {
         /// Creates a `Visible` object.
-        fn Visible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn Visible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             // Rust: `SoundRef` itself cannot be used as a function (#5315)
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Visible(lane, sref) }
         }
 
         /// Creates an `Invisible` object.
-        fn Invisible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn Invisible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Invisible(lane, sref) }
         }
 
         /// Creates an `LNStart` object.
-        fn LNStart(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn LNStart(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNStart(lane, sref) }
         }
 
         /// Creates an `LNDone` object.
-        fn LNDone(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn LNDone(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNDone(lane, sref) }
         }
 
         /// Creates a `Bomb` object.
-        fn Bomb(time: float, lane: Lane, sref: Option<Key>,
+        pub fn Bomb(time: float, lane: Lane, sref: Option<Key>,
                 damage: Damage) -> Obj {
             let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Bomb(lane, sref, damage) }
         }
 
         /// Creates a `BGM` object.
-        fn BGM(time: float, sref: Key) -> Obj {
+        pub fn BGM(time: float, sref: Key) -> Obj {
             Obj { time: time, data: BGM(SoundRef(sref)) }
         }
 
         /// Creates a `SetBGA` object.
-        fn SetBGA(time: float, layer: BGALayer, iref: Option<Key>) -> Obj {
+        pub fn SetBGA(time: float, layer: BGALayer, iref: Option<Key>) -> Obj {
             let iref = iref.map_consume(|i| ImageRef(i)); // XXX #5315
             Obj { time: time, data: SetBGA(layer, iref) }
         }
 
         /// Creates a `SetBPM` object.
-        fn SetBPM(time: float, bpm: BPM) -> Obj {
+        pub fn SetBPM(time: float, bpm: BPM) -> Obj {
             Obj { time: time, data: SetBPM(bpm) }
         }
 
         /// Creates a `Stop` object.
-        fn Stop(time: float, duration: Duration) -> Obj {
+        pub fn Stop(time: float, duration: Duration) -> Obj {
             Obj { time: time, data: Stop(duration) }
         }
 
         /// Returns the number of a measure containing this object.
-        fn measure(&self) -> int { self.time.floor() as int }
+        pub fn measure(&self) -> int { self.time.floor() as int }
     }
 
     impl Ord for Obj {
@@ -1913,10 +1779,10 @@ pub mod parser {
               shortens: ~[], nmeasures: 0 }
     }
 
-    pub impl Bms {
+    impl Bms {
         /// Returns a scaling factor of given measure number. The default scaling factor is 1.0, and
         /// that value applies to any out-of-bound measures. (C: `shorten`)
-        fn shorten(&self, measure: int) -> float {
+        pub fn shorten(&self, measure: int) -> float {
             if measure < 0 || measure as uint >= self.shortens.len() {
                 1.0
             } else {
@@ -1927,7 +1793,7 @@ pub mod parser {
         /// Calculates the virtual time that is `offset` measures away from the virtual time `base`.
         /// This takes account of the scaling factor, so if first four measures are scaled by 1/4,
         /// then `adjust_object_time(0.0, 2.0)` results in `5.0`. (C: `adjust_object_time`)
-        fn adjust_object_time(&self, base: float, offset: float) -> float {
+        pub fn adjust_object_time(&self, base: float, offset: float) -> float {
             let basemeasure = base.floor() as int;
             let baseshorten = self.shorten(basemeasure);
             let basefrac = base - basemeasure as float;
@@ -1989,9 +1855,9 @@ pub mod parser {
     /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
     pub fn key2index_str(s: &str) -> Option<int> {
         if s.len() < 2 { return None; }
-        let str::CharRange {ch:c1, next:p1} = str::char_range_at(s, 0);
+        let str::CharRange {ch:c1, next:p1} = s.char_range_at(0);
         do getdigit(c1).chain |a| {
-            let str::CharRange {ch:c2, next:p2} = str::char_range_at(s, p1);
+            let str::CharRange {ch:c2, next:p2} = s.char_range_at(p1);
             do getdigit(c2).map |&b| {
                 assert!(p2 == 2); // both characters should be in ASCII
                 a * 36 + b
@@ -2000,7 +1866,7 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
-    pub fn parse_bms_from_reader<R:RngUtil>(f: @io::Reader, r: &mut R) -> Result<Bms,~str> {
+    pub fn parse_bms_from_reader<R:RngUtil>(f: @::std::io::Reader, r: &mut R) -> Result<Bms,~str> {
         /// The list of recognized prefixes of directives. The longest prefix should come first.
         /// Also note that not all recognized prefixes are processed (counterexample being `ENDSW`).
         /// (C: `bmsheader`)
@@ -2117,7 +1983,7 @@ pub mod parser {
         let mut lnobj = None;
 
         let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
-        for lines.each |&line0| {
+        for lines.iter().advance |&line0| {
             let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
             let line: &str = line0;
 
@@ -2129,9 +1995,9 @@ pub mod parser {
             // search for header prefix. the header list (`bmsheader`) is in the decreasing order
             // of prefix length.
             let mut prefix = "";
-            for bmsheader.each |&header| {
+            for bmsheader.iter().advance |&header| {
                 if line.len() >= header.len() &&
-                   line.slice(0, header.len()).to_upper() == header.to_owned() {
+                   line.slice(0, header.len()).to_ascii_upper() == header.to_owned() {
                     prefix = header;
                     break;
                 }
@@ -2150,7 +2016,8 @@ pub mod parser {
                     lex!(line; ws, int -> bms.$value);
                 });
                 (path $paths:ident) => ({
-                    let mut key = Key(-1), path = ~"";
+                    let mut key = Key(-1);
+                    let mut path = ~"";
                     if lex!(line; Key -> key, ws, str -> path, ws*, !) {
                         let Key(key) = key;
                         bms.$paths[key] = Some(path);
@@ -2158,10 +2025,8 @@ pub mod parser {
                 })
             )
 
-            // Rust: mutable loan and immutable loan cannot coexist in the same block (although
-            //       it's safe). (#4666)
             assert!(!blk.is_empty());
-            match (prefix, { blk.last().inactive() }) { // XXX #4666
+            match (prefix, blk.last().inactive()) {
                 // #TITLE|#GENRE|#ARTIST|#STAGEFILE|#PATH_WAV <string>
                 ("TITLE", false) => read!(string title),
                 ("GENRE", false) => read!(string genre),
@@ -2171,9 +2036,11 @@ pub mod parser {
 
                 // #BPM <float> or #BPMxx <float>
                 ("BPM", false) => {
-                    let mut key = Key(-1), bpm = 0.0;
+                    let mut key = Key(-1);
+                    let mut bpm = 0.0;
                     if lex!(line; Key -> key, ws, float -> bpm) {
-                        let Key(key) = key; bpmtab[key] = BPM(bpm);
+                        let Key(key) = key;
+                        bpmtab[key] = BPM(bpm);
                     } else if lex!(line; ws, float -> bpm) {
                         bms.initbpm = BPM(bpm);
                     }
@@ -2203,7 +2070,8 @@ pub mod parser {
 
                 // #BGAxx yy <int> <int> <int> <int> <int> <int>
                 ("BGA", false) => {
-                    let mut dst = Key(0), src = Key(0);
+                    let mut dst = Key(0);
+                    let mut src = Key(0);
                     let mut bc = BlitCmd { dst: ImageRef(Key(0)), src: ImageRef(Key(0)),
                                            x1: 0, y1: 0, x2: 0, y2: 0, dx: 0, dy: 0 };
                     if lex!(line; Key -> dst, ws, Key -> src, ws,
@@ -2217,7 +2085,8 @@ pub mod parser {
 
                 // #STOPxx <int>
                 ("STOP", false) => {
-                    let mut key = Key(-1), duration = 0;
+                    let mut key = Key(-1);
+                    let mut duration = 0;
                     if lex!(line; Key -> key, ws, int -> duration) {
                         let Key(key) = key;
                         stoptab[key] = Measures(duration as float / 192.0);
@@ -2226,7 +2095,9 @@ pub mod parser {
 
                 // #STP<int>.<int> <int>
                 ("STP", false) => {
-                    let mut measure = 0, frac = 0, duration = 0;
+                    let mut measure = 0;
+                    let mut frac = 0;
+                    let mut duration = 0;
                     if lex!(line; Measure -> measure, '.', uint -> frac, ws,
                             int -> duration) && duration > 0 {
                         let pos = measure as float + frac as float * 0.001;
@@ -2244,7 +2115,7 @@ pub mod parser {
 
                         // do not generate a random value if the entire block is skipped (but it
                         // still marks the start of block)
-                        let inactive = {blk.last().inactive()};// XXX #4666
+                        let inactive = blk.last().inactive();
                         let generated = do val.chain |val| {
                             // Rust: there should be `Option<T>::chain` if `T` is copyable.
                             if prefix == "SETRANDOM" {
@@ -2291,19 +2162,20 @@ pub mod parser {
 
                 // #END(IF)
                 ("END", _) => {
-                    for blk.rposition(|&i| i.state != Outside).each |&idx| {
+                    let lastinside = blk.rposition(|&i| i.state != Outside);
+                    for lastinside.iter().advance |&idx| {
                         if idx > 0 { blk.truncate(idx + 1); }
                     }
 
-                    { // XXX #4666
-                        let last = &mut blk[blk.len() - 1];
-                        last.state = Outside;
-                    }
+                    let last = &mut blk[blk.len() - 1];
+                    last.state = Outside;
                 }
 
                 // #nnnmm:...
                 ("", false) => {
-                    let mut measure = 0, chan = Key(0), data = ~"";
+                    let mut measure = 0;
+                    let mut chan = Key(0);
+                    let mut data = ~"";
                     if lex!(line; Measure -> measure, Key -> chan, ':', ws*, str -> data, ws*, !) {
                         bmsline.push(BmsLine { measure: measure, chan: chan, data: data })
                     }
@@ -2349,7 +2221,8 @@ pub mod parser {
 
                 // channel #03: BPM as an hexadecimal key
                 3 => {
-                    for v.to_hex().each |&v| {
+                    let v = v.to_hex(); // XXX #3511
+                    for v.iter().advance |&v| {
                         add(Obj::SetBPM(t, BPM(v as float)))
                     }
                 }
@@ -2380,7 +2253,8 @@ pub mod parser {
                     let lane = Lane::from_channel(chan);
                     if lnobj.is_some() && lnobj == Some(v) {
                         // change the last inserted visible object to the start of LN if any.
-                        for {lastvis[*lane]}.each |&pos| { // XXX #4666
+                        let lastvispos = lastvis[*lane];
+                        for lastvispos.iter().advance |&pos| {
                             assert!(bms.objs[pos].is_visible());
                             bms.objs[pos] = bms.objs[pos].to_lnstart();
                             add(Obj::LNDone(t, lane, Some(v)));
@@ -2443,7 +2317,7 @@ pub mod parser {
                         1295 => Some(InstantDeath), // XXX 1295=MAXKEY-1
                         _ => None
                     };
-                    for damage.each |&damage| {
+                    for damage.iter().advance |&damage| {
                         add(Obj::Bomb(t, lane, Some(Key(0)), damage));
                     }
                 }
@@ -2457,7 +2331,7 @@ pub mod parser {
 
         // loops over the sorted bmslines
         ::extra::sort::tim_sort(bmsline);
-        for bmsline.each |line| {
+        for bmsline.iter().advance |line| {
             if *line.chan == 2 {
                 let mut shorten = 0.0;
                 if lex!(line.data; ws*, float -> shorten) {
@@ -2467,12 +2341,12 @@ pub mod parser {
                 }
             } else {
                 let measure = line.measure as float;
-                let data = str::to_chars(line.data);
+                let data: ~[char] = line.data.iter().collect();
                 let max = data.len() / 2 * 2;
                 let count = max as float;
                 for uint::range_step(0, max, 2) |i| {
                     let v = key2index(data.slice(i, i+2));
-                    for v.each |&v| {
+                    for v.iter().advance |&v| {
                         if v != 0 { // ignores 00
                             let t = measure + i as float / count;
                             let t2 = measure + (i + 2) as float / count;
@@ -2501,7 +2375,7 @@ pub mod parser {
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
     pub fn parse_bms<R:RngUtil>(bmspath: &str, r: &mut R) -> Result<Bms,~str> {
-        do io::file_reader(&Path(bmspath)).chain |f| {
+        do ::std::io::file_reader(&Path(bmspath)).chain |f| {
             parse_bms_from_reader(f, r)
         }
     }
@@ -2523,27 +2397,27 @@ pub mod parser {
         kinds: ~[Option<KeyKind>]
     }
 
-    pub impl KeySpec {
+    impl KeySpec {
         /// Returns a number of lanes that count towards "keys". Notably scratches and pedals do not
         /// count as keys. (C: `nkeys`)
-        fn nkeys(&self) -> uint {
+        pub fn nkeys(&self) -> uint {
             let mut nkeys = 0;
-            for self.kinds.each_some |kind| {
+            for self.kinds.iter().filter_map(|kind| *kind).advance |kind| {
                 if kind.counts_as_key() { nkeys += 1; }
             }
             nkeys
         }
 
         /// Iterates over lanes on the left side, from left to right.
-        fn each_left_lanes(&self, f: &fn(&Lane) -> bool) -> iter::Ret {
+        pub fn each_left_lanes(&self, f: &fn(&Lane) -> bool) -> bool {
             assert!(self.split <= self.order.len());
-            self.order.slice(0, self.split).each(f)
+            self.order.slice(0, self.split).iter().advance(f)
         }
 
         /// Iterates over lanes on the right side if any, from left to right.
-        fn each_right_lanes(&self, f: &fn(&Lane) -> bool) -> iter::Ret {
+        pub fn each_right_lanes(&self, f: &fn(&Lane) -> bool) -> bool {
             assert!(self.split <= self.order.len());
-            self.order.slice(self.split, self.order.len()).each(f)
+            self.order.slice(self.split, self.order.len()).iter().advance(f)
         }
     }
 
@@ -2552,7 +2426,9 @@ pub mod parser {
         let mut specs = ~[];
         let mut s = s.trim_left().to_owned();
         while !s.is_empty() {
-            let mut chan = Key(0), kind = '\x00', s2 = ~"";
+            let mut chan = Key(0);
+            let mut kind = '\x00';
+            let mut s2 = ~"";
             if !lex!(s; Key -> chan, char -> kind, ws*, str* -> s2, !) {
                 return None;
             }
@@ -2599,13 +2475,14 @@ pub mod parser {
      */
     pub fn preset_to_key_spec(bms: &Bms, preset: Option<~str>) -> Option<(~str, ~str)> {
         let mut present = [false, ..NLANES];
-        for bms.objs.each |&obj| {
-            for obj.object_lane().each |&Lane(lane)| {
+        for bms.objs.iter().advance |&obj| {
+            let lane = obj.object_lane(); // XXX #3511
+            for lane.iter().advance |&Lane(lane)| {
                 present[lane] = true;
             }
         }
 
-        let preset = match preset.map(|s| s.to_lower()) {
+        let preset = match preset.map(|s| s.to_ascii_lower()) {
             None | Some(~"bms") | Some(~"bme") | Some(~"bml") => {
                 let isbme = (present[8] || present[9] || present[36+8] || present[36+9]);
                 let haspedal = (present[7] || present[36+7]);
@@ -2613,7 +2490,7 @@ pub mod parser {
                     CouplePlay | DoublePlay => if isbme {~"14"} else {~"10"},
                     _                       => if isbme {~"7" } else {~"5" }
                 };
-                if haspedal {nkeys + ~"/fp"} else {nkeys}
+                if haspedal {nkeys + "/fp"} else {nkeys}
             },
             Some(~"pms") => {
                 let isbme = (present[6] || present[7] || present[8] || present[9]);
@@ -2622,7 +2499,7 @@ pub mod parser {
             Some(preset) => preset
         };
 
-        for PRESETS.each |&(name, leftkeys, rightkeys)| {
+        for PRESETS.iter().advance |&(name, leftkeys, rightkeys)| {
             if name == preset {
                 return Some((leftkeys.to_owned(), rightkeys.to_owned()));
             }
@@ -2656,7 +2533,8 @@ pub mod parser {
                 let mut j = i;
                 while j < len && objs[j].time <= cur {
                     let obj = &mut objs[j];
-                    for to_type(obj).each |&t| {
+                    let ty = to_type(obj); // XXX #3511
+                    for ty.iter().advance |&t| {
                         if (types & (1 << t)) != 0 {
                             // duplicate type
                             remove_or_replace_note(obj);
@@ -2671,7 +2549,8 @@ pub mod parser {
 
                 while i < j {
                     let obj = &mut objs[i];
-                    for to_type(obj).each |&t| {
+                    let ty = to_type(obj); // XXX #3511
+                    for ty.iter().advance |&t| {
                         if (types & (1 << t)) == 0 {
                             remove_or_replace_note(obj);
                         }
@@ -2701,7 +2580,7 @@ pub mod parser {
             };
 
             let mut inside = false;
-            do sanitize(bms.objs, to_type) |mut types| {
+            do sanitize(bms.objs, |obj| to_type(obj)) |mut types| { // XXX #7363
                 static LNMASK: uint = (1 << LNSTART) | (1 << LNDONE);
 
                 // remove overlapping LN endpoints altogether
@@ -2761,8 +2640,9 @@ pub mod parser {
     /// Removes insignificant objects (i.e. not in visible lanes) and ensures that there is no
     /// `Deleted` object. (C: `analyze_and_compact_bms`)
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
-        for vec::each_mut(bms.objs) |obj| {
-            for obj.object_lane().each |&Lane(lane)| {
+        for bms.objs.mut_iter().advance |obj| {
+            let lane = obj.object_lane(); // XXX #3511
+            for lane.iter().advance |&Lane(lane)| {
                 if keyspec.kinds[lane].is_none() {
                     remove_or_replace_note(obj)
                 }
@@ -2796,7 +2676,7 @@ pub mod parser {
         let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false, haslongnote: false,
                                   nnotes: 0, maxscore: 0 };
 
-        for bms.objs.each |&obj| {
+        for bms.objs.iter().advance |&obj| {
             infos.haslongnote |= obj.is_lnstart();
             infos.hasbpmchange |= obj.is_setbpm();
 
@@ -2820,9 +2700,10 @@ pub mod parser {
                         sound_length: &fn(SoundRef) -> float) -> float {
         let mut pos = originoffset;
         let mut bpm = bms.initbpm;
-        let mut time = 0.0, sndtime = 0.0;
+        let mut time = 0.0;
+        let mut sndtime = 0.0;
 
-        for bms.objs.each |&obj| {
+        for bms.objs.iter().advance |&obj| {
             let delta = bms.adjust_object_position(pos, obj.time);
             time += bpm.measure_to_msec(delta);
             match obj.data {
@@ -2874,11 +2755,12 @@ pub mod parser {
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
         let rlanes = vec::reversed(lanes);
-        for vec::zip_slice(lanes, rlanes).each |&(Lane(from), to)| {
+        let assocs = vec::zip_slice(lanes, rlanes); // XXX #3511
+        for assocs.iter().advance |&(Lane(from), to)| {
             map[from] = to;
         }
 
-        for vec::each_mut(bms.objs) |obj| {
+        for bms.objs.mut_iter().advance |obj| {
             update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
@@ -2888,11 +2770,12 @@ pub mod parser {
     pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes);
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        for vec::zip_slice(lanes, shuffled).each |&(Lane(from), to)| {
+        let assocs = vec::zip_slice(lanes, shuffled); // XXX #3511
+        for assocs.iter().advance |&(Lane(from), to)| {
             map[from] = to;
         }
 
-        for vec::each_mut(bms.objs) |obj| {
+        for bms.objs.mut_iter().advance |obj| {
             update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
@@ -2906,7 +2789,7 @@ pub mod parser {
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
 
         let mut lasttime = float::neg_infinity;
-        for vec::each_mut(bms.objs) |obj| {
+        for bms.objs.mut_iter().advance |obj| {
             if obj.is_lnstart() {
                 let lane = obj.object_lane().get();
                 match movable.position_elem(&lane) {
@@ -2917,7 +2800,8 @@ pub mod parser {
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
                 let shuffled = r.shuffle(movable);
-                for vec::zip_slice(movable, shuffled).each |&(Lane(from), to)| {
+                let assocs = vec::zip_slice(movable, shuffled); // XXX #3511
+                for assocs.iter().advance |&(Lane(from), to)| {
                     map[from] = to;
                 }
             }
@@ -2938,6 +2822,7 @@ pub mod parser {
 
 /// Graphic utilities.
 pub mod gfx {
+    use std::{int, uint, vec, num};
     use sdl::Rect;
     pub use sdl::video::*;
 
@@ -3062,22 +2947,34 @@ pub mod gfx {
 
     impl<X:ToInt16+Copy,Y:ToInt16+Copy> XyOpt for (X,Y) {
         #[inline(always)]
-        fn xy_opt(&self) -> Option<(i16,i16)> { let (x, y) = *self; Some((x.to_i16(), y.to_i16())) }
+        fn xy_opt(&self) -> Option<(i16,i16)> {
+            let (x, y) = copy *self;
+            Some((x.to_i16(), y.to_i16()))
+        }
     }
 
     impl<X:ToInt16+Copy,Y:ToInt16+Copy> Xy for (X,Y) {
         #[inline(always)]
-        fn xy(&self) -> (i16,i16) { let (x, y) = *self; (x.to_i16(), y.to_i16()) }
+        fn xy(&self) -> (i16,i16) {
+            let (x, y) = copy *self;
+            (x.to_i16(), y.to_i16())
+        }
     }
 
     impl<W:ToInt16+Copy,H:ToInt16+Copy> WhOpt for (W,H) {
         #[inline(always)]
-        fn wh_opt(&self) -> Option<(u16,u16)> { let (w, h) = *self; Some((w.to_u16(), h.to_u16())) }
+        fn wh_opt(&self) -> Option<(u16,u16)> {
+            let (w, h) = copy *self;
+            Some((w.to_u16(), h.to_u16()))
+        }
     }
 
     impl<W:ToInt16+Copy,H:ToInt16+Copy> Wh for (W,H) {
         #[inline(always)]
-        fn wh(&self) -> (u16,u16) { let (w, h) = *self; (w.to_u16(), h.to_u16()) }
+        fn wh(&self) -> (u16,u16) {
+            let (w, h) = copy *self;
+            (w.to_u16(), h.to_u16())
+        }
     }
 
     /// Constructs an `sdl::Rect` from given point coordinates. Fills `w` and `h` fields to 0
@@ -3168,7 +3065,8 @@ pub mod gfx {
     impl Blend for Gradient {
         fn blend(&self, num: int, denom: int) -> Color {
             fn mix(x: u8, y: u8, num: int, denom: int) -> u8 {
-                let x = x as int, y = y as int;
+                let x = x as int;
+                let y = y as int;
                 (y + ((x - y) * num / denom)) as u8
             }
 
@@ -3212,7 +3110,7 @@ pub mod gfx {
             do self.with_lock |pixels| {
                 let fmt = unsafe {(*self.raw).format};
                 let pitch = unsafe {(*self.raw).pitch / 4 as uint};
-                let pixels = unsafe {cast::transmute(pixels)};
+                let pixels = unsafe {::std::cast::transmute(pixels)};
                 let mut proxy = SurfacePixels { fmt: fmt, width: self.get_width() as uint,
                                                 height: self.get_height() as uint,
                                                 pitch: pitch, pixels: pixels };
@@ -3298,11 +3196,15 @@ pub mod gfx {
         let ww = src.width as int - 1;
         let hh = src.height as int - 1;
 
-        let mut dx = 0, x = 0;
+        let mut dx = 0;
+        let mut x = 0;
         for int::range(0, w + 1) |i| {
-            let mut dy = 0, y = 0;
+            let mut dy = 0;
+            let mut y = 0;
             for int::range(0, h + 1) |j| {
-                let mut r = 0, g = 0, b = 0;
+                let mut r = 0;
+                let mut g = 0;
+                let mut b = 0;
                 let a0 = [bicubic_kernel((x-1) * w - i * ww, w),
                           bicubic_kernel( x    * w - i * ww, w),
                           bicubic_kernel((x+1) * w - i * ww, w),
@@ -3313,7 +3215,8 @@ pub mod gfx {
                           bicubic_kernel((y+2) * h - j * hh, h)];
                 for int::range(0, 4) |k0| {
                     for int::range(0, 4) |k1| {
-                        let xx = x + k0 - 1, yy = y + k1 - 1;
+                        let xx = x + k0 - 1;
+                        let yy = y + k1 - 1;
                         if 0 <= xx && xx <= ww && 0 <= yy && yy <= hh {
                             let (r2,g2,b2) = to_rgb(src.get_pixel(xx as uint, yy as uint));
                             let d = (a0[k0] * a1[k1]) >> (FP_SHIFT1*2 - FP_SHIFT2);
@@ -3429,8 +3332,8 @@ pub mod gfx {
         /// Decompresses a font data from `dwords` and `indices`. (C: `fontdecompress`)
         fn decompress(dwords: &[u16], indices: &str) -> ~[u16] {
             let mut words = ~[0];
-            for dwords.each |&delta| {
-                let last = {*words.last()}; // XXX #4666
+            for dwords.iter().advance |&delta| {
+                let last = *words.last();
                 words.push(last + delta);
             }
 
@@ -3462,11 +3365,11 @@ pub mod gfx {
         Font { glyphs: glyphs, pixels: ~[] }
     }
 
-    pub impl Font {
+    impl Font {
         /// Creates a zoomed font of scale `zoom`. (C: `fontprocess`)
-        fn create_zoomed_font(&mut self, zoom: uint) {
+        pub fn create_zoomed_font(&mut self, zoom: uint) {
             assert!(zoom > 0);
-            assert!(zoom <= (8 * sys::size_of::<ZoomedFontRow>()) / 8);
+            assert!(zoom <= (8 * ::std::sys::size_of::<ZoomedFontRow>()) / 8);
             if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() { return; }
 
             let nrows = 16;
@@ -3528,7 +3431,7 @@ pub mod gfx {
         /// Prints a character with given position and color.
         pub fn print_char<ColorT:Blend+Copy>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
                                              zoom: uint, c: char, color: ColorT) { // XXX #3984
-            if !char::is_whitespace(c) {
+            if !c.is_whitespace() {
                 let c = c as uint;
                 let glyph = if 32 <= c && c < 126 {c-32} else {0};
                 self.print_glyph(pixels, x, y, zoom, glyph, color);
@@ -3544,11 +3447,10 @@ pub mod gfx {
                 Centered     => x - s.char_len() * (8 * zoom) / 2,
                 RightAligned => x - s.char_len() * (8 * zoom),
             };
-            // Rust: `s.each_char` is ambiguous here.
-            for str::each_char(s) |c| {
+            for s.iter().advance |c| {
                 let nextx = x + 8 * zoom;
                 if nextx >= pixels.width { break; }
-                self.print_char(pixels, x, y, zoom, c, color);
+                self.print_char(pixels, x, y, zoom, c, copy color);
                 x = nextx;
             }
         }
@@ -3566,6 +3468,7 @@ pub mod gfx {
  * Angolmois is not well refactored. (In fact, the game logic is usually hard to refactor, right?)
  */
 pub mod player {
+    use std::{int, uint, vec, cmp, num};
     use sdl::*;
     use sdl::video::*;
     use sdl::event::*;
@@ -3574,7 +3477,6 @@ pub mod player {
     use util::sdl::mpeg::*;
     use parser::*;
     use gfx::*;
-    use core_compat::{hashmap, to_bytes, iter};
 
     /// The width of screen, unless the exclusive mode.
     pub static SCREENW: uint = 800;
@@ -3660,24 +3562,24 @@ pub mod player {
         playspeed: float,
     }
 
-    pub impl Options {
+    impl Options {
         /// Returns true if the exclusive mode is enabled. This enables a text-based interface.
         /// (C: `opt_mode >= EXCLUSIVE_MODE`)
-        fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
+        pub fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
 
         /// Returns true if the input is ignored. Escape key or speed-changing keys are still
         /// available as long as the graphical screen is enabled. (C: `!!opt_mode`)
-        fn is_autoplay(&self) -> bool { self.mode != PlayMode }
+        pub fn is_autoplay(&self) -> bool { self.mode != PlayMode }
 
         /// Returns true if the BGA is displayed. (C: `opt_bga < NO_BGA`)
-        fn has_bga(&self) -> bool { self.bga != NoBga }
+        pub fn has_bga(&self) -> bool { self.bga != NoBga }
 
         /// Returns true if the BGA movie is enabled. (C: `opt_bga < BGA_BUT_NO_MOVIE`)
-        fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
+        pub fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
 
         /// Returns true if the graphical screen is enabled.
         /// (C: `opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA`)
-        fn has_screen(&self) -> bool { !self.is_exclusive() || self.has_bga() }
+        pub fn has_screen(&self) -> bool { !self.is_exclusive() || self.has_bga() }
     }
 
     //----------------------------------------------------------------------------------------------
@@ -3685,10 +3587,12 @@ pub mod player {
 
     /// Parses a key specification from the options.
     pub fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
+        use util::str::StrUtil;
+
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
-                    if opts.preset.is_none() && opts.bmspath.to_lower().ends_with(".pms") {
+                    if opts.preset.is_none() && opts.bmspath.to_ascii_lower().ends_with(".pms") {
                         Some(~"pms")
                     } else {
                         opts.preset.clone()
@@ -3712,7 +3616,7 @@ pub mod player {
             match parse_key_spec(keys) {
                 None | Some([]) => None,
                 Some(left) => {
-                    for left.each |&(lane,kind)| {
+                    for left.iter().advance |&(lane,kind)| {
                         if keyspec.kinds[*lane].is_some() { return None; }
                         keyspec.order.push(lane);
                         keyspec.kinds[*lane] = Some(kind);
@@ -3744,7 +3648,7 @@ pub mod player {
     /// Applies given modifier to the game data. The target lanes of the modifier is determined
     /// from given key specification. This function should be called twice for the Couple Play,
     /// since 1P and 2P should be treated separately. (C: `shuffle_bms`)
-    pub fn apply_modf<R: ::core::rand::RngUtil>(bms: &mut Bms, modf: Modf, r: &mut R,
+    pub fn apply_modf<R: ::std::rand::RngUtil>(bms: &mut Bms, modf: Modf, r: &mut R,
                                                 keyspec: &KeySpec, begin: uint, end: uint) {
         let mut lanes = ~[];
         for uint::range(begin, end) |i| {
@@ -3784,7 +3688,7 @@ pub mod player {
     /// Writes a line to the console without advancing to the next line. `s` should be short enough
     /// to be replaced (currently up to 72 bytes).
     pub fn update_line(s: &str) {
-        io::stderr().write_str(fmt!("\r%s\r%s", str::repeat(" ", 72), s));
+        ::std::io::stderr().write_str(fmt!("\r%s\r%s", " ".repeat(72), s));
     }
 
     /// A periodic timer for thresholding the rate of information display.
@@ -3805,10 +3709,10 @@ pub mod player {
         Ticker { interval: INFO_INTERVAL, lastinfo: None }
     }
 
-    pub impl Ticker {
+    impl Ticker {
         /// Calls `f` only when required milliseconds have passed after the last display.
         /// `now` should be a return value from `sdl::get_ticks`.
-        fn on_tick(&mut self, now: uint, f: &fn()) {
+        pub fn on_tick(&mut self, now: uint, f: &fn()) {
             if self.lastinfo.map_default(true, |&t| now - t >= self.interval) {
                 self.lastinfo = Some(now);
                 f();
@@ -3816,7 +3720,7 @@ pub mod player {
         }
 
         /// Lets the next call to `on_tick` always call the callback.
-        fn reset(&mut self) {
+        pub fn reset(&mut self) {
             self.lastinfo = None;
         }
     }
@@ -3869,7 +3773,9 @@ pub mod player {
 
     /// Initializes a joystick with given index.
     pub fn init_joystick(joyidx: uint) -> ~joy::Joystick {
-        joy::ll::SDL_JoystickEventState(1); // TODO rust-sdl patch
+        unsafe {
+            joy::ll::SDL_JoystickEventState(1); // TODO rust-sdl patch
+        }
         match joy::Joystick::open(joyidx as int) {
             Ok(joy) => joy,
             Err(err) => die!("SDL Joystick Initialization Failure: %s", err)
@@ -3891,11 +3797,14 @@ pub mod player {
     }
 
     impl IterBytes for Input {
-        fn iter_bytes(&self, lsb0: bool, f: to_bytes::Cb) -> to_bytes::Ret {
+        fn iter_bytes(&self, lsb0: bool, f: ::std::to_bytes::Cb) -> bool {
             match *self {
-                KeyInput(key) => to_bytes::iter_bytes_2(&0u8, &(key as uint), lsb0, f),
-                JoyAxisInput(axis) => to_bytes::iter_bytes_2(&1u8, &axis, lsb0, f),
-                JoyButtonInput(button) => to_bytes::iter_bytes_2(&2u8, &button, lsb0, f)
+                KeyInput(key) => // XXX #7363
+                    0u8.iter_bytes(lsb0, |b| f(b)) && (key as uint).iter_bytes(lsb0, |b| f(b)),
+                JoyAxisInput(axis) => // XXX #7363
+                    1u8.iter_bytes(lsb0, |b| f(b)) && axis.iter_bytes(lsb0, |b| f(b)),
+                JoyButtonInput(button) => // XXX #7363
+                    2u8.iter_bytes(lsb0, |b| f(b)) && button.iter_bytes(lsb0, |b| f(b)),
             }
         }
     }
@@ -3934,9 +3843,9 @@ pub mod player {
         Negative = -1
     }
 
-    pub impl VirtualInput {
+    impl VirtualInput {
         /// Returns true if the virtual input has a specified key kind in the key specification.
-        fn active_in_key_spec(&self, kind: KeyKind, keyspec: &KeySpec) -> bool {
+        pub fn active_in_key_spec(&self, kind: KeyKind, keyspec: &KeySpec) -> bool {
             match *self {
                 LaneInput(Lane(lane)) => keyspec.kinds[lane] == Some(kind),
                 SpeedDownInput | SpeedUpInput => true
@@ -4003,19 +3912,21 @@ pub mod player {
     ];
 
     /// An input mapping, i.e. a mapping from the actual input to the virtual input.
-    pub type KeyMap = hashmap::HashMap<Input,VirtualInput>;
+    pub type KeyMap = ::std::hashmap::HashMap<Input,VirtualInput>;
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: &fn(&str) -> Option<~str>) -> KeyMap {
+        use util::str::StrUtil;
+
         /// Finds an SDL virtual key with the given name. Matching is done case-insensitively.
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
-            let name = name.to_lower();
+            let name = name.to_ascii_lower();
             unsafe {
                 let firstkey = 0;
-                let lastkey = cast::transmute(event::LastKey);
+                let lastkey = ::std::cast::transmute(event::LastKey);
                 for uint::range(firstkey, lastkey) |keyidx| {
-                    let key = cast::transmute(keyidx);
-                    let keyname = event::get_key_name(key).to_lower();
+                    let key = ::std::cast::transmute(keyidx);
+                    let keyname = event::get_key_name(key).to_ascii_lower();
                     if keyname == name { return Some(key); }
                 }
             }
@@ -4035,25 +3946,25 @@ pub mod player {
             }
         }
 
-        let mut map = hashmap::HashMap::new();
+        let mut map = ::std::hashmap::HashMap::new();
         let add_mapping = |kind: Option<KeyKind>, input: Input, vinput: VirtualInput| {
             if kind.map_default(true, |&kind| vinput.active_in_key_spec(kind, keyspec)) {
                 map.insert(input, vinput);
             }
         };
 
-        for KEYSETS.each |&keyset| {
+        for KEYSETS.iter().advance |&keyset| {
             let (envvar, default, mapping) = keyset; // XXX
             let spec = getenv(/*keyset.*/envvar);
             let spec = spec.get_or_default(/*keyset.*/default.to_owned());
 
             let mut i = 0;
-            for spec.each_split_char('|') |part| {
+            for spec.split_iter('|').advance |part| {
                 let (kind, vinputs) = /*keyset.*/mapping[i];
-                for part.each_split_char('%') |s| {
+                for part.split_iter('%').advance |s| {
                     match parse_input(s) {
                         Some(input) => {
-                            for vinputs.each |&vinput| {
+                            for vinputs.iter().advance |&vinput| {
                                 add_mapping(kind, input, vinput);
                             }
                         }
@@ -4067,11 +3978,12 @@ pub mod player {
             }
         }
 
-        for keyspec.order.each |&lane| {
+        for keyspec.order.iter().advance |&lane| {
             let key = Key(36 + *lane as int);
             let kind = keyspec.kinds[*lane].get();
             let envvar = fmt!("ANGOLMOIS_%s%c_KEY", key.to_str(), kind.to_char());
-            for getenv(envvar).each |&s| {
+            let val = getenv(envvar); // XXX #3511
+            for val.iter().advance |&s| {
                 match parse_input(s) {
                     Some(input) => { add_mapping(Some(kind), input, LaneInput(lane)); }
                     None => die!("Unknown key name in the environment variable %s: %s", envvar, s)
@@ -4116,8 +4028,11 @@ pub mod player {
      *    then a list of alternative extensions is applied with the same matching procedure.
      */
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
+        use std::os::{path_is_dir, list_dir};
+        use util::str::StrUtil;
+
         let mut parts = ~[];
-        for path.each_split(|c| c == '/' || c == '\\') |part| {
+        for path.split_iter(|c: char| c == '/' || c == '\\').advance |part| {
             if part.is_empty() { loop; }
             parts.push(part);
         }
@@ -4125,15 +4040,16 @@ pub mod player {
 
         let mut cur = basedir.clone();
         let lastpart = parts.pop();
-        for parts.each |part| {
+        for parts.iter().advance |part| {
             // early exit if the intermediate path does not exist or is not a directory
-            if !os::path_is_dir(&cur) { return None; }
+            if !path_is_dir(&cur) { return None; }
 
-            let part = part.to_upper();
+            let part = part.to_ascii_upper();
             let mut found = false;
-            for os::list_dir(&cur).each |&next| {
+            let entries = list_dir(&cur); // XXX #3511
+            for entries.iter().advance |&next| {
                 if next == ~"." || next == ~".." { loop; }
-                if next.to_upper() == part {
+                if next.to_ascii_upper() == part {
                     cur = cur.push(next);
                     found = true;
                     break;
@@ -4142,18 +4058,19 @@ pub mod player {
             if !found { return None; }
         }
 
-        if !os::path_is_dir(&cur) { return None; }
+        if !path_is_dir(&cur) { return None; }
 
-        let lastpart = lastpart.to_upper();
-        for os::list_dir(&cur).each |&next| {
+        let lastpart = lastpart.to_ascii_upper();
+        let entries = list_dir(&cur); // XXX #3511
+        for entries.iter().advance |&next| {
             if next == ~"." || next == ~".." { loop; }
-            let next_ = next.to_upper();
+            let next_ = next.to_ascii_upper();
             let mut found = (next_ == lastpart);
             if !found {
-                match str::rfind_char(next_, '.') {
+                match next_.rfind('.') {
                     Some(idx) => {
                         let nextnoext = next_.slice(0, idx).to_owned();
-                        for exts.each |ext| {
+                        for exts.iter().advance |ext| {
                             if nextnoext + ext.to_owned() == lastpart {
                                 found = true;
                                 break;
@@ -4184,9 +4101,9 @@ pub mod player {
         Sound(@~Chunk) // XXX borrowck
     }
 
-    pub impl SoundResource {
+    impl SoundResource {
         /// Returns the associated chunk if any.
-        fn chunk(&self) -> Option<@~Chunk> {
+        pub fn chunk(&self) -> Option<@~Chunk> {
             match *self {
                 NoSound => None,
                 Sound(chunk) => Some(chunk)
@@ -4196,7 +4113,7 @@ pub mod player {
         /// Returns the length of associated sound chunk in seconds. This is used for determining
         /// the actual duration of the song in presence of key and background sounds, so it may
         /// return 0.0 if no sound is present.
-        fn duration(&self) -> float {
+        pub fn duration(&self) -> float {
             match *self {
                 NoSound => 0.0,
                 Sound(chunk) => {
@@ -4236,9 +4153,9 @@ pub mod player {
         Movie(@~Surface, @~MPEG) // XXX borrowck
     }
 
-    pub impl ImageResource {
+    impl ImageResource {
         /// Returns an associated surface if any.
-        fn surface(&self) -> Option<@~Surface> {
+        pub fn surface(&self) -> Option<@~Surface> {
             match *self {
                 NoImage => None,
                 Image(surface) | Movie(surface,_) => Some(surface)
@@ -4246,7 +4163,7 @@ pub mod player {
         }
 
         /// Stops the movie playback if possible.
-        fn stop_movie(&self) {
+        pub fn stop_movie(&self) {
             match *self {
                 NoImage | Image(_) => {}
                 Movie(_,mpeg) => { mpeg.stop(); }
@@ -4255,7 +4172,7 @@ pub mod player {
 
         /// Starts (or restarts, if the movie was already being played) the movie playback
         /// if possible.
-        fn start_movie(&self) {
+        pub fn start_movie(&self) {
             match *self {
                 NoImage | Image(_) => {}
                 Movie(_,mpeg) => { mpeg.rewind(); mpeg.play(); }
@@ -4265,6 +4182,8 @@ pub mod player {
 
     /// Loads an image resource.
     fn load_image(key: Key, path: &str, opts: &Options, basedir: &Path) -> ImageResource {
+        use util::str::StrUtil;
+
         /// Converts a surface to the native display format, while preserving a transparency or
         /// setting a color key if required.
         fn to_display_format(surface: ~Surface) -> Result<~Surface,~str> {
@@ -4284,7 +4203,7 @@ pub mod player {
             }
         }
 
-        if path.to_lower().ends_with(".mpg") {
+        if path.to_ascii_lower().ends_with(".mpg") {
             if opts.has_movie() {
                 let res = match resolve_relative_path(basedir, path, []) {
                     Some(fullpath) => MPEG::from_path(&fullpath),
@@ -4372,10 +4291,10 @@ pub mod player {
                 // image reference, which should rewind the movie playback. the original Angolmois
                 // does handle it.
                 if self[layer] != current[layer] {
-                    for self[layer].each |&iref| {
+                    for self[layer].iter().advance |&iref| {
                         imgres[**iref].stop_movie();
                     }
-                    for current[layer].each |&iref| {
+                    for current[layer].iter().advance |&iref| {
                         imgres[**iref].start_movie();
                     }
                 }
@@ -4386,9 +4305,10 @@ pub mod player {
         fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
                   x: uint, y: uint) {
             screen.fill_area((x,y), (256,256), RGB(0,0,0));
-            for layers.each |&layer| {
-                for self[layer as uint].each |&iref| {
-                    for imgres[**iref].surface().each |&surface| {
+            for layers.iter().advance |&layer| {
+                for self[layer as uint].iter().advance |&iref| {
+                    let surface = imgres[**iref].surface(); // XXX #3511
+                    for surface.iter().advance |&surface| {
                         screen.blit_area(&**surface, (0,0), (x,y), (256,256));
                     }
                 }
@@ -4424,9 +4344,10 @@ pub mod player {
         screen.flip();
 
         do screen.with_pixels |pixels| {
-            for bms.stagefile.each |&path| {
+            for bms.stagefile.iter().advance |&path| {
                 let basedir = get_basedir(bms, opts);
-                for resolve_relative_path(&basedir, path, IMAGE_EXTS).each |&path| {
+                let resolved = resolve_relative_path(&basedir, path, IMAGE_EXTS); // XXX #3511
+                for resolved.iter().advance |&path| {
                     match img::load(&path).chain(|s| s.display_format()) {
                         Ok(surface) => {
                             do surface.with_pixels |srcpixels| {
@@ -4464,7 +4385,7 @@ pub mod player {
     pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec, opts: &Options) {
         if opts.showinfo {
             let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
-            io::stderr().write_line(fmt!("\
+            ::std::io::stderr().write_line(fmt!("\
 ----------------------------------------------------------------------------------------------
 Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 ----------------------------------------------------------------------------------------------",
@@ -4478,26 +4399,28 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                          callback: &fn(Option<~str>)) -> (~[SoundResource], ~[ImageResource]) {
         let basedir = get_basedir(bms, opts);
 
-        let sndres = do bms.sndpath.mapi |i, &path| {
-            match path {
-                Some(path) => {
-                    callback(Some(path.clone()));
-                    load_sound(Key(i as int), path, &basedir)
-                },
-                None => NoSound
-            }
-        };
-        let mut imgres = do bms.imgpath.mapi |i, &path| {
-            match path {
-                Some(path) => {
-                    callback(Some(path.clone()));
-                    load_image(Key(i as int), path, opts, &basedir)
-                },
-                None => NoImage
-            }
-        };
+        let sndres: ~[SoundResource] =
+            do bms.sndpath.iter().enumerate().transform |(i, &path)| {
+                match path {
+                    Some(path) => {
+                        callback(Some(path.clone()));
+                        load_sound(Key(i as int), path, &basedir)
+                    },
+                    None => NoSound
+                }
+            }.collect();
+        let mut imgres: ~[ImageResource] =
+            do bms.imgpath.iter().enumerate().transform |(i, &path)| {
+                match path {
+                    Some(path) => {
+                        callback(Some(path.clone()));
+                        load_image(Key(i as int), path, opts, &basedir)
+                    },
+                    None => NoImage
+                }
+            }.collect();
 
-        for bms.blitcmd.each |bc| {
+        for bms.blitcmd.iter().advance |bc| {
             apply_blitcmd(imgres, bc);
         }
         (sndres, imgres)
@@ -4519,7 +4442,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         //       `Option<T>::swap_unwrap` is not helpful here since `path` can be `None`.
         let mut path = path; // XXX #4654
         do ticker.on_tick(get_ticks()) {
-            let path = ::core::util::replace(&mut path, None); // XXX #4654
+            let path = ::std::util::replace(&mut path, None); // XXX #4654
             let msg = path.get_or_default(~"loading...");
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             do screen.with_pixels |pixels| {
@@ -4536,7 +4459,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     pub fn text_update_status(path: Option<~str>, ticker: &mut Ticker, atexit: &fn()) {
         let mut path = path; // XXX #4654
         do ticker.on_tick(get_ticks()) {
-            match ::core::util::replace(&mut path, None) { // XXX #4654
+            match ::std::util::replace(&mut path, None) { // XXX #4654
                 Some(path) => {
                     let path = if path.len() < 63 {path} else {path.slice(0, 63).to_owned()};
                     update_line(~"Loading: " + path);
@@ -4562,7 +4485,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
     /// Returns true if two pointers share the common BMS data.
     priv fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
-        ::core::managed::mut_ptr_eq(lhs.bms, rhs.bms)
+        ::std::managed::mut_ptr_eq(lhs.bms, rhs.bms)
     }
 
     impl Eq for Pointer {
@@ -4625,15 +4548,15 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         pub fn through_damage(self) -> Option<Damage> { self.bms.objs[self.pos].through_damage() }
     }
 
-    pub impl Pointer {
+    impl Pointer {
         /// Returns the time of pointed object.
-        fn time(&self) -> float { self.bms.objs[self.pos].time }
+        pub fn time(&self) -> float { self.bms.objs[self.pos].time }
 
         /// Returns the associated game data of pointed object.
-        fn data(&self) -> ObjData { self.bms.objs[self.pos].data }
+        pub fn data(&self) -> ObjData { self.bms.objs[self.pos].data }
 
         /// Seeks to the first object which time is past the limit, if any.
-        fn seek_until(&mut self, limit: float) {
+        pub fn seek_until(&mut self, limit: float) {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
@@ -4644,20 +4567,20 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// Iterates over objects starting from the current object, until the first object which
         /// time is past the limit is reached.
-        fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) -> iter::Ret {
+        pub fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) -> bool {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
                 let current = &bms.objs[self.pos];
-                if current.time >= limit { return iter::EarlyExit; }
-                if !f(current) { return iter::EarlyExit; }
+                if current.time >= limit { return false; }
+                if !f(current) { return false; }
                 self.pos += 1;
             }
-            iter::Finished
+            true
         }
 
         /// Seeks to the object pointed by the other pointer.
-        fn seek_to(&mut self, limit: Pointer) {
+        pub fn seek_to(&mut self, limit: Pointer) {
             assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
             assert!(limit.pos <= bms.objs.len());
@@ -4666,38 +4589,38 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// Iterates over objects starting from the current object, until the object pointed by
         /// the other pointer is reached.
-        fn iter_to(&mut self, limit: Pointer, f: &fn(&Obj) -> bool) -> iter::Ret {
+        pub fn iter_to(&mut self, limit: Pointer, f: &fn(&Obj) -> bool) -> bool {
             assert!(has_same_bms(self, &limit));
             let bms = &*self.bms;
             assert!(limit.pos <= bms.objs.len());
             while self.pos < limit.pos {
                 let current = &bms.objs[self.pos];
-                if !f(current) { return iter::EarlyExit; }
+                if !f(current) { return false; }
                 self.pos += 1;
             }
-            iter::Finished
+            true
         }
 
         /// Seeks to the end of objects.
-        fn seek_to_end(&mut self) {
+        pub fn seek_to_end(&mut self) {
             let bms = &*self.bms;
             self.pos = bms.objs.len();
         }
 
         /// Iterates over objects starting from the current object.
-        fn iter_to_end(&mut self, f: &fn(&Obj) -> bool) -> iter::Ret {
+        pub fn iter_to_end(&mut self, f: &fn(&Obj) -> bool) -> bool {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
                 let current = &bms.objs[self.pos];
-                if !f(current) { return iter::EarlyExit; }
+                if !f(current) { return false; }
                 self.pos += 1;
             }
-            iter::Finished
+            true
         }
 
         /// Finds the next object that satisfies given condition if any, without updating itself.
-        fn find_next_of_type(&self, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+        pub fn find_next_of_type(&self, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             let mut i = self.pos;
@@ -4713,7 +4636,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// Finds the previous object that satisfies given condition if any, without updating
         /// itself.
-        fn find_previous_of_type(&self, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+        pub fn find_previous_of_type(&self, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let bms = &*self.bms;
             let mut i = self.pos;
             while i > 0 {
@@ -4729,9 +4652,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// Finds the closest object from the virtual time `base` that satisfies given condition
         /// if any. `base` should lie between the pointed object and the previous object.
         /// The proximity is measured in terms of virtual time, which can differ from actual time.
-        fn find_closest_of_type(&self, base: float, cond: &fn(&Obj) -> bool) -> Option<Pointer> {
-            let previous = self.find_previous_of_type(cond);
-            let next = self.find_next_of_type(cond);
+        pub fn find_closest_of_type(&self, base: float,
+                                    cond: &fn(&Obj) -> bool) -> Option<Pointer> {
+            let previous = self.find_previous_of_type(|obj| cond(obj)); // XXX #7363
+            let next = self.find_next_of_type(|obj| cond(obj)); // XXX #7363
             match (previous, next) {
                 (None, None) => None,
                 (None, Some(next)) => Some(next),
@@ -4948,7 +4872,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     /// Finds the next nearest play speed mark if any.
     fn next_speed_mark(current: float) -> Option<float> {
         let mut prev = None;
-        for SPEED_MARKS.each |&speed| {
+        for SPEED_MARKS.iter().advance |&speed| {
             if speed < current - 0.001 {
                 prev = Some(speed);
             } else {
@@ -4961,7 +4885,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     /// Finds the previous nearest play speed mark if any.
     fn previous_speed_mark(current: float) -> Option<float> {
         let mut next = None;
-        for SPEED_MARKS.each_reverse |&speed| {
+        for SPEED_MARKS.rev_iter().advance |&speed| {
             if speed > current + 0.001 {
                 next = Some(speed);
             } else {
@@ -4976,7 +4900,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
             |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
-        Chunk::new(unsafe { cast::transmute(samples) }, 128)
+        Chunk::new(unsafe { ::std::cast::transmute(samples) }, 128)
     }
 
     /// Creates a new player object. The player object owns other related structures, including
@@ -5020,16 +4944,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         player
     }
 
-    pub impl Player {
+    impl Player {
         /// Returns true if the specified lane is being pressed, either by keyboard, joystick
         /// buttons or axes.
-        fn key_pressed(&self, lane: Lane) -> bool {
+        pub fn key_pressed(&self, lane: Lane) -> bool {
             self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
         }
 
         /// Returns the play speed displayed. Can differ from the actual play speed
         /// (`self.playspeed`) when the play speed is changing.
-        fn nominal_playspeed(&self) -> float {
+        pub fn nominal_playspeed(&self) -> float {
             self.targetspeed.get_or_default(self.playspeed)
         }
 
@@ -5037,8 +4961,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// an weight normalized to [0,1] that is calculated from the distance between the object
         /// and the input time, and `damage` is an optionally associated `Damage` value for bombs.
         /// May return true when `Damage` resulted in the instant death. (C: `update_grade`)
-        fn update_grade(&mut self, grade: Grade, scoredelta: float,
-                        damage: Option<Damage>) -> bool {
+        pub fn update_grade(&mut self, grade: Grade, scoredelta: float,
+                            damage: Option<Damage>) -> bool {
             self.gradecounts[grade as uint] += 1;
             self.lastgrade = Some((grade, self.now));
             self.score += (scoredelta * SCOREPERNOTE *
@@ -5073,7 +4997,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// between the object and input time in milliseconds. The normalized distance equals to
         /// the actual time difference when `gradefactor` is 1.0. (C: `update_grade(grade,
         /// scoredelta, 0)` where `grade` and `scoredelta` are pre-calculated from `dist`)
-        fn update_grade_from_distance(&mut self, dist: float) {
+        pub fn update_grade_from_distance(&mut self, dist: float) {
             let dist = num::abs(dist);
             let (grade, damage) = if      dist <  COOL_CUTOFF {(COOL,None)}
                                   else if dist < GREAT_CUTOFF {(GREAT,None)}
@@ -5088,22 +5012,22 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// Same as `update_grade`, but with the predetermined damage value. Always results in MISS
         /// grade. May return true when the damage resulted in the instant death.
         /// (C: `update_grade(0, 0, damage)`)
-        fn update_grade_from_damage(&mut self, damage: Damage) -> bool {
+        pub fn update_grade_from_damage(&mut self, damage: Damage) -> bool {
             self.update_grade(MISS, 0.0, Some(damage))
         }
 
         /// Same as `update_grade`, but always results in MISS grade with the standard damage value.
         /// (C: `update_grade(0, 0, 0)`)
-        fn update_grade_to_miss(&mut self) {
+        pub fn update_grade_to_miss(&mut self) {
             let keepgoing = self.update_grade(MISS, 0.0, Some(MISS_DAMAGE));
             assert!(keepgoing);
         }
 
         /// Allocate more SDL_mixer channels without stopping already playing channels.
         /// (C: `allocate_more_channels`)
-        fn allocate_more_channels(&mut self, howmany: uint) {
-            let howmany = howmany as libc::c_int;
-            let nchannels = allocate_channels(-1 as libc::c_int);
+        pub fn allocate_more_channels(&mut self, howmany: uint) {
+            let howmany = howmany as ::std::libc::c_int;
+            let nchannels = allocate_channels(-1 as ::std::libc::c_int);
             let nchannels = allocate_channels(nchannels + howmany) as uint;
             if self.lastchsnd.len() < nchannels {
                 self.lastchsnd.grow(nchannels, &None);
@@ -5113,13 +5037,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// Plays a given sound referenced by `sref`. `bgm` indicates that the sound is a BGM and
         /// should be played with the lower volume and should in the different channel group from
         /// key sounds. (C: `play_sound`)
-        fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
+        pub fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
             let sref = **sref as uint;
             let chunk = match self.sndres[sref].chunk() {
                 Some(chunk) => chunk,
                 None => { return; }
             };
-            let lastch = self.sndlastch[sref].map(|&ch| ch as libc::c_int);
+            let lastch = self.sndlastch[sref].map(|&ch| ch as ::std::libc::c_int);
 
             // try to play on the last channel if it is not occupied by other sounds (in this case
             // the last channel info is removed)
@@ -5135,26 +5059,25 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             group_channel(Some(ch), Some(group));
 
             let ch = ch as uint;
-            for self.lastchsnd[ch].each |&idx| { self.sndlastch[idx] = None; }
+            for self.lastchsnd[ch].iter().advance |&idx| { self.sndlastch[idx] = None; }
             self.sndlastch[sref] = Some(ch);
             self.lastchsnd[ch] = Some(sref as uint);
         }
 
         /// Plays a given sound if `sref` is not zero. This reflects the fact that an alphanumeric
         /// key `00` is normally a placeholder.
-        fn play_sound_if_nonzero(&mut self, sref: SoundRef, bgm: bool) {
+        pub fn play_sound_if_nonzero(&mut self, sref: SoundRef, bgm: bool) {
             if **sref > 0 { self.play_sound(sref, bgm); }
         }
 
         /// Plays a beep. The beep is always played in the channel 0, which is excluded from
         /// the uniform key sound and BGM management. (C: `Mix_PlayChannel(0, beep, 0)`)
-        fn play_beep(&self) {
+        pub fn play_beep(&self) {
             self.beep.play(Some(0), 0);
         }
 
         /// Updates the player state. (C: `play_process`)
-        fn tick(&mut self) -> bool {
-            // Rust: this is very extreme case of loan conflict. (#4666)
+        pub fn tick(&mut self) -> bool {
             let bms = &*self.bms;
             let mut pfront = self.pfront.clone();
             let mut pcur = self.pcur.clone();
@@ -5234,7 +5157,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
                     Visible(_,sref) | LNStart(_,sref) => {
                         if self.opts.is_autoplay() {
-                            for sref.each |&sref| {
+                            for sref.iter().advance |&sref| {
                                 self.play_sound_if_nonzero(sref, false);
                             }
                             self.update_grade_from_distance(0.0);
@@ -5251,7 +5174,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                bms.shorten(obj.measure()) * self.gradefactor;
                     if dist < BAD_CUTOFF { break; }
                     if !self.nograding[pcheck.pos] {
-                        for obj.object_lane().each |&Lane(lane)| {
+                        let lane = obj.object_lane(); // XXX #3511
+                        for lane.iter().advance |&Lane(lane)| {
                             let missable =
                                 match obj.data {
                                     Visible(*) | LNStart(*) => true,
@@ -5337,12 +5261,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let process_unpress = |lane: Lane| {
                     // if LN grading is in progress and it is not within the threshold then
                     // MISS grade is issued
-                    for pthru[*lane].each |&thru| {
+                    for pthru[*lane].iter().advance |&thru| {
                         let nextlndone = do thru.find_next_of_type |&obj| {
                             obj.object_lane() == Some(lane) &&
                             obj.is_lndone()
                         };
-                        for nextlndone.each |&p| {
+                        for nextlndone.iter().advance |&p| {
                             let delta = self.bpm.measure_to_msec(p.time() - self.line) *
                                         lineshorten * self.gradefactor;
                             if num::abs(delta) < BAD_CUTOFF {
@@ -5361,8 +5285,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) && obj.is_soundable()
                         };
-                    for soundable.each |&p| {
-                        for p.sounds().each |&sref| {
+                    for soundable.iter().advance |&p| {
+                        let sounds = p.sounds(); // XXX #3511
+                        for sounds.iter().advance |&sref| {
                             self.play_sound(sref, false);
                         }
                     }
@@ -5373,7 +5298,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) && obj.is_gradable()
                         };
-                    for gradable.each |&p| {
+                    for gradable.iter().advance |&p| {
                         if p.pos >= pcheck.pos && !self.nograding[p.pos] && !p.is_lndone() {
                             let dist = self.bpm.measure_to_msec(p.time() - self.line) *
                                        lineshorten * self.gradefactor;
@@ -5392,14 +5317,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 match (vkey, state) {
                     (SpeedDownInput, Positive) | (SpeedDownInput, Negative) => {
                         let current = self.targetspeed.get_or_default(self.playspeed);
-                        for next_speed_mark(current).each |&newspeed| {
+                        let newspeed = next_speed_mark(current); // XXX #3511
+                        for newspeed.iter().advance |&newspeed| {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
                     }
                     (SpeedUpInput, Positive) | (SpeedUpInput, Negative) => {
                         let current = self.targetspeed.get_or_default(self.playspeed);
-                        for previous_speed_mark(current).each |&newspeed| {
+                        let newspeed = previous_speed_mark(current); // XXX #3511
+                        for newspeed.iter().advance |&newspeed| {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
@@ -5426,7 +5353,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
                             // ongoing long note is not graded twice
                             pthru[*lane] = None;
-                            for sref.each |&sref| {
+                            for sref.iter().advance |&sref| {
                                 self.play_sound(sref, false);
                             }
                             if !self.update_grade_from_damage(damage) {
@@ -5487,10 +5414,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         basecolor: Color
     }
 
-    pub impl LaneStyle {
+    impl LaneStyle {
         /// Constructs a new `LaneStyle` object from given key kind and the left (`Left(pos)`) or
         /// right (`Right(pos)`) position. (C: `tkeykinds`)
-        fn from_kind(kind: KeyKind, pos: Either<uint,uint>) -> LaneStyle {
+        pub fn from_kind(kind: KeyKind, pos: Either<uint,uint>) -> LaneStyle {
             let (spriteleft, spritebombleft, width, color) = match kind {
                 WhiteKey    => ( 25,   0, 25, RGB(0x80,0x80,0x80)),
                 WhiteKeyAlt => ( 50,   0, 25, RGB(0xf0,0xe0,0x80)),
@@ -5509,7 +5436,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         /// Renders required object and bomb images to the sprite.
-        fn render_to_sprite(&self, sprite: &Surface) {
+        pub fn render_to_sprite(&self, sprite: &Surface) {
             let left = self.spriteleft;
             let noteleft = self.spriteleft + SCREENW;
             let bombleft = self.spritebombleft + SCREENW;
@@ -5535,7 +5462,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         /// Renders the lane background to the screen from the sprite.
-        fn render_back(&self, screen: &Surface, sprite: &Surface, pressed: bool) {
+        pub fn render_back(&self, screen: &Surface, sprite: &Surface, pressed: bool) {
             screen.fill_area((self.left, 30), (self.width, SCREENH-110), RGB(0,0,0));
             if pressed {
                 screen.blit_area(sprite, (self.spriteleft, 140), (self.left, 140),
@@ -5544,13 +5471,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
 
         /// Renders an object to the screen from the sprite.
-        fn render_note(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
+        pub fn render_note(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
             screen.blit_area(sprite, (self.spriteleft + SCREENW, 0),
                              (self.left, top), (self.width, bottom - top));
         }
 
         /// Renders a bomb object to the screen from the sprite.
-        fn render_bomb(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
+        pub fn render_bomb(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
             screen.blit_area(sprite, (self.spritebombleft + SCREENW, 0),
                              (self.left, top), (self.width, bottom - top));
         }
@@ -5559,7 +5486,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     /// Builds a list of `LaneStyle`s from the key specification.
     fn build_lane_styles(keyspec: &KeySpec) ->
                                     Result<(uint, Option<uint>, ~[(Lane,LaneStyle)]), ~str> {
-        let mut leftmost = 0, rightmost = SCREENW;
+        let mut leftmost = 0;
+        let mut rightmost = SCREENW;
         let mut styles = ~[];
         for keyspec.each_left_lanes |&lane| {
             let kind = keyspec.kinds[*lane];
@@ -5589,7 +5517,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let cutoff = 165;
         if leftmost < cutoff {
             for uint::range(0, keyspec.split) |i| {
-                let mut (lane, style) = styles[i];
+                let (lane, style) = styles[i];
+                let mut style = style;
                 style.left += (cutoff - leftmost) / 2;
                 styles[i] = (lane, style);
             }
@@ -5597,7 +5526,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         }
         if rightmost.map_default(false, |&x| x > SCREENW - cutoff) {
             for uint::range(keyspec.split, styles.len()) |i| {
-                let mut (lane, style) = styles[i];
+                let (lane, style) = styles[i];
+                let mut style = style;
                 style.left -= (rightmost.get() - (SCREENW - cutoff)) / 2;
                 styles[i] = (lane, style);
             }
@@ -5615,7 +5545,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let gray = RGB(0x40,0x40,0x40); // gray used for separators
 
         // render notes and lane backgrounds
-        for styles.each |&(_lane,style)| {
+        for styles.iter().advance |&(_lane,style)| {
             style.render_to_sprite(sprite);
         }
 
@@ -5651,7 +5581,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     if i*i + j*j <= 400 { break; } // circled border
                     put_pixel(pixels, leftmost + j, 10 + i, black); // XXX incorrect lifetime
                     put_pixel(pixels, leftmost + j, (SCREENH-61) - i, black); // XXX
-                    for rightmost.each |&right| {
+                    for rightmost.iter().advance |&right| {
                         put_pixel(pixels, (right-j) - 1, 10 + i, black); // XXX incorrect lifetime
                         put_pixel(pixels, (right-j) - 1, (SCREENH-61) - i, black); // XXX
                     }
@@ -5760,7 +5690,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             // update display states
             let mut poorlimit = self.poorlimit;
             let mut gradelimit = self.gradelimit;
-            for player.lastgrade.each |&(grade,when)| {
+            for player.lastgrade.iter().advance |&(grade,when)| {
                 if grade == MISS {
                     // switches to the normal BGA after 600ms
                     poorlimit = poorlimit.merge(Some(when + 600), cmp::max);
@@ -5782,10 +5712,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // fill the lanes to the border color
             screen.fill_area((0, 30), (self.leftmost, SCREENH-110), RGB(0x40,0x40,0x40));
-            for self.rightmost.each |&rightmost| {
+            for self.rightmost.iter().advance |&rightmost| {
                 screen.fill_area((rightmost, 30), (SCREENH-rightmost, 490), RGB(0x40,0x40,0x40));
             }
-            for self.lanestyles.each |&(lane,style)| {
+            for self.lanestyles.iter().advance |&(lane,style)| {
                 style.render_back(screen, sprite, player.key_pressed(lane));
             }
 
@@ -5797,7 +5727,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let adjusted = bms.adjust_object_position(player.bottom, time);
                 (SCREENH-70) - (400.0 * player.playspeed * adjusted) as uint
             };
-            for self.lanestyles.each |&(lane,style)| {
+            for self.lanestyles.iter().advance |&(lane,style)| {
                 let front = do player.pfront.find_next_of_type |&obj| {
                     obj.object_lane() == Some(lane) && obj.is_renderable()
                 };
@@ -5810,7 +5740,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 } else {
                     let mut i = front.pos;
                     let mut nextbottom = None;
-                    let nobjs = bms.objs.len(), top = player.top;
+                    let nobjs = bms.objs.len();
+                    let top = player.top;
                     while i < nobjs && bms.objs[i].time <= top {
                         let y = time_to_y(bms.objs[i].time);
                         match bms.objs[i].data {
@@ -5837,7 +5768,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         i += 1;
                     }
 
-                    for nextbottom.each |&y| {
+                    for nextbottom.iter().advance |&y| {
                         style.render_note(screen, sprite, 30, y);
                     }
                 }
@@ -5847,7 +5778,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             for int::range(player.bottom.floor() as int, player.top.floor() as int + 1) |i| {
                 let y = time_to_y(i as float);
                 screen.fill_area((0, y), (self.leftmost, 1), RGB(0xc0,0xc0,0xc0));
-                for self.rightmost.each |&rightmost| {
+                for self.rightmost.iter().advance |&rightmost| {
                     screen.fill_area((rightmost, y), (800-rightmost, 1), RGB(0xc0,0xc0,0xc0));
                 }
             }
@@ -5927,16 +5858,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             if nextgradable.is_some() { return; }
 
             if player.gauge >= player.survival {
-                io::println(fmt!("*** CLEARED! ***\n\
-                                  COOL  %4u    GREAT %4u    GOOD  %4u\n\
-                                  BAD   %4u    MISS  %4u    MAX COMBO %u\n\
-                                  SCORE %07u (max %07d)",
-                                 player.gradecounts[4], player.gradecounts[3],
-                                 player.gradecounts[2], player.gradecounts[1],
-                                 player.gradecounts[0], player.bestcombo,
-                                 player.score, player.infos.maxscore));
+                println(fmt!("*** CLEARED! ***\n\
+                              COOL  %4u    GREAT %4u    GOOD  %4u\n\
+                              BAD   %4u    MISS  %4u    MAX COMBO %u\n\
+                              SCORE %07u (max %07d)",
+                             player.gradecounts[4], player.gradecounts[3],
+                             player.gradecounts[2], player.gradecounts[1],
+                             player.gradecounts[0], player.bestcombo,
+                             player.score, player.infos.maxscore));
             } else {
-                io::println("YOU FAILED!");
+                println("YOU FAILED!");
             }
         }
     }
@@ -6024,7 +5955,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 /// loop. (C: `play`)
 pub fn play(opts: ~player::Options) {
     // parses the file and sanitizes it
-    let mut r = ::core_compat::rand::Rng();
+    let mut r = ::std::rand::rng();
     let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
         Ok(bms) => ~bms,
         Err(err) => die!("Couldn't load BMS file: %s", err)
@@ -6040,14 +5971,14 @@ pub fn play(opts: ~player::Options) {
     let infos = ~parser::analyze_bms(bms);
 
     // applies the modifier if any
-    for opts.modf.each |&modf| {
+    for opts.modf.iter().advance |&modf| {
         player::apply_modf(bms, modf, &mut r, keyspec, 0, keyspec.split);
         if keyspec.split < keyspec.order.len() {
             player::apply_modf(bms, modf, &mut r, keyspec, keyspec.split, keyspec.order.len());
         }
     }
 
-    let (port, chan) = comm::stream();
+    let (port, chan) = std::comm::stream();
     chan.send(~(opts, bms, infos, keyspec));
 
     do ::sdl::start {
@@ -6055,10 +5986,10 @@ pub fn play(opts: ~player::Options) {
 
         // initialize SDL
         player::init_sdl();
-        for opts.joystick.each |&joyidx| { player::init_joystick(joyidx); }
+        for opts.joystick.iter().advance |&joyidx| { player::init_joystick(joyidx); }
 
         // read the input mapping (dependent to the SDL initialization)
-        let keymap = ~player::read_keymap(keyspec, os::getenv);
+        let keymap = ~player::read_keymap(keyspec, std::os::getenv);
 
         // uncompress and populate the bitmap font.
         let mut font = ~gfx::Font();
@@ -6072,9 +6003,7 @@ pub fn play(opts: ~player::Options) {
             screen = Some(player::init_video(opts.is_exclusive(), opts.fullscreen));
         }
 
-        // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }` segfaults due to
-        //       the moved `opts`. (#2202)
-        let atexit = if opts.is_exclusive() { || player::update_line("") } else { || {} };
+        let atexit = || { if opts.is_exclusive() { player::update_line(""); } };
 
         // render the loading screen
         let mut ticker = player::Ticker();
@@ -6090,26 +6019,29 @@ pub fn play(opts: ~player::Options) {
                     let screen: &gfx::Surface = *screen.get_ref();
                     let saved_screen: &gfx::Surface = *saved_screen.get_ref();
                     player::graphic_update_status(path, screen, saved_screen,
-                                                  font, &mut ticker, atexit)
+                                                  font, &mut ticker, || atexit()) // XXX #7363
                 };
             } else {
                 update_status = |_path| {};
             }
         } else if opts.showinfo {
             player::show_stagefile_noscreen(bms, infos, keyspec, opts);
-            update_status = |path| player::text_update_status(path, &mut ticker, atexit);
+            update_status = |path| {
+                player::text_update_status(path, &mut ticker, || atexit()) // XXX #7363
+            };
         } else {
             update_status = |_path| {};
         }
 
         // wait for resources
         let start = ::sdl::get_ticks() + 3000;
-        let (sndres, imgres) = player::load_resource(bms, opts, update_status);
+        let (sndres, imgres) =
+            player::load_resource(bms, opts, |msg| update_status(msg)); // XXX #7363
         if opts.showinfo {
             ticker.reset(); // force update
             update_status(None);
         }
-        while ::sdl::get_ticks() < start { player::check_exit(atexit); }
+        while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); } // XXX #7363
 
         // create the player and transfer ownership of other resources to it
         let duration = parser::bms_duration(bms, infos.originoffset,
@@ -6155,7 +6087,7 @@ pub fn play(opts: ~player::Options) {
 /// Prints the usage. (C: `usage`)
 pub fn usage() {
     // Rust: this is actually a good use case of `include_str!`...
-    io::stderr().write_str(fmt!("\
+    std::io::stderr().write_str(fmt!("\
 %s -- the simple BMS player
 http://mearie.org/projects/angolmois/
 https://github.com/lifthrasiir/angolmois-rust/
@@ -6207,6 +6139,7 @@ Environment Variables:
 /// (C: `main`)
 pub fn main() {
     use player::*;
+    use util::str::StrUtil;
 
     let longargs = util::hashmap::map_from_vec([
         (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
@@ -6219,7 +6152,7 @@ pub fn main() {
         (~"--movie", ' '), (~"--no-movie", 'M'), (~"--joystick", 'j'),
     ]);
 
-    let args = os::args();
+    let args = std::os::args();
     let nargs = args.len();
 
     let mut bmspath = None;
@@ -6283,7 +6216,7 @@ pub fn main() {
 
                 match c {
                     'h' => { usage(); }
-                    'V' => { io::println(version()); return; }
+                    'V' => { println(version()); return; }
                     'v' => { mode = AutoPlayMode; }
                     'x' => { mode = ExclusiveMode; }
                     'X' => { mode = ExclusiveMode; bga = NoBga; }
