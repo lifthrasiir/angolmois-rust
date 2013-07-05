@@ -28,13 +28,13 @@ Assuming a proper Rust environment, get [rust-sdl](https://github.com/brson/rust
 
 Since both rustc and rust-sdl are moving targets, you will probably need a specific version of rustc and rust-sdl. The following combinations are known to work:
 
-- rustc 0.7 + rust-sdl `48cb490` 2013-07-02 (an unmerged branch from sstewartgallus/rust-sdl)
+- rustc 0.7 + rust-sdl `48cb490` 2013-07-02 (an unmerged branch from rossmurray/rust-sdl)
 
 If you use Windows and you are super lazy, then try the following:
 
 1. Follow the [compilation instruction](https://github.com/lifthrasiir/angolmois/blob/master/README.md#how-to-compile-windows) of Angolmois up to the actual compilation.
 2. Download and run [Rust 0.7 installer](http://static.rust-lang.org/dist/rust-0.7-install.exe).
-3. Download and extract Angolmois Rust edition (direct link [here](https://github.com/lifthrasiir/angolmois-rust/archive/master.zip)) to some directory (let me call it `angolmois\`). Download and extract rust-sdl (direct link [here](https://github.com/sstewartgallus/rust-sdl/archive/48cb49047c48a16ad2c75f4d0fa225c4de5a101d.zip)) to `angolmois\rust-sdl\`.
+3. Download and extract Angolmois Rust edition (direct link [here](https://github.com/lifthrasiir/angolmois-rust/archive/master.zip)) to some directory (let me call it `angolmois\`). Download and extract rust-sdl (direct link [here](https://github.com/rossmurray/rust-sdl/archive/48cb49047c48a16ad2c75f4d0fa225c4de5a101d.zip)) to `angolmois\rust-sdl\`.
 4. Run MinGW shell and `cd` into `angolmois\`. (Tip: `C:\Foo\Bar` translates to `/c/Foo/Bar`.)
 5. Type `make` to compile. This will also compile rust-sdl as well.
 6. Type `./angolmois` to run. See the remainder of Angolmois' compilation instruction for later usage.
