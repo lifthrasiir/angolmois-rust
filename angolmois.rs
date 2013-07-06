@@ -97,13 +97,13 @@ pub mod util {
     /**
      * String utilities for Rust. Parallels to `std::str`.
      *
-     * NOTE: Some of these additions will be eventually sent to `libcore/str.rs` and are not subject
+     * NOTE: Some of these additions will be eventually sent to `libstd/str.rs` and are not subject
      * to the above copyright notice.
      */
     pub mod str {
         use std::str::*;
 
-        static tag_cont_u8: u8 = 128u8; // copied from libcore/str.rs
+        static tag_cont_u8: u8 = 128u8; // copied from libstd/str.rs
 
         /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid UTF-8 sequence with
         /// given error handler.
@@ -119,9 +119,9 @@ pub mod util {
                 }
                 if j == chend {
                     assert!(i != chend);
-                    result = ::std::vec::append(result, v.slice(i, j));
+                    result.push_all(v.slice(i, j));
                 } else {
-                    result = ::std::vec::append(result, handler(v.slice(i, j)));
+                    result.push_all(handler(v.slice(i, j)));
                 }
                 i = j;
             }
@@ -157,9 +157,6 @@ pub mod util {
             /// If `begin` does not point to valid characters or beyond the last character of
             /// the string, or `end` points beyond the last character of the string
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str;
-
-            /// Iterates over the chars in a string, with byte indices.
-            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> bool;
 
             /// Given a potentially invalid UTF-8 string, fixes an invalid UTF-8 string with given
             /// error handler.
@@ -201,17 +198,6 @@ pub mod util {
 
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
                 self.slice(begin, begin + self.count_bytes_upto(begin, end))
-            }
-
-            fn each_chari_byte(&self, it: &fn(uint, char) -> bool) -> bool {
-                let mut pos = 0u;
-                let len = self.len();
-                while pos < len {
-                    let CharRange {ch, next} = self.char_range_at(pos);
-                    if !it(pos, ch) { return false; }
-                    pos = next;
-                }
-                true
             }
 
             fn fix_utf8(&self, handler: &fn(&[u8]) -> ~str) -> ~str {
@@ -310,7 +296,7 @@ pub mod util {
     /**
      * Option utilities for Rust. Parallels to `std::option`.
      *
-     * NOTE: Some of these additions will be eventually sent to `libcore/option.rs` and are not
+     * NOTE: Some of these additions will be eventually sent to `libstd/option.rs` and are not
      * subject to the above copyright notice.
      */
     pub mod option {
@@ -363,7 +349,7 @@ pub mod util {
     /**
      * I/O utilities for Rust. Parallels to `std::io`.
      *
-     * NOTE: Some of these additions will be eventually sent to `libcore/io.rs` and are not subject
+     * NOTE: Some of these additions will be eventually sent to `libstd/io.rs` and are not subject
      * to the above copyright notice.
      */
     pub mod io {
@@ -402,7 +388,7 @@ pub mod util {
     /**
      * Comparison routines for Rust. Parallels to `std::cmp`.
      *
-     * NOTE: Some of these additions will be eventually sent to `libcore/cmp.rs` and are not subject
+     * NOTE: Some of these additions will be eventually sent to `libstd/cmp.rs` and are not subject
      * to the above copyright notice.
      */
     pub mod cmp {
@@ -419,7 +405,7 @@ pub mod util {
     /**
      * Hash table routines for Rust. Parallels to `std::hashmap`.
      *
-     * NOTE: Some of these additions will be eventually sent to `libcore/hashmap.rs` and are not
+     * NOTE: Some of these additions will be eventually sent to `libstd/hashmap.rs` and are not
      * subject to the above copyright notice.
      */
     pub mod hashmap {
@@ -2162,7 +2148,7 @@ pub mod parser {
 
                 // #END(IF)
                 ("END", _) => {
-                    let lastinside = blk.rposition(|&i| i.state != Outside);
+                    let lastinside = blk.rposition(|&i| i.state != Outside); // XXX #3511
                     for lastinside.iter().advance |&idx| {
                         if idx > 0 { blk.truncate(idx + 1); }
                     }
@@ -2721,7 +2707,7 @@ pub mod parser {
                     }
                 }
                 Stop(duration) => {
-                    time = duration.to_msec(bpm);
+                    time += duration.to_msec(bpm);
                 }
                 _ => {}
             }
@@ -5892,7 +5878,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             do self.ticker.on_tick(player.now) {
                 let elapsed = (player.now - player.origintime) / 100;
-                let duration = (player.duration / 100.0) as uint;
+                let duration = (player.duration * 10.0) as uint;
                 update_line(fmt!("%02u:%02u.%u / %02u:%02u.%u (@%9.4f) | BPM %6.2f | %u / %d notes",
                                  elapsed/600, elapsed/10%60, elapsed%10,
                                  duration/600, duration/10%60, duration%10,
@@ -6192,7 +6178,7 @@ pub fn main() {
             let nshortargs = shortargs.len();
 
             let mut inside = true;
-            for shortargs.each_chari_byte |j, c| {
+            for shortargs.iter().enumerate().advance |(j, c)| {
                 // Reads the argument of the option. Option string should be consumed first.
                 let fetch_arg = |opt| {
                     let off = if inside {j+1} else {j};
