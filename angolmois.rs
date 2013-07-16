@@ -4246,7 +4246,7 @@ pub mod player {
         let y1 = cmp::max(bc.y1, 0);
         let x2 = cmp::min(bc.x2, bc.x1 + BGAW as int);
         let y2 = cmp::min(bc.y2, bc.y1 + BGAH as int);
-        target.blit_area(*origin, (x1,y1), (x2,y2), (x2-x1,y2-y1));
+        target.blit_area(*origin, (x1,y1), (bc.dx,bc.dy), (x2-x1,y2-y1));
     }
 
     /// A list of image references displayed in BGA layers (henceforth the BGA state). Not all image
