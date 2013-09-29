@@ -136,7 +136,7 @@ pub mod util {
                 ret.as_bytes().to_owned()
             };
             let bytes = fix_utf8(v, newhandler);
-            unsafe { raw::from_bytes(bytes) }
+            unsafe { raw::from_utf8(bytes) }
         }
 
         /// Extensions to `str`.
@@ -236,7 +236,7 @@ pub mod util {
             }
 
             fn scan_float(&self) -> Option<uint> {
-                do self.scan_int().chain |pos| {
+                do self.scan_int().and_then |pos| {
                     if self.len() > pos && self.char_at(pos) == '.' {
                         let pos2 = self.slice_to_end(pos + 1u).scan_uint();
                         pos2.map(|&pos2| pos + pos2 + 1u)
@@ -257,7 +257,7 @@ pub mod util {
             fn as_utf16_c_str<T>(&self, f: &fn(*u16) -> T) -> T {
                 let mut s16 = self.to_utf16();
                 s16.push(0u16);
-                do ::std::vec::as_imm_buf(s16) |buf, _| { f(buf) }
+                do s16.as_imm_buf |buf, _| { f(buf) }
             }
         }
 
@@ -304,9 +304,9 @@ pub mod util {
         /// Filters the value inside the option using the function. Returns `None` if the original
         /// option didn't contain a value.
         #[inline(always)]
-        pub fn filter<T:Copy>(opt: Option<T>, f: &fn(t: T) -> bool) -> Option<T> {
+        pub fn filter<T:Clone>(opt: Option<T>, f: &fn(t: T) -> bool) -> Option<T> {
             match opt {
-                Some(t) => if f(copy t) {Some(t)} else {None},
+                Some(t) => if f(t.clone()) {Some(t)} else {None},
                 None => None
             }
         }
@@ -314,16 +314,16 @@ pub mod util {
         /// Merges two options. When one of options is `None` returns the other option. When both
         /// options contain a value the function is called to get the merged value.
         #[inline(always)]
-        pub fn merge<T:Copy>(lhs: Option<T>, rhs: Option<T>, f: &fn(T, T) -> T) -> Option<T> {
+        pub fn merge<T:Clone>(lhs: Option<T>, rhs: Option<T>, f: &fn(T, T) -> T) -> Option<T> {
             match (lhs, rhs) {
                 (None, None) => None,
                 (lhs,  None) => lhs,
                 (None, rhs ) => rhs,
-                (Some(ref lhs), Some(ref rhs)) => Some(f(copy *lhs, copy *rhs))
+                (Some(ref lhs), Some(ref rhs)) => Some(f(lhs.clone(), rhs.clone()))
             }
         }
 
-        pub trait CopyableOptionUtil<T:Copy> {
+        pub trait CopyableOptionUtil<T:Clone> {
             /// Filters the value inside the option using the function. Returns `None` if
             /// the original option didn't contain a value.
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T>;
@@ -333,7 +333,7 @@ pub mod util {
             fn merge(self, other: Option<T>, f: &fn(T, T) -> T) -> Option<T>;
         }
 
-        impl<T:Copy> CopyableOptionUtil<T> for Option<T> {
+        impl<T:Clone> CopyableOptionUtil<T> for Option<T> {
             #[inline(always)]
             fn filter(self, f: &fn(x: T) -> bool) -> Option<T> {
                 filter(self, f)
@@ -415,7 +415,7 @@ pub mod util {
         pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)]) -> HashMap<K,V> {
             let mut map = HashMap::new();
             map.reserve_at_least(items.len());
-            for items.iter().advance |&(k,v)| { map.insert(k, v); }
+            for &(k,v) in items.iter() { map.insert(k, v); }
             map
         }
 
@@ -423,7 +423,7 @@ pub mod util {
         pub fn set_from_vec<V:Eq+Hash+IterBytes>(items: &[V]) -> HashSet<V> {
             let mut set = HashSet::new();
             set.reserve_at_least(items.len());
-            for items.iter().advance |&v| { set.insert(v); }
+            for &v in items.iter() { set.insert(v); }
             set
         }
     }
@@ -441,15 +441,16 @@ pub mod util {
 
             pub mod ll {
                 use std::libc::c_int;
-                pub extern {
-                    fn Mix_Volume(channel: c_int, volume: c_int) -> c_int;
-                    fn Mix_ReserveChannels(num: c_int) -> c_int;
-                    fn Mix_GroupChannel(which: c_int, tag: c_int) -> c_int;
-                    fn Mix_GroupNewer(tag: c_int) -> c_int;
+                extern {
+                    pub fn Mix_Volume(channel: c_int, volume: c_int) -> c_int;
+                    pub fn Mix_ReserveChannels(num: c_int) -> c_int;
+                    pub fn Mix_GroupChannel(which: c_int, tag: c_int) -> c_int;
+                    pub fn Mix_GroupNewer(tag: c_int) -> c_int;
                 }
             }
 
             pub fn num_playing(channel: Option<c_int>) -> c_int {
+                #[fixed_stack_segment]; #[inline(never)];
                 use sdl::mixer;
                 unsafe {
                     match channel {
@@ -460,34 +461,39 @@ pub mod util {
             }
 
             pub fn get_channel_volume(channel: Option<c_int>) -> c_int {
+                #[fixed_stack_segment]; #[inline(never)];
                 unsafe {
-                    let ll_channel = channel.get_or_default(-1);
+                    let ll_channel = channel.unwrap_or(-1);
                     ll::Mix_Volume(ll_channel, -1)
                 }
             }
 
             pub fn set_channel_volume(channel: Option<c_int>, volume: c_int) {
+                #[fixed_stack_segment]; #[inline(never)];
                 unsafe {
-                    let ll_channel = channel.get_or_default(-1);
+                    let ll_channel = channel.unwrap_or(-1);
                     ll::Mix_Volume(ll_channel, volume);
                 }
             }
 
             pub fn reserve_channels(num: c_int) -> c_int {
+                #[fixed_stack_segment]; #[inline(never)];
                 unsafe { ll::Mix_ReserveChannels(num) }
             }
 
             pub fn group_channel(which: Option<c_int>, tag: Option<c_int>) -> bool {
+                #[fixed_stack_segment]; #[inline(never)];
                 unsafe {
-                    let ll_which = which.get_or_default(-1);
-                    let ll_tag = tag.get_or_default(-1);
+                    let ll_which = which.unwrap_or(-1);
+                    let ll_tag = tag.unwrap_or(-1);
                     ll::Mix_GroupChannel(ll_which, ll_tag) != 0
                 }
             }
 
             pub fn newest_in_group(tag: Option<c_int>) -> Option<c_int> {
+                #[fixed_stack_segment]; #[inline(never)];
                 unsafe {
-                    let ll_tag = tag.get_or_default(-1);
+                    let ll_tag = tag.unwrap_or(-1);
                     let channel = ll::Mix_GroupNewer(ll_tag);
                     if channel == -1 {None} else {Some(channel)}
                 }
@@ -525,47 +531,50 @@ pub mod util {
                     SMPEG_PLAYING =1
                 }
                 #[link_args = "-lsmpeg"]
-                pub extern {
-                    fn SMPEG_new(file: *c_char, info: *SMPEG_Info, sdl_audio: c_int) -> *SMPEG;
-                    fn SMPEG_new_descr(file: c_int, info: *SMPEG_Info, sdl_audio: c_int) -> *SMPEG;
-                    fn SMPEG_new_data(data: *c_void, size: c_int, info: *SMPEG_Info,
-                                      sdl_audio: c_int) -> *SMPEG;
-                    fn SMPEG_new_rwops(src: *SDL_RWops, info: *SMPEG_Info,
-                                       sdl_audio: c_int) -> *SMPEG;
-                    fn SMPEG_getinfo(mpeg: *SMPEG, info: *SMPEG_Info);
-                    fn SMPEG_enableaudio(mpeg: *SMPEG, enable: c_int);
-                    fn SMPEG_enablevideo(mpeg: *SMPEG, enable: c_int);
-                    fn SMPEG_delete(mpeg: *SMPEG);
-                    fn SMPEG_status(mpeg: *SMPEG) -> SMPEGstatus;
-                    fn SMPEG_setvolume(mpeg: *SMPEG, volume: c_int);
+                extern {
+                    pub fn SMPEG_new(file: *c_char, info: *SMPEG_Info,
+                                     sdl_audio: c_int) -> *SMPEG;
+                    pub fn SMPEG_new_descr(file: c_int, info: *SMPEG_Info,
+                                           sdl_audio: c_int) -> *SMPEG;
+                    pub fn SMPEG_new_data(data: *c_void, size: c_int, info: *SMPEG_Info,
+                                          sdl_audio: c_int) -> *SMPEG;
+                    pub fn SMPEG_new_rwops(src: *SDL_RWops, info: *SMPEG_Info,
+                                           sdl_audio: c_int) -> *SMPEG;
+                    pub fn SMPEG_getinfo(mpeg: *SMPEG, info: *SMPEG_Info);
+                    pub fn SMPEG_enableaudio(mpeg: *SMPEG, enable: c_int);
+                    pub fn SMPEG_enablevideo(mpeg: *SMPEG, enable: c_int);
+                    pub fn SMPEG_delete(mpeg: *SMPEG);
+                    pub fn SMPEG_status(mpeg: *SMPEG) -> SMPEGstatus;
+                    pub fn SMPEG_setvolume(mpeg: *SMPEG, volume: c_int);
                     // XXX SDL_Mutex and SMPEG_DisplayCallback unimplemented
-                    fn SMPEG_setdisplay(mpeg: *SMPEG, dst: *SDL_Surface,
-                                        surfLock: *c_void, callback: *c_void);
-                    fn SMPEG_loop(mpeg: *SMPEG, repeat: c_int);
-                    fn SMPEG_scaleXY(mpeg: *SMPEG, width: c_int, height: c_int);
-                    fn SMPEG_scale(mpeg: *SMPEG, scale: c_int);
-                    fn SMPEG_move(mpeg: *SMPEG, x: c_int, y: c_int);
-                    fn SMPEG_setdisplayregion(mpeg: *SMPEG, x: c_int, y: c_int, w: c_int, h: c_int);
-                    fn SMPEG_play(mpeg: *SMPEG);
-                    fn SMPEG_pause(mpeg: *SMPEG);
-                    fn SMPEG_stop(mpeg: *SMPEG);
-                    fn SMPEG_rewind(mpeg: *SMPEG);
-                    fn SMPEG_seek(mpeg: *SMPEG, bytes: c_int);
-                    fn SMPEG_skip(mpeg: *SMPEG, seconds: c_float);
-                    fn SMPEG_renderFrame(mpeg: *SMPEG, framenum: c_int);
-                    fn SMPEG_renderFinal(mpeg: *SMPEG, dst: *SDL_Surface, x: c_int, y: c_int);
+                    pub fn SMPEG_setdisplay(mpeg: *SMPEG, dst: *SDL_Surface,
+                                            surfLock: *c_void, callback: *c_void);
+                    pub fn SMPEG_loop(mpeg: *SMPEG, repeat: c_int);
+                    pub fn SMPEG_scaleXY(mpeg: *SMPEG, width: c_int, height: c_int);
+                    pub fn SMPEG_scale(mpeg: *SMPEG, scale: c_int);
+                    pub fn SMPEG_move(mpeg: *SMPEG, x: c_int, y: c_int);
+                    pub fn SMPEG_setdisplayregion(mpeg: *SMPEG, x: c_int, y: c_int,
+                                                  w: c_int, h: c_int);
+                    pub fn SMPEG_play(mpeg: *SMPEG);
+                    pub fn SMPEG_pause(mpeg: *SMPEG);
+                    pub fn SMPEG_stop(mpeg: *SMPEG);
+                    pub fn SMPEG_rewind(mpeg: *SMPEG);
+                    pub fn SMPEG_seek(mpeg: *SMPEG, bytes: c_int);
+                    pub fn SMPEG_skip(mpeg: *SMPEG, seconds: c_float);
+                    pub fn SMPEG_renderFrame(mpeg: *SMPEG, framenum: c_int);
+                    pub fn SMPEG_renderFinal(mpeg: *SMPEG, dst: *SDL_Surface, x: c_int, y: c_int);
                     // XXX SMPEG_Filter unimplemented
-                    fn SMPEG_filter(mpeg: *SMPEG, filter: *c_void) -> *c_void;
-                    fn SMPEG_error(mpeg: *SMPEG) -> *c_char;
-                    fn SMPEG_playAudio(mpeg: *SMPEG, stream: *u8, len: c_int) -> c_int;
-                    fn SMPEG_playAudioSDL(mpeg: *c_void, stream: *u8, len: c_int) -> c_int;
-                    fn SMPEG_wantedSpec(mpeg: *SMPEG, wanted: *SDL_AudioSpec) -> c_int;
-                    fn SMPEG_actualSpec(mpeg: *SMPEG, spec: *SDL_AudioSpec);
+                    pub fn SMPEG_filter(mpeg: *SMPEG, filter: *c_void) -> *c_void;
+                    pub fn SMPEG_error(mpeg: *SMPEG) -> *c_char;
+                    pub fn SMPEG_playAudio(mpeg: *SMPEG, stream: *u8, len: c_int) -> c_int;
+                    pub fn SMPEG_playAudioSDL(mpeg: *c_void, stream: *u8, len: c_int) -> c_int;
+                    pub fn SMPEG_wantedSpec(mpeg: *SMPEG, wanted: *SDL_AudioSpec) -> c_int;
+                    pub fn SMPEG_actualSpec(mpeg: *SMPEG, spec: *SDL_AudioSpec);
                 }
             }
 
             pub struct MPEG {
-                pub raw: *ll::SMPEG
+                raw: *ll::SMPEG
             }
 
             fn wrap_mpeg(raw: *ll::SMPEG) -> ~MPEG {
@@ -573,15 +582,17 @@ pub mod util {
             }
 
             impl Drop for MPEG {
-                pub fn drop(&self) {
+                fn drop(&mut self) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_delete(self.raw); }
                 }
             }
 
             impl MPEG {
                 pub fn from_path(path: &Path) -> Result<~MPEG, ~str> {
+                    #[fixed_stack_segment]; #[inline(never)];
                     let raw = unsafe {
-                        do path.to_str().as_c_str() |buf| {
+                        do path.to_c_str().with_ref |buf| {
                             ll::SMPEG_new(buf, null(), 0)
                         }
                     };
@@ -591,44 +602,54 @@ pub mod util {
                 }
 
                 pub fn status(&self) -> SMPEGstatus {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_status(self.raw) }
                 }
 
                 pub fn set_volume(&self, volume: int) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_setvolume(self.raw, volume as c_int); }
                 }
 
                 pub fn set_display(&self, surface: &Surface) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe {
                         ll::SMPEG_setdisplay(self.raw, surface.raw, null(), null());
                     }
                 }
 
                 pub fn enable_video(&self, enable: bool) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_enablevideo(self.raw, enable as c_int); }
                 }
 
                 pub fn enable_audio(&self, enable: bool) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_enableaudio(self.raw, enable as c_int); }
                 }
 
                 pub fn set_loop(&self, repeat: bool) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_loop(self.raw, repeat as c_int); }
                 }
 
                 pub fn resize(&self, width: int, height: int) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_scaleXY(self.raw, width as c_int, height as c_int); }
                 }
 
                 pub fn scale_by(&self, scale: int) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_scale(self.raw, scale as c_int); }
                 }
 
                 pub fn move(&self, x: int, y: int) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_move(self.raw, x as c_int, y as c_int); }
                 }
 
                 pub fn set_display_region(&self, x: int, y: int, w: int, h: int) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe {
                         ll::SMPEG_setdisplayregion(self.raw, x as c_int, y as c_int,
                                                    w as c_int, h as c_int);
@@ -636,30 +657,37 @@ pub mod util {
                 }
 
                 pub fn play(&self) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_play(self.raw); }
                 }
 
                 pub fn pause(&self) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_pause(self.raw); }
                 }
 
                 pub fn stop(&self) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_stop(self.raw); }
                 }
 
                 pub fn rewind(&self) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_rewind(self.raw); }
                 }
 
                 pub fn seek(&self, bytes: int) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_seek(self.raw, bytes as c_int); }
                 }
 
                 pub fn skip(&self, seconds: float) {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_skip(self.raw, seconds as c_float); }
                 }
 
                 pub fn get_error(&self) -> ~str {
+                    #[fixed_stack_segment]; #[inline(never)];
                     unsafe {
                         let cstr = ll::SMPEG_error(self.raw);
                         ::str::raw::from_c_str(::std::cast::transmute(&cstr))
@@ -726,23 +754,24 @@ pub mod util {
 
             #[link_args = "-lkernel32"]
             #[abi = "stdcall"]
-            pub extern "stdcall" {
-                fn FindFirstFileA(lpFileName: LPCSTR, lpFindFileData: *WIN32_FIND_DATAA) -> HANDLE;
-                fn FindNextFileA(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAA) -> BOOL;
-                fn FindClose(hFindFile: HANDLE) -> BOOL;
+            extern "stdcall" {
+                pub fn FindFirstFileA(lpFileName: LPCSTR,
+                                      lpFindFileData: *WIN32_FIND_DATAA) -> HANDLE;
+                pub fn FindNextFileA(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAA) -> BOOL;
+                pub fn FindClose(hFindFile: HANDLE) -> BOOL;
             }
 
             #[link_args = "-luser32"]
             #[abi = "stdcall"]
-            pub extern "stdcall" {
-                fn MessageBoxW(hWnd: HWND, lpText: LPCWSTR, lpCaption: LPCWSTR,
-                               uType: c_uint) -> c_int;
+            extern "stdcall" {
+                pub fn MessageBoxW(hWnd: HWND, lpText: LPCWSTR, lpCaption: LPCWSTR,
+                                   uType: c_uint) -> c_int;
             }
 
             #[link_args = "-lcomdlg32"]
             #[abi = "stdcall"]
-            pub extern "stdcall" {
-                fn GetOpenFileNameW(lpofn: *OPENFILENAMEW) -> BOOL;
+            extern "stdcall" {
+                pub fn GetOpenFileNameW(lpofn: *OPENFILENAMEW) -> BOOL;
             }
         }
     }
@@ -806,7 +835,7 @@ pub mod util {
         do filter.as_utf16_c_str() |filter| {
             do "Choose a file to play".as_utf16_c_str() |title| {
                 let mut buf = [0u16, ..512];
-                let ret = do ::std::vec::as_mut_buf(buf) |buf, bufsize| {
+                let ret = do buf.as_mut_buf |buf, bufsize| {
                     let ofnsz = ::std::sys::size_of::<win32::ll::OPENFILENAMEW>();
                     let ofn = win32::ll::OPENFILENAMEW {
                         lStructSize: ofnsz as ::std::libc::DWORD,
@@ -898,7 +927,7 @@ pub mod util {
             //        by garbage, so we need to parse it ourselves.
             do _line.scan_int().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
-                do ::std::int::from_str(_prefix).map_default(false) |&_value| {
+                do from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
                     lex!(_line.slice_to_end(_endpos); $($tail)*)
                 }
@@ -908,7 +937,7 @@ pub mod util {
             let _line: &str = $e;
             do _line.scan_uint().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
-                do ::std::uint::from_str(_prefix).map_default(false) |&_value| {
+                do from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
                     lex!(_line.slice_to_end(_endpos); $($tail)*)
                 }
@@ -918,7 +947,7 @@ pub mod util {
             let _line: &str = $e;
             do _line.scan_float().map_default(false) |&_endpos| {
                 let _prefix = _line.slice(0, _endpos);
-                do ::std::float::from_str(_prefix).map_default(false) |&_value| {
+                do from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
                     lex!(_line.slice_to_end(_endpos); $($tail)*)
                 }
@@ -977,7 +1006,7 @@ pub mod util {
             // Rust: this is plain annoying.
             if _line.len() >= 3 && _isdigit(_line.char_at(0)) && _isdigit(_line.char_at(1)) &&
                     _isdigit(_line.char_at(2)) {
-                $dst = ::std::uint::from_str(_line.slice(0u, 3u)).unwrap();
+                $dst = from_str(_line.slice(0u, 3u)).unwrap();
                 lex!(_line.slice_to_end(3u); $($tail)*)
             } else {
                 false
@@ -1097,7 +1126,7 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use std::{int, uint, float, str, vec, cmp};
+    use std::{int, uint, float, str, vec, cmp, iter};
     use std::rand::*;
     use util::str::StrUtil;
 
@@ -1106,7 +1135,7 @@ pub mod parser {
 
     /// Two-letter alphanumeric identifier used for virtually everything, including resource
     /// management, variable BPM and chart specification.
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub struct Key(int);
 
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
@@ -1150,7 +1179,7 @@ pub mod parser {
 
     /// A game play element mapped to the single input element (for example, button) and the screen
     /// area (henceforth "lane").
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub struct Lane(uint);
 
     /// The maximum number of lanes. (C: `NNOTECHANS`)
@@ -1272,15 +1301,15 @@ pub mod parser {
     // object parameters
 
     /// Sound reference.
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub struct SoundRef(Key);
 
     /// Image reference.
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub struct ImageRef(Key);
 
     /// BGA layers. (C: `enum BGA_type`)
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub enum BGALayer {
         /// The lowest layer. BMS channel #04. (C: `BGA_LAYER`)
         Layer1 = 0,
@@ -1299,7 +1328,7 @@ pub mod parser {
 
     /// Beats per minute. Used as a conversion factor between the time position and actual time
     /// in BMS.
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub struct BPM(float);
 
     impl BPM {
@@ -1312,7 +1341,7 @@ pub mod parser {
 
     /// A duration from the particular point. It may be specified in measures or seconds. Used in
     /// the `Stop` object.
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub enum Duration { Seconds(float), Measures(float) }
 
     impl Duration {
@@ -1328,14 +1357,14 @@ pub mod parser {
     /// A damage value upon the MISS grade. Normally it is specified in percents of the full gauge
     /// (as in `MAXGAUGE`), but sometimes it may cause an instant death. Used in the `Bomb` object
     /// (normal note objects have a fixed value).
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub enum Damage { GaugeDamage(float), InstantDeath }
 
     //----------------------------------------------------------------------------------------------
     // object
 
     /// A data for objects (or object-like effects). Does not include the time information.
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub enum ObjData {
         /// Deleted object. Only used during various processing.
         Deleted,
@@ -1377,128 +1406,128 @@ pub mod parser {
     /// Query operations for objects.
     pub trait ObjQueryOps {
         /// Returns true if the object is a visible object (`Visible`). (C: `obj->type == NOTE`)
-        pub fn is_visible(self) -> bool;
+        fn is_visible(self) -> bool;
         /// Returns true if the object is an invisible object (`Invisible`).
         /// (C: `obj->type == INVNOTE`)
-        pub fn is_invisible(self) -> bool;
+        fn is_invisible(self) -> bool;
         /// Returns true if the object is a start of LN object (`LNStart`).
         /// (C: `obj->type == LNSTART`)
-        pub fn is_lnstart(self) -> bool;
+        fn is_lnstart(self) -> bool;
         /// Returns true if the object is an end of LN object (`LNEnd`). (C: `obj->type == LNDONE`)
-        pub fn is_lndone(self) -> bool;
+        fn is_lndone(self) -> bool;
         /// Returns true if the object is either a start or an end of LN object.
         /// (C: `obj->type < NOTE`)
-        pub fn is_ln(self) -> bool;
+        fn is_ln(self) -> bool;
         /// Returns true if the object is a bomb (`Bomb`). (C: `obj->type == BOMB`)
-        pub fn is_bomb(self) -> bool;
+        fn is_bomb(self) -> bool;
         /// Returns true if the object is soundable when it is the closest soundable object from
         /// the current position and the player pressed the key. Named "soundable" since it may
         /// choose not to play the associated sound. Note that not every object with sound is
         /// soundable. (C: `obj->type <= INVNOTE`)
-        pub fn is_soundable(self) -> bool;
+        fn is_soundable(self) -> bool;
         /// Returns true if the object is subject to grading. (C: `obj->type < INVNOTE`)
-        pub fn is_gradable(self) -> bool;
+        fn is_gradable(self) -> bool;
         /// Returns true if the object has a visible representation. (C: `obj->type != INVNOTE`)
-        pub fn is_renderable(self) -> bool;
+        fn is_renderable(self) -> bool;
         /// Returns true if the data is an object. (C: `IS_NOTE_CHANNEL(obj->chan)`)
-        pub fn is_object(self) -> bool;
+        fn is_object(self) -> bool;
         /// Returns true if the data is a BGM. (C: `obj->chan == BGM_CHANNEL`)
-        pub fn is_bgm(self) -> bool;
+        fn is_bgm(self) -> bool;
         /// Returns true if the data is a BGA. (C: `obj->chan == BGA_CHANNEL`)
-        pub fn is_setbga(self) -> bool;
+        fn is_setbga(self) -> bool;
         /// Returns true if the data is a BPM change. (C: `obj->chan == BPM_CHANNEL`)
-        pub fn is_setbpm(self) -> bool;
+        fn is_setbpm(self) -> bool;
         /// Returns true if the data is a scroll stopper. (C: `obj->chan == STOP_CHANNEL`)
-        pub fn is_stop(self) -> bool;
+        fn is_stop(self) -> bool;
 
         /// Returns an associated lane if the data is an object.
-        pub fn object_lane(self) -> Option<Lane>;
+        fn object_lane(self) -> Option<Lane>;
         /// Returns all sounds associated to the data.
-        pub fn sounds(self) -> ~[SoundRef];
+        fn sounds(self) -> ~[SoundRef];
         /// Returns all sounds played when key is pressed.
-        pub fn keydown_sound(self) -> Option<SoundRef>;
+        fn keydown_sound(self) -> Option<SoundRef>;
         /// Returns all sounds played when key is unpressed.
-        pub fn keyup_sound(self) -> Option<SoundRef>;
+        fn keyup_sound(self) -> Option<SoundRef>;
         /// Returns all sounds played when the object is activated while the corresponding key is
         /// currently pressed. Bombs are the only instance of this kind of sounds.
-        pub fn through_sound(self) -> Option<SoundRef>;
+        fn through_sound(self) -> Option<SoundRef>;
         /// Returns all images associated to the data.
-        pub fn images(self) -> ~[ImageRef];
+        fn images(self) -> ~[ImageRef];
         /// Returns an associated damage value when the object is activated.
-        pub fn through_damage(self) -> Option<Damage>;
+        fn through_damage(self) -> Option<Damage>;
     }
 
     /// Conversion operations for objects.
     pub trait ObjConvOps: ObjQueryOps {
         /// Returns a visible object with the same time, lane and sound as given object.
-        pub fn to_visible(self) -> Self;
+        fn to_visible(self) -> Self;
         /// Returns an invisible object with the same time, lane and sound as given object.
-        pub fn to_invisible(self) -> Self;
+        fn to_invisible(self) -> Self;
         /// Returns a start of LN object with the same time, lane and sound as given object.
-        pub fn to_lnstart(self) -> Self;
+        fn to_lnstart(self) -> Self;
         /// Returns an end of LN object with the same time, lane and sound as given object.
-        pub fn to_lndone(self) -> Self;
+        fn to_lndone(self) -> Self;
     }
 
     impl ObjQueryOps for ObjData {
-        pub fn is_visible(self) -> bool {
+        fn is_visible(self) -> bool {
             match self { Visible(*) => true, _ => false }
         }
 
-        pub fn is_invisible(self) -> bool {
+        fn is_invisible(self) -> bool {
             match self { Invisible(*) => true, _ => false }
         }
 
-        pub fn is_lnstart(self) -> bool {
+        fn is_lnstart(self) -> bool {
             match self { LNStart(*) => true, _ => false }
         }
 
-        pub fn is_lndone(self) -> bool {
+        fn is_lndone(self) -> bool {
             match self { LNDone(*) => true, _ => false }
         }
 
-        pub fn is_ln(self) -> bool {
+        fn is_ln(self) -> bool {
             match self { LNStart(*) | LNDone(*) => true, _ => false }
         }
 
-        pub fn is_bomb(self) -> bool {
+        fn is_bomb(self) -> bool {
             match self { Bomb(*) => true, _ => false }
         }
 
-        pub fn is_soundable(self) -> bool {
+        fn is_soundable(self) -> bool {
             match self { Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) => true, _ => false }
         }
 
-        pub fn is_gradable(self) -> bool {
+        fn is_gradable(self) -> bool {
             match self { Visible(*) | LNStart(*) | LNDone(*) => true, _ => false }
         }
 
-        pub fn is_renderable(self) -> bool {
+        fn is_renderable(self) -> bool {
             match self { Visible(*) | LNStart(*) | LNDone(*) | Bomb(*) => true, _ => false }
         }
 
-        pub fn is_object(self) -> bool {
+        fn is_object(self) -> bool {
             match self { Visible(*) | Invisible(*) | LNStart(*) | LNDone(*) | Bomb(*) => true,
                          _ => false }
         }
 
-        pub fn is_bgm(self) -> bool {
+        fn is_bgm(self) -> bool {
             match self { BGM(*) => true, _ => false }
         }
 
-        pub fn is_setbga(self) -> bool {
+        fn is_setbga(self) -> bool {
             match self { SetBGA(*) => true, _ => false }
         }
 
-        pub fn is_setbpm(self) -> bool {
+        fn is_setbpm(self) -> bool {
             match self { SetBPM(*) => true, _ => false }
         }
 
-        pub fn is_stop(self) -> bool {
+        fn is_stop(self) -> bool {
             match self { Stop(*) => true, _ => false }
         }
 
-        pub fn object_lane(self) -> Option<Lane> {
+        fn object_lane(self) -> Option<Lane> {
             match self {
                 Visible(lane,_) | Invisible(lane,_) | LNStart(lane,_) |
                 LNDone(lane,_) | Bomb(lane,_,_) => Some(lane),
@@ -1506,7 +1535,7 @@ pub mod parser {
             }
         }
 
-        pub fn sounds(self) -> ~[SoundRef] {
+        fn sounds(self) -> ~[SoundRef] {
             match self {
                 Visible(_,Some(sref)) => ~[sref],
                 Invisible(_,Some(sref)) => ~[sref],
@@ -1518,29 +1547,29 @@ pub mod parser {
             }
         }
 
-        pub fn keydown_sound(self) -> Option<SoundRef> {
+        fn keydown_sound(self) -> Option<SoundRef> {
             match self { Visible(_,sref) | Invisible(_,sref) | LNStart(_,sref) => sref, _ => None }
         }
 
-        pub fn keyup_sound(self) -> Option<SoundRef> {
+        fn keyup_sound(self) -> Option<SoundRef> {
             match self { LNDone(_,sref) => sref, _ => None }
         }
 
-        pub fn through_sound(self) -> Option<SoundRef> {
+        fn through_sound(self) -> Option<SoundRef> {
             match self { Bomb(_,sref,_) => sref, _ => None }
         }
 
-        pub fn images(self) -> ~[ImageRef] {
+        fn images(self) -> ~[ImageRef] {
             match self { SetBGA(_,Some(iref)) => ~[iref], _ => ~[] }
         }
 
-        pub fn through_damage(self) -> Option<Damage> {
+        fn through_damage(self) -> Option<Damage> {
             match self { Bomb(_,_,damage) => Some(damage), _ => None }
         }
     }
 
     impl ObjConvOps for ObjData {
-        pub fn to_visible(self) -> ObjData {
+        fn to_visible(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Visible(lane,snd),
@@ -1548,7 +1577,7 @@ pub mod parser {
             }
         }
 
-        pub fn to_invisible(self) -> ObjData {
+        fn to_invisible(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Invisible(lane,snd),
@@ -1556,7 +1585,7 @@ pub mod parser {
             }
         }
 
-        pub fn to_lnstart(self) -> ObjData {
+        fn to_lnstart(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNStart(lane,snd),
@@ -1564,7 +1593,7 @@ pub mod parser {
             }
         }
 
-        pub fn to_lndone(self) -> ObjData {
+        fn to_lndone(self) -> ObjData {
             match self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNDone(lane,snd),
@@ -1575,7 +1604,7 @@ pub mod parser {
 
     /// Game play data associated to the time axis. It contains both objects (which are also
     /// associated to lanes) and object-like effects.
-    #[deriving(Eq)]
+    #[deriving(Eq,Clone)]
     pub struct Obj {
         /// Time position in measures.
         time: float,
@@ -1587,32 +1616,32 @@ pub mod parser {
         /// Creates a `Visible` object.
         pub fn Visible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
             // Rust: `SoundRef` itself cannot be used as a function (#5315)
-            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
+            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Visible(lane, sref) }
         }
 
         /// Creates an `Invisible` object.
         pub fn Invisible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
-            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
+            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Invisible(lane, sref) }
         }
 
         /// Creates an `LNStart` object.
         pub fn LNStart(time: float, lane: Lane, sref: Option<Key>) -> Obj {
-            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
+            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNStart(lane, sref) }
         }
 
         /// Creates an `LNDone` object.
         pub fn LNDone(time: float, lane: Lane, sref: Option<Key>) -> Obj {
-            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
+            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: LNDone(lane, sref) }
         }
 
         /// Creates a `Bomb` object.
         pub fn Bomb(time: float, lane: Lane, sref: Option<Key>,
                 damage: Damage) -> Obj {
-            let sref = sref.map_consume(|s| SoundRef(s)); // XXX #5315
+            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
             Obj { time: time, data: Bomb(lane, sref, damage) }
         }
 
@@ -1623,7 +1652,7 @@ pub mod parser {
 
         /// Creates a `SetBGA` object.
         pub fn SetBGA(time: float, layer: BGALayer, iref: Option<Key>) -> Obj {
-            let iref = iref.map_consume(|i| ImageRef(i)); // XXX #5315
+            let iref = iref.map_move(|i| ImageRef(i)); // XXX #5315
             Obj { time: time, data: SetBGA(layer, iref) }
         }
 
@@ -1649,35 +1678,35 @@ pub mod parser {
     }
 
     impl ObjQueryOps for Obj {
-        pub fn is_visible(self) -> bool { self.data.is_visible() }
-        pub fn is_invisible(self) -> bool { self.data.is_invisible() }
-        pub fn is_lnstart(self) -> bool { self.data.is_lnstart() }
-        pub fn is_lndone(self) -> bool { self.data.is_lndone() }
-        pub fn is_ln(self) -> bool { self.data.is_ln() }
-        pub fn is_bomb(self) -> bool { self.data.is_bomb() }
-        pub fn is_soundable(self) -> bool { self.data.is_soundable() }
-        pub fn is_gradable(self) -> bool { self.data.is_gradable() }
-        pub fn is_renderable(self) -> bool { self.data.is_renderable() }
-        pub fn is_object(self) -> bool { self.data.is_object() }
-        pub fn is_bgm(self) -> bool { self.data.is_bgm() }
-        pub fn is_setbga(self) -> bool { self.data.is_setbga() }
-        pub fn is_setbpm(self) -> bool { self.data.is_setbpm() }
-        pub fn is_stop(self) -> bool { self.data.is_stop() }
+        fn is_visible(self) -> bool { self.data.is_visible() }
+        fn is_invisible(self) -> bool { self.data.is_invisible() }
+        fn is_lnstart(self) -> bool { self.data.is_lnstart() }
+        fn is_lndone(self) -> bool { self.data.is_lndone() }
+        fn is_ln(self) -> bool { self.data.is_ln() }
+        fn is_bomb(self) -> bool { self.data.is_bomb() }
+        fn is_soundable(self) -> bool { self.data.is_soundable() }
+        fn is_gradable(self) -> bool { self.data.is_gradable() }
+        fn is_renderable(self) -> bool { self.data.is_renderable() }
+        fn is_object(self) -> bool { self.data.is_object() }
+        fn is_bgm(self) -> bool { self.data.is_bgm() }
+        fn is_setbga(self) -> bool { self.data.is_setbga() }
+        fn is_setbpm(self) -> bool { self.data.is_setbpm() }
+        fn is_stop(self) -> bool { self.data.is_stop() }
 
-        pub fn object_lane(self) -> Option<Lane> { self.data.object_lane() }
-        pub fn sounds(self) -> ~[SoundRef] { self.data.sounds() }
-        pub fn keydown_sound(self) -> Option<SoundRef> { self.data.keydown_sound() }
-        pub fn keyup_sound(self) -> Option<SoundRef> { self.data.keyup_sound() }
-        pub fn through_sound(self) -> Option<SoundRef> { self.data.through_sound() }
-        pub fn images(self) -> ~[ImageRef] { self.data.images() }
-        pub fn through_damage(self) -> Option<Damage> { self.data.through_damage() }
+        fn object_lane(self) -> Option<Lane> { self.data.object_lane() }
+        fn sounds(self) -> ~[SoundRef] { self.data.sounds() }
+        fn keydown_sound(self) -> Option<SoundRef> { self.data.keydown_sound() }
+        fn keyup_sound(self) -> Option<SoundRef> { self.data.keyup_sound() }
+        fn through_sound(self) -> Option<SoundRef> { self.data.through_sound() }
+        fn images(self) -> ~[ImageRef] { self.data.images() }
+        fn through_damage(self) -> Option<Damage> { self.data.through_damage() }
     }
 
     impl ObjConvOps for Obj {
-        pub fn to_visible(self) -> Obj { Obj { time: self.time, data: self.data.to_visible() } }
-        pub fn to_invisible(self) -> Obj { Obj { time: self.time, data: self.data.to_invisible() } }
-        pub fn to_lnstart(self) -> Obj { Obj { time: self.time, data: self.data.to_lnstart() } }
-        pub fn to_lndone(self) -> Obj { Obj { time: self.time, data: self.data.to_lndone() } }
+        fn to_visible(self) -> Obj { Obj { time: self.time, data: self.data.to_visible() } }
+        fn to_invisible(self) -> Obj { Obj { time: self.time, data: self.data.to_invisible() } }
+        fn to_lnstart(self) -> Obj { Obj { time: self.time, data: self.data.to_lnstart() } }
+        fn to_lndone(self) -> Obj { Obj { time: self.time, data: self.data.to_lndone() } }
     }
 
     //----------------------------------------------------------------------------------------------
@@ -1810,7 +1839,7 @@ pub mod parser {
             let timefrac = time - timemeasure as float;
             let mut pos = timefrac * self.shorten(timemeasure) -
                           basefrac * self.shorten(basemeasure);
-            for int::range(basemeasure, timemeasure) |i| {
+            for i in range(basemeasure, timemeasure) {
                 pos += self.shorten(i);
             }
             pos
@@ -1833,7 +1862,7 @@ pub mod parser {
     /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
     pub fn key2index(s: &[char]) -> Option<int> {
         if s.len() < 2 { return None; }
-        do getdigit(s[0]).chain |a| {
+        do getdigit(s[0]).and_then |a| {
             do getdigit(s[1]).map |&b| { a * 36 + b }
         }
     }
@@ -1842,7 +1871,7 @@ pub mod parser {
     pub fn key2index_str(s: &str) -> Option<int> {
         if s.len() < 2 { return None; }
         let str::CharRange {ch:c1, next:p1} = s.char_range_at(0);
-        do getdigit(c1).chain |a| {
+        do getdigit(c1).and_then |a| {
             let str::CharRange {ch:c2, next:p2} = s.char_range_at(p1);
             do getdigit(c2).map |&b| {
                 assert!(p2 == 2); // both characters should be in ASCII
@@ -1852,7 +1881,7 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
-    pub fn parse_bms_from_reader<R:RngUtil>(f: @::std::io::Reader, r: &mut R) -> Result<Bms,~str> {
+    pub fn parse_bms_from_reader<R:Rng>(f: @::std::io::Reader, r: &mut R) -> Result<Bms,~str> {
         /// The list of recognized prefixes of directives. The longest prefix should come first.
         /// Also note that not all recognized prefixes are processed (counterexample being `ENDSW`).
         /// (C: `bmsheader`)
@@ -1951,6 +1980,12 @@ pub mod parser {
             fn gt(&self, other: &BmsLine) -> bool { !self.le(other) }
         }
 
+        impl Clone for BmsLine {
+            fn clone(&self) -> BmsLine {
+                BmsLine { measure: self.measure, chan: self.chan, data: self.data.clone() }
+            }
+        }
+
         // A list of unprocessed data lines. They have to be sorted with a stable algorithm and
         // processed in the order of measure number. (C: `bmsline`)
         let mut bmsline = ~[];
@@ -1968,8 +2003,8 @@ pub mod parser {
         // command. (C: `value[V_LNOBJ]`)
         let mut lnobj = None;
 
-        let lines = vec::split(f.read_whole_stream(), |&ch| ch == 10u8);
-        for lines.iter().advance |&line0| {
+        let lines = f.read_whole_stream().split_iter(|&ch| ch == 10u8);
+        for line0 in lines {
             let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
             let line: &str = line0;
 
@@ -1981,7 +2016,7 @@ pub mod parser {
             // search for header prefix. the header list (`bmsheader`) is in the decreasing order
             // of prefix length.
             let mut prefix = "";
-            for bmsheader.iter().advance |&header| {
+            for &header in bmsheader.iter() {
                 if line.len() >= header.len() &&
                    line.slice(0, header.len()).to_ascii_upper() == header.to_owned() {
                     prefix = header;
@@ -2102,13 +2137,11 @@ pub mod parser {
                         // do not generate a random value if the entire block is skipped (but it
                         // still marks the start of block)
                         let inactive = blk.last().inactive();
-                        let generated = do val.chain |val| {
-                            // Rust: there should be `Option<T>::chain` if `T` is copyable.
+                        let generated = do val.and_then |val| {
                             if prefix == "SETRANDOM" {
                                 Some(val)
                             } else if !inactive {
-                                // Rust: not an uniform distribution yet!
-                                Some(r.gen_int_range(1, val + 1))
+                                Some(r.gen_integer_range(1, val + 1))
                             } else {
                                 None
                             }
@@ -2148,8 +2181,8 @@ pub mod parser {
 
                 // #END(IF)
                 ("END", _) => {
-                    let lastinside = blk.rposition(|&i| i.state != Outside); // XXX #3511
-                    for lastinside.iter().advance |&idx| {
+                    let lastinside = blk.iter().rposition(|&i| i.state != Outside); // XXX #3511
+                    for &idx in lastinside.iter() {
                         if idx > 0 { blk.truncate(idx + 1); }
                     }
 
@@ -2208,7 +2241,7 @@ pub mod parser {
                 // channel #03: BPM as an hexadecimal key
                 3 => {
                     let v = v.to_hex(); // XXX #3511
-                    for v.iter().advance |&v| {
+                    for &v in v.iter() {
                         add(Obj::SetBPM(t, BPM(v as float)))
                     }
                 }
@@ -2240,7 +2273,7 @@ pub mod parser {
                     if lnobj.is_some() && lnobj == Some(v) {
                         // change the last inserted visible object to the start of LN if any.
                         let lastvispos = lastvis[*lane];
-                        for lastvispos.iter().advance |&pos| {
+                        for &pos in lastvispos.iter() {
                             assert!(bms.objs[pos].is_visible());
                             bms.objs[pos] = bms.objs[pos].to_lnstart();
                             add(Obj::LNDone(t, lane, Some(v)));
@@ -2303,7 +2336,7 @@ pub mod parser {
                         1295 => Some(InstantDeath), // XXX 1295=MAXKEY-1
                         _ => None
                     };
-                    for damage.iter().advance |&damage| {
+                    for &damage in damage.iter() {
                         add(Obj::Bomb(t, lane, Some(Key(0)), damage));
                     }
                 }
@@ -2317,7 +2350,7 @@ pub mod parser {
 
         // loops over the sorted bmslines
         ::extra::sort::tim_sort(bmsline);
-        for bmsline.iter().advance |line| {
+        for line in bmsline.iter() {
             if *line.chan == 2 {
                 let mut shorten = 0.0;
                 if lex!(line.data; ws*, float -> shorten) {
@@ -2330,9 +2363,9 @@ pub mod parser {
                 let data: ~[char] = line.data.iter().collect();
                 let max = data.len() / 2 * 2;
                 let count = max as float;
-                for uint::range_step(0, max, 2) |i| {
+                for i in iter::range_step(0, max, 2) {
                     let v = key2index(data.slice(i, i+2));
-                    for v.iter().advance |&v| {
+                    for &v in v.iter() {
                         if v != 0 { // ignores 00
                             let t = measure + i as float / count;
                             let t2 = measure + (i + 2) as float / count;
@@ -2350,7 +2383,7 @@ pub mod parser {
         // fix the unterminated longnote
         bms.nmeasures = bmsline.last_opt().map_default(0, |l| l.measure) + 1;
         let endt = bms.nmeasures as float;
-        for uint::range(0, NLANES) |i| {
+        for i in range(0, NLANES) {
             if lastvis[i].is_some() || (!consecutiveln && lastln[i].is_some()) {
                 bms.objs.push(Obj::LNDone(endt, Lane(i), None));
             }
@@ -2360,8 +2393,8 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
-    pub fn parse_bms<R:RngUtil>(bmspath: &str, r: &mut R) -> Result<Bms,~str> {
-        do ::std::io::file_reader(&Path(bmspath)).chain |f| {
+    pub fn parse_bms<R:Rng>(bmspath: &str, r: &mut R) -> Result<Bms,~str> {
+        do ::std::io::file_reader(&Path(bmspath)).and_then |f| {
             parse_bms_from_reader(f, r)
         }
     }
@@ -2388,22 +2421,22 @@ pub mod parser {
         /// count as keys. (C: `nkeys`)
         pub fn nkeys(&self) -> uint {
             let mut nkeys = 0;
-            for self.kinds.iter().filter_map(|kind| *kind).advance |kind| {
+            for kind in self.kinds.iter().filter_map(|kind| *kind) {
                 if kind.counts_as_key() { nkeys += 1; }
             }
             nkeys
         }
 
-        /// Iterates over lanes on the left side, from left to right.
-        pub fn each_left_lanes(&self, f: &fn(&Lane) -> bool) -> bool {
+        /// Returns a list of lanes on the left side, from left to right.
+        pub fn left_lanes<'r>(&'r self) -> &'r [Lane] {
             assert!(self.split <= self.order.len());
-            self.order.slice(0, self.split).iter().advance(f)
+            self.order.slice(0, self.split)
         }
 
-        /// Iterates over lanes on the right side if any, from left to right.
-        pub fn each_right_lanes(&self, f: &fn(&Lane) -> bool) -> bool {
+        /// Returns a list of lanes on the right side if any, from left to right.
+        pub fn right_lanes<'r>(&'r self) -> &'r [Lane] {
             assert!(self.split <= self.order.len());
-            self.order.slice(self.split, self.order.len()).iter().advance(f)
+            self.order.slice(self.split, self.order.len())
         }
     }
 
@@ -2461,9 +2494,9 @@ pub mod parser {
      */
     pub fn preset_to_key_spec(bms: &Bms, preset: Option<~str>) -> Option<(~str, ~str)> {
         let mut present = [false, ..NLANES];
-        for bms.objs.iter().advance |&obj| {
+        for &obj in bms.objs.iter() {
             let lane = obj.object_lane(); // XXX #3511
-            for lane.iter().advance |&Lane(lane)| {
+            for &Lane(lane) in lane.iter() {
                 present[lane] = true;
             }
         }
@@ -2485,7 +2518,7 @@ pub mod parser {
             Some(preset) => preset
         };
 
-        for PRESETS.iter().advance |&(name, leftkeys, rightkeys)| {
+        for &(name, leftkeys, rightkeys) in PRESETS.iter() {
             if name == preset {
                 return Some((leftkeys.to_owned(), rightkeys.to_owned()));
             }
@@ -2520,7 +2553,7 @@ pub mod parser {
                 while j < len && objs[j].time <= cur {
                     let obj = &mut objs[j];
                     let ty = to_type(obj); // XXX #3511
-                    for ty.iter().advance |&t| {
+                    for &t in ty.iter() {
                         if (types & (1 << t)) != 0 {
                             // duplicate type
                             remove_or_replace_note(obj);
@@ -2536,7 +2569,7 @@ pub mod parser {
                 while i < j {
                     let obj = &mut objs[i];
                     let ty = to_type(obj); // XXX #3511
-                    for ty.iter().advance |&t| {
+                    for &t in ty.iter() {
                         if (types & (1 << t)) == 0 {
                             remove_or_replace_note(obj);
                         }
@@ -2546,7 +2579,7 @@ pub mod parser {
             }
         }
 
-        for uint::range(0, NLANES) |lane| {
+        for lane in range(0, NLANES) {
             let lane0 = Lane(lane);
 
             static LNDONE: uint = 0;
@@ -2602,7 +2635,7 @@ pub mod parser {
 
             if inside {
                 // remove last starting longnote which is unfinished
-                match bms.objs.rposition(|obj| to_type(obj).is_some()) {
+                match bms.objs.iter().rposition(|obj| to_type(obj).is_some()) {
                     Some(pos) if bms.objs[pos].is_lnstart() =>
                         remove_or_replace_note(&mut bms.objs[pos]),
                     _ => {}
@@ -2626,9 +2659,9 @@ pub mod parser {
     /// Removes insignificant objects (i.e. not in visible lanes) and ensures that there is no
     /// `Deleted` object. (C: `analyze_and_compact_bms`)
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
-        for bms.objs.mut_iter().advance |obj| {
+        for obj in bms.objs.mut_iter() {
             let lane = obj.object_lane(); // XXX #3511
-            for lane.iter().advance |&Lane(lane)| {
+            for &Lane(lane) in lane.iter() {
                 if keyspec.kinds[lane].is_none() {
                     remove_or_replace_note(obj)
                 }
@@ -2662,7 +2695,7 @@ pub mod parser {
         let mut infos = BmsInfo { originoffset: 0.0, hasbpmchange: false, haslongnote: false,
                                   nnotes: 0, maxscore: 0 };
 
-        for bms.objs.iter().advance |&obj| {
+        for &obj in bms.objs.iter() {
             infos.haslongnote |= obj.is_lnstart();
             infos.hasbpmchange |= obj.is_setbpm();
 
@@ -2672,7 +2705,7 @@ pub mod parser {
             }
         }
 
-        for int::range(0, infos.nnotes) |i| {
+        for i in range(0, infos.nnotes) {
             let ratio = (i as float) / (infos.nnotes as float);
             infos.maxscore += (300.0 * (1.0 + ratio)) as int;
         }
@@ -2689,7 +2722,7 @@ pub mod parser {
         let mut time = 0.0;
         let mut sndtime = 0.0;
 
-        for bms.objs.iter().advance |&obj| {
+        for &obj in bms.objs.iter() {
             let delta = bms.adjust_object_position(pos, obj.time);
             time += bpm.measure_to_msec(delta);
             match obj.data {
@@ -2740,28 +2773,27 @@ pub mod parser {
     /// Swaps given lanes in the reverse order. (C: `shuffle_bms` with `MIRROR_MODF`)
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        let rlanes = vec::reversed(lanes);
-        let assocs = vec::zip_slice(lanes, rlanes); // XXX #3511
-        for assocs.iter().advance |&(Lane(from), to)| {
+        let assocs = lanes.iter().zip(lanes.rev_iter()); // XXX #3511
+        for (&Lane(from), &to) in assocs {
             map[from] = to;
         }
 
-        for bms.objs.mut_iter().advance |obj| {
+        for obj in bms.objs.mut_iter() {
             update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
 
     /// Swaps given lanes in the random order. (C: `shuffle_bms` with
     /// `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
-    pub fn apply_shuffle_modf<R:RngUtil>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
-        let shuffled = r.shuffle(lanes);
+    pub fn apply_shuffle_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
+        let shuffled = r.shuffle(lanes.to_owned());
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        let assocs = vec::zip_slice(lanes, shuffled); // XXX #3511
-        for assocs.iter().advance |&(Lane(from), to)| {
+        let assocs = lanes.iter().zip(shuffled.iter()); // XXX #3511
+        for (&Lane(from), &to) in assocs {
             map[from] = to;
         }
 
-        for bms.objs.mut_iter().advance |obj| {
+        for obj in bms.objs.mut_iter() {
             update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
@@ -2770,14 +2802,14 @@ pub mod parser {
     /// `bms` should be first sanitized by `sanitize_bms`. It does not cause objects to move within
     /// another LN object, or place two objects in the same or very close time position to the same
     /// lane. (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
-    pub fn apply_random_modf<R:RngUtil>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
+    pub fn apply_random_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let mut movable = lanes.to_owned();
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
 
         let mut lasttime = float::neg_infinity;
-        for bms.objs.mut_iter().advance |obj| {
+        for obj in bms.objs.mut_iter() {
             if obj.is_lnstart() {
-                let lane = obj.object_lane().get();
+                let lane = obj.object_lane().unwrap();
                 match movable.position_elem(&lane) {
                     Some(i) => { movable.swap_remove(i); }
                     None => fail!(~"non-sanitized BMS detected")
@@ -2786,13 +2818,13 @@ pub mod parser {
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
                 let shuffled = r.shuffle(movable);
-                let assocs = vec::zip_slice(movable, shuffled); // XXX #3511
-                for assocs.iter().advance |&(Lane(from), to)| {
+                let assocs = movable.iter().zip(shuffled.iter()); // XXX #3511
+                for (&Lane(from), &to) in assocs {
                     map[from] = to;
                 }
             }
             if obj.is_lnstart() {
-                let lane = obj.object_lane().get();
+                let lane = obj.object_lane().unwrap();
                 movable.push(lane);
             }
             update_object_lane(obj, |Lane(lane)| map[lane]);
@@ -2931,34 +2963,34 @@ pub mod gfx {
     define_ToInt16!(u32)
     define_ToInt16!(u64)
 
-    impl<X:ToInt16+Copy,Y:ToInt16+Copy> XyOpt for (X,Y) {
+    impl<X:ToInt16+Clone,Y:ToInt16+Clone> XyOpt for (X,Y) {
         #[inline(always)]
         fn xy_opt(&self) -> Option<(i16,i16)> {
-            let (x, y) = copy *self;
+            let (x, y) = self.clone();
             Some((x.to_i16(), y.to_i16()))
         }
     }
 
-    impl<X:ToInt16+Copy,Y:ToInt16+Copy> Xy for (X,Y) {
+    impl<X:ToInt16+Clone,Y:ToInt16+Clone> Xy for (X,Y) {
         #[inline(always)]
         fn xy(&self) -> (i16,i16) {
-            let (x, y) = copy *self;
+            let (x, y) = self.clone();
             (x.to_i16(), y.to_i16())
         }
     }
 
-    impl<W:ToInt16+Copy,H:ToInt16+Copy> WhOpt for (W,H) {
+    impl<W:ToInt16+Clone,H:ToInt16+Clone> WhOpt for (W,H) {
         #[inline(always)]
         fn wh_opt(&self) -> Option<(u16,u16)> {
-            let (w, h) = copy *self;
+            let (w, h) = self.clone();
             Some((w.to_u16(), h.to_u16()))
         }
     }
 
-    impl<W:ToInt16+Copy,H:ToInt16+Copy> Wh for (W,H) {
+    impl<W:ToInt16+Clone,H:ToInt16+Clone> Wh for (W,H) {
         #[inline(always)]
         fn wh(&self) -> (u16,u16) {
-            let (w, h) = copy *self;
+            let (w, h) = self.clone();
             (w.to_u16(), h.to_u16())
         }
     }
@@ -2976,7 +3008,7 @@ pub mod gfx {
     #[inline(always)]
     fn rect_from_xywh<XY:Xy,WH:WhOpt>(xy: XY, wh: WH) -> Rect {
         let (x, y) = xy.xy();
-        let (w, h) = wh.wh_opt().get_or_default((0, 0));
+        let (w, h) = wh.wh_opt().unwrap_or((0, 0));
         Rect { x: x, y: y, w: w, h: h }
     }
 
@@ -3095,7 +3127,7 @@ pub mod gfx {
         fn with_pixels<R>(&self, f: &fn(pixels: &mut SurfacePixels) -> R) -> R {
             do self.with_lock |pixels| {
                 let fmt = unsafe {(*self.raw).format};
-                let pitch = unsafe {(*self.raw).pitch / 4 as uint};
+                let pitch = unsafe {((*self.raw).pitch / 4) as uint};
                 let pixels = unsafe {::std::cast::transmute(pixels)};
                 let mut proxy = SurfacePixels { fmt: fmt, width: self.get_width() as uint,
                                                 height: self.get_height() as uint,
@@ -3184,10 +3216,10 @@ pub mod gfx {
 
         let mut dx = 0;
         let mut x = 0;
-        for int::range(0, w + 1) |i| {
+        for i in range(0, w + 1) {
             let mut dy = 0;
             let mut y = 0;
-            for int::range(0, h + 1) |j| {
+            for j in range(0, h + 1) {
                 let mut r = 0;
                 let mut g = 0;
                 let mut b = 0;
@@ -3199,8 +3231,8 @@ pub mod gfx {
                           bicubic_kernel( y    * h - j * hh, h),
                           bicubic_kernel((y+1) * h - j * hh, h),
                           bicubic_kernel((y+2) * h - j * hh, h)];
-                for int::range(0, 4) |k0| {
-                    for int::range(0, 4) |k1| {
+                for k0 in range(0, 4) {
+                    for k1 in range(0, 4) {
                         let xx = x + k0 - 1;
                         let yy = y + k1 - 1;
                         if 0 <= xx && xx <= ww && 0 <= yy && yy <= hh {
@@ -3318,7 +3350,7 @@ pub mod gfx {
         /// Decompresses a font data from `dwords` and `indices`. (C: `fontdecompress`)
         fn decompress(dwords: &[u16], indices: &str) -> ~[u16] {
             let mut words = ~[0];
-            for dwords.iter().advance |&delta| {
+            for &delta in dwords.iter() {
                 let last = *words.last();
                 words.push(last + delta);
             }
@@ -3336,7 +3368,7 @@ pub mod gfx {
                         let distance = indices[i] as uint - 32;
                         i += 1;
                         let start = glyphs.len() - distance;
-                        for uint::range(start, start + length) |i| {
+                        for i in range(start, start + length) {
                             glyphs.push(glyphs[i]);
                         }
                     }
@@ -3360,13 +3392,13 @@ pub mod gfx {
 
             let nrows = 16;
             let nglyphs = self.glyphs.len() / nrows / 2;
-            let mut pixels = vec::from_elem(nglyphs, vec::from_elem(zoom*nrows, 0));
+            let mut pixels = vec::from_elem(nglyphs, vec::from_elem(zoom*nrows, 0u32));
 
             let put_zoomed_pixel = |glyph: uint, row: uint, col: uint, v: u32| {
                 let zoomrow = row * zoom;
                 let zoomcol = col * zoom;
-                for uint::range(0, zoom) |r| {
-                    for uint::range(0, zoom) |c| {
+                for r in range(0, zoom) {
+                    for c in range(0, zoom) {
                         let mut mask = 0;
                         if r + c >= zoom    { mask |= 1; } // lower right
                         if r > c            { mask |= 2; } // lower left
@@ -3384,11 +3416,11 @@ pub mod gfx {
             };
 
             let mut i = 0;
-            for uint::range(0, nglyphs) |glyph| {
-                for uint::range(0, nrows) |row| {
+            for glyph in range(0, nglyphs) {
+                for row in range(0, nrows) {
                     let data = (self.glyphs[i] as u32 << 16) | (self.glyphs[i+1] as u32);
                     i += 2;
-                    for uint::range(0, 8) |col| {
+                    for col in range(0, 8u) {
                         let v = (data >> (4 * col)) & 15;
                         put_zoomed_pixel(glyph, row, col, v);
                     }
@@ -3400,13 +3432,13 @@ pub mod gfx {
         /// Prints a glyph with given position and color (possibly gradient). This method is
         /// distinct from `print_glyph` since the glyph #95 is used for the tick marker
         /// (character code -1 in C). (C: `printchar`)
-        pub fn print_glyph<ColorT:Blend+Copy>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
-                                              zoom: uint, glyph: uint, color: ColorT) { // XXX #3984
+        pub fn print_glyph<ColorT:Blend>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
+                                         zoom: uint, glyph: uint, color: ColorT) {
             assert!(!self.pixels[zoom].is_empty());
-            for uint::range(0, 16 * zoom) |iy| {
+            for iy in range(0, 16 * zoom) {
                 let row = self.pixels[zoom][glyph][iy];
                 let rowcolor = color.blend(iy as int, 16 * zoom as int);
-                for uint::range(0, 8 * zoom) |ix| {
+                for ix in range(0, 8 * zoom) {
                     if ((row >> ix) & 1) != 0 {
                         put_pixel(pixels, x + ix, y + iy, rowcolor); // XXX incorrect lifetime
                     }
@@ -3415,8 +3447,8 @@ pub mod gfx {
         }
 
         /// Prints a character with given position and color.
-        pub fn print_char<ColorT:Blend+Copy>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
-                                             zoom: uint, c: char, color: ColorT) { // XXX #3984
+        pub fn print_char<ColorT:Blend>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
+                                        zoom: uint, c: char, color: ColorT) {
             if !c.is_whitespace() {
                 let c = c as uint;
                 let glyph = if 32 <= c && c < 126 {c-32} else {0};
@@ -3425,18 +3457,17 @@ pub mod gfx {
         }
 
         /// Prints a string with given position, alignment and color. (C: `printstr`)
-        pub fn print_string<ColorT:Blend+Copy>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
-                                               zoom: uint, align: Alignment, s: &str,
-                                               color: ColorT) { // XXX #3984
+        pub fn print_string<ColorT:Blend>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
+                                          zoom: uint, align: Alignment, s: &str, color: &ColorT) {
             let mut x = match align {
                 LeftAligned  => x,
                 Centered     => x - s.char_len() * (8 * zoom) / 2,
                 RightAligned => x - s.char_len() * (8 * zoom),
             };
-            for s.iter().advance |c| {
+            for c in s.iter() {
                 let nextx = x + 8 * zoom;
                 if nextx >= pixels.width { break; }
-                self.print_char(pixels, x, y, zoom, c, copy color);
+                self.print_char(pixels, x, y, zoom, c, *color);
                 x = nextx;
             }
         }
@@ -3454,7 +3485,7 @@ pub mod gfx {
  * Angolmois is not well refactored. (In fact, the game logic is usually hard to refactor, right?)
  */
 pub mod player {
-    use std::{int, uint, vec, cmp, num};
+    use std::{int, uint, vec, cmp, num, iter};
     use sdl::*;
     use sdl::video::*;
     use sdl::event::*;
@@ -3602,12 +3633,13 @@ pub mod player {
             match parse_key_spec(keys) {
                 None | Some([]) => None,
                 Some(left) => {
-                    for left.iter().advance |&(lane,kind)| {
-                        if keyspec.kinds[*lane].is_some() { return None; }
+                    let mut err = false;
+                    for &(lane,kind) in left.iter() {
+                        if keyspec.kinds[*lane].is_some() { err = true; break; }
                         keyspec.order.push(lane);
                         keyspec.kinds[*lane] = Some(kind);
                     }
-                    Some(left.len())
+                    if err {None} else {Some(left.len())}
                 }
             }
         };
@@ -3634,10 +3666,10 @@ pub mod player {
     /// Applies given modifier to the game data. The target lanes of the modifier is determined
     /// from given key specification. This function should be called twice for the Couple Play,
     /// since 1P and 2P should be treated separately. (C: `shuffle_bms`)
-    pub fn apply_modf<R: ::std::rand::RngUtil>(bms: &mut Bms, modf: Modf, r: &mut R,
-                                                keyspec: &KeySpec, begin: uint, end: uint) {
+    pub fn apply_modf<R: ::std::rand::Rng>(bms: &mut Bms, modf: Modf, r: &mut R,
+                                           keyspec: &KeySpec, begin: uint, end: uint) {
         let mut lanes = ~[];
-        for uint::range(begin, end) |i| {
+        for i in range(begin, end) {
             let lane = keyspec.order[i];
             let kind = keyspec.kinds[*lane];
             if modf == ShuffleExModf || modf == RandomExModf ||
@@ -3752,7 +3784,7 @@ pub mod player {
         }
         img::init([img::InitJPG, img::InitPNG]);
         //mixer::init([mixer::InitOGG, mixer::InitMP3]); // TODO
-        if mixer::open(SAMPLERATE, audio::S16AudioFormat, audio::Stereo, 2048).is_err() {
+        if mixer::open(SAMPLERATE, audio::S16_AUDIO_FORMAT, audio::Stereo, 2048).is_err() {
             die!("SDL Mixer Initialization Failure");
         }
     }
@@ -3910,7 +3942,7 @@ pub mod player {
             unsafe {
                 let firstkey = 0;
                 let lastkey = ::std::cast::transmute(event::LastKey);
-                for uint::range(firstkey, lastkey) |keyidx| {
+                for keyidx in range(firstkey, lastkey) {
                     let key = ::std::cast::transmute(keyidx);
                     let keyname = event::get_key_name(key).to_ascii_lower();
                     if keyname == name { return Some(key); }
@@ -3939,18 +3971,18 @@ pub mod player {
             }
         };
 
-        for KEYSETS.iter().advance |&keyset| {
+        for &keyset in KEYSETS.iter() {
             let (envvar, default, mapping) = keyset; // XXX
             let spec = getenv(/*keyset.*/envvar);
-            let spec = spec.get_or_default(/*keyset.*/default.to_owned());
+            let spec = spec.unwrap_or(/*keyset.*/default.to_owned());
 
             let mut i = 0;
-            for spec.split_iter('|').advance |part| {
+            for part in spec.split_iter('|') {
                 let (kind, vinputs) = /*keyset.*/mapping[i];
-                for part.split_iter('%').advance |s| {
+                for s in part.split_iter('%') {
                     match parse_input(s) {
                         Some(input) => {
-                            for vinputs.iter().advance |&vinput| {
+                            for &vinput in vinputs.iter() {
                                 add_mapping(kind, input, vinput);
                             }
                         }
@@ -3964,12 +3996,12 @@ pub mod player {
             }
         }
 
-        for keyspec.order.iter().advance |&lane| {
+        for &lane in keyspec.order.iter() {
             let key = Key(36 + *lane as int);
-            let kind = keyspec.kinds[*lane].get();
+            let kind = keyspec.kinds[*lane].unwrap();
             let envvar = fmt!("ANGOLMOIS_%s%c_KEY", key.to_str(), kind.to_char());
             let val = getenv(envvar); // XXX #3511
-            for val.iter().advance |&s| {
+            for &s in val.iter() {
                 match parse_input(s) {
                     Some(input) => { add_mapping(Some(kind), input, LaneInput(lane)); }
                     None => die!("Unknown key name in the environment variable %s: %s", envvar, s)
@@ -4018,7 +4050,7 @@ pub mod player {
         use util::str::StrUtil;
 
         let mut parts = ~[];
-        for path.split_iter(|c: char| c == '/' || c == '\\').advance |part| {
+        for part in path.split_iter(|c: char| c == '/' || c == '\\') {
             if part.is_empty() { loop; }
             parts.push(part);
         }
@@ -4026,14 +4058,14 @@ pub mod player {
 
         let mut cur = basedir.clone();
         let lastpart = parts.pop();
-        for parts.iter().advance |part| {
+        for part in parts.iter() {
             // early exit if the intermediate path does not exist or is not a directory
             if !path_is_dir(&cur) { return None; }
 
             let part = part.to_ascii_upper();
             let mut found = false;
             let entries = list_dir(&cur); // XXX #3511
-            for entries.iter().advance |&next| {
+            for &next in entries.iter() {
                 if next == ~"." || next == ~".." { loop; }
                 if next.to_ascii_upper() == part {
                     cur = cur.push(next);
@@ -4048,7 +4080,7 @@ pub mod player {
 
         let lastpart = lastpart.to_ascii_upper();
         let entries = list_dir(&cur); // XXX #3511
-        for entries.iter().advance |&next| {
+        for &next in entries.iter() {
             if next == ~"." || next == ~".." { loop; }
             let next_ = next.to_ascii_upper();
             let mut found = (next_ == lastpart);
@@ -4056,7 +4088,7 @@ pub mod player {
                 match next_.rfind('.') {
                     Some(idx) => {
                         let nextnoext = next_.slice(0, idx).to_owned();
-                        for exts.iter().advance |ext| {
+                        for ext in exts.iter() {
                             if nextnoext + ext.to_owned() == lastpart {
                                 found = true;
                                 break;
@@ -4175,15 +4207,14 @@ pub mod player {
         fn to_display_format(surface: ~Surface) -> Result<~Surface,~str> {
             if unsafe {(*(*surface.raw).format).Amask} != 0 {
                 let res = surface.display_format_alpha();
-                // Rust: `|&surface|` causes an unchecked copy. (#3224)
-                do res.iter |surface| { // XXX #3224
-                    (*&surface).set_alpha([SrcAlpha, RLEAccel], 255);
+                for surface in res.iter() {
+                    surface.set_alpha([SrcAlpha, RLEAccel], 255);
                 }
                 res
             } else {
                 let res = surface.display_format();
-                do res.iter |surface| { // XXX #3224
-                    (*&surface).set_color_key([SrcColorKey, RLEAccel], RGB(0,0,0));
+                for surface in res.iter() {
+                    surface.set_color_key([SrcColorKey, RLEAccel], RGB(0,0,0));
                 }
                 res
             }
@@ -4209,8 +4240,8 @@ pub mod player {
         } else if opts.has_bga() {
             let res = match resolve_relative_path(basedir, path, IMAGE_EXTS) {
                 Some(fullpath) =>
-                    do img::load(&fullpath).chain |surface| {
-                        do to_display_format(surface).chain |surface| {
+                    do img::load(&fullpath).and_then |surface| {
+                        do to_display_format(surface).and_then |surface| {
                             Ok(Image(@surface))
                         }
                     },
@@ -4272,15 +4303,15 @@ pub mod player {
 
     impl BGAStateOps for BGAState {
         fn update(&mut self, current: &BGAState, imgres: &[ImageResource]) {
-            for uint::range(0, NLAYERS) |layer| {
+            for layer in range(0, NLAYERS) {
                 // TODO this design can't handle the case that a BGA layer is updated to the same
                 // image reference, which should rewind the movie playback. the original Angolmois
                 // does handle it.
                 if self[layer] != current[layer] {
-                    for self[layer].iter().advance |&iref| {
+                    for &iref in self[layer].iter() {
                         imgres[**iref].stop_movie();
                     }
-                    for current[layer].iter().advance |&iref| {
+                    for &iref in current[layer].iter() {
                         imgres[**iref].start_movie();
                     }
                 }
@@ -4291,10 +4322,10 @@ pub mod player {
         fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
                   x: uint, y: uint) {
             screen.fill_area((x,y), (256,256), RGB(0,0,0));
-            for layers.iter().advance |&layer| {
-                for self[layer as uint].iter().advance |&iref| {
+            for &layer in layers.iter() {
+                for &iref in self[layer as uint].iter() {
                     let surface = imgres[**iref].surface(); // XXX #3511
-                    for surface.iter().advance |&surface| {
+                    for &surface in surface.iter() {
                         screen.blit_area(&**surface, (0,0), (x,y), (256,256));
                     }
                 }
@@ -4311,9 +4342,9 @@ pub mod player {
                         bms.playlevel, *bms.initbpm, if infos.hasbpmchange {~"?"} else {~""},
                         infos.nnotes, if infos.nnotes == 1 {~""} else {~"s"}, keyspec.nkeys(),
                         if infos.haslongnote {~"-LN"} else {~""});
-        let title = bms.title.clone().get_or_default(~"");
-        let genre = bms.genre.clone().get_or_default(~"");
-        let artist = bms.artist.clone().get_or_default(~"");
+        let title = bms.title.clone().unwrap_or(~"");
+        let genre = bms.genre.clone().unwrap_or(~"");
+        let artist = bms.artist.clone().unwrap_or(~"");
         (meta, title, genre, artist)
     }
 
@@ -4325,16 +4356,16 @@ pub mod player {
 
         do screen.with_pixels |pixels| {
             font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2, Centered, "loading bms file...",
-                              Gradient(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
+                              &Gradient(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
         }
         screen.flip();
 
         do screen.with_pixels |pixels| {
-            for bms.stagefile.iter().advance |&path| {
+            for &path in bms.stagefile.iter() {
                 let basedir = get_basedir(bms, opts);
                 let resolved = resolve_relative_path(&basedir, path, IMAGE_EXTS); // XXX #3511
-                for resolved.iter().advance |&path| {
-                    match img::load(&path).chain(|s| s.display_format()) {
+                for &path in resolved.iter() {
+                    match img::load(&path).and_then(|s| s.display_format()) {
                         Ok(surface) => {
                             do surface.with_pixels |srcpixels| {
                                 bicubic_interpolation(srcpixels, pixels);
@@ -4348,18 +4379,18 @@ pub mod player {
             if opts.showinfo {
                 let bg = RGBA(0x10,0x10,0x10,0x40);
                 let fg = Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
-                for uint::range(0, SCREENW) |i| {
-                    for uint::range(0, 42) |j| {
+                for i in range(0, SCREENW) {
+                    for j in range(0, 42u) {
                         put_blended_pixel(pixels, i, j, bg); // XXX incorrect lifetime
                     }
-                    for uint::range(SCREENH-20, SCREENH) |j| {
+                    for j in range(SCREENH-20, SCREENH) {
                         put_blended_pixel(pixels, i, j, bg); // XXX incorrect lifetime
                     }
                 }
-                font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
-                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre, fg);
-                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist, fg);
-                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta, fg);
+                font.print_string(pixels, 6, 4, 2, LeftAligned, title, &fg);
+                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre, &fg);
+                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist, &fg);
+                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta, &fg);
             }
         }
 
@@ -4386,7 +4417,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let basedir = get_basedir(bms, opts);
 
         let sndres: ~[SoundResource] =
-            do bms.sndpath.iter().enumerate().transform |(i, &path)| {
+            do bms.sndpath.iter().enumerate().map |(i, &path)| {
                 match path {
                     Some(path) => {
                         callback(Some(path.clone()));
@@ -4396,7 +4427,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 }
             }.collect();
         let mut imgres: ~[ImageResource] =
-            do bms.imgpath.iter().enumerate().transform |(i, &path)| {
+            do bms.imgpath.iter().enumerate().map |(i, &path)| {
                 match path {
                     Some(path) => {
                         callback(Some(path.clone()));
@@ -4406,7 +4437,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 }
             }.collect();
 
-        for bms.blitcmd.iter().advance |bc| {
+        for bc in bms.blitcmd.iter() {
             apply_blitcmd(imgres, bc);
         }
         (sndres, imgres)
@@ -4429,11 +4460,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let mut path = path; // XXX #4654
         do ticker.on_tick(get_ticks()) {
             let path = ::std::util::replace(&mut path, None); // XXX #4654
-            let msg = path.get_or_default(~"loading...");
+            let msg = path.unwrap_or(~"loading...");
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             do screen.with_pixels |pixels| {
                 font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg,
-                                  Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
+                                  &Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
             }
             screen.flip();
         }
@@ -4470,7 +4501,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     /// Returns true if two pointers share the common BMS data.
-    priv fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
+    fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
         ::std::managed::mut_ptr_eq(lhs.bms, rhs.bms)
     }
 
@@ -4504,34 +4535,34 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
 
     impl Clone for Pointer {
-        pub fn clone(&self) -> Pointer {
+        fn clone(&self) -> Pointer {
             Pointer { bms: self.bms, pos: self.pos }
         }
     }
 
     impl ObjQueryOps for Pointer {
-        pub fn is_visible(self) -> bool { self.bms.objs[self.pos].is_visible() }
-        pub fn is_invisible(self) -> bool { self.bms.objs[self.pos].is_invisible() }
-        pub fn is_lnstart(self) -> bool { self.bms.objs[self.pos].is_lnstart() }
-        pub fn is_lndone(self) -> bool { self.bms.objs[self.pos].is_lndone() }
-        pub fn is_ln(self) -> bool { self.bms.objs[self.pos].is_ln() }
-        pub fn is_bomb(self) -> bool { self.bms.objs[self.pos].is_bomb() }
-        pub fn is_soundable(self) -> bool { self.bms.objs[self.pos].is_soundable() }
-        pub fn is_gradable(self) -> bool { self.bms.objs[self.pos].is_gradable() }
-        pub fn is_renderable(self) -> bool { self.bms.objs[self.pos].is_renderable() }
-        pub fn is_object(self) -> bool { self.bms.objs[self.pos].is_object() }
-        pub fn is_bgm(self) -> bool { self.bms.objs[self.pos].is_bgm() }
-        pub fn is_setbga(self) -> bool { self.bms.objs[self.pos].is_setbga() }
-        pub fn is_setbpm(self) -> bool { self.bms.objs[self.pos].is_setbpm() }
-        pub fn is_stop(self) -> bool { self.bms.objs[self.pos].is_stop() }
+        fn is_visible(self) -> bool { self.bms.objs[self.pos].is_visible() }
+        fn is_invisible(self) -> bool { self.bms.objs[self.pos].is_invisible() }
+        fn is_lnstart(self) -> bool { self.bms.objs[self.pos].is_lnstart() }
+        fn is_lndone(self) -> bool { self.bms.objs[self.pos].is_lndone() }
+        fn is_ln(self) -> bool { self.bms.objs[self.pos].is_ln() }
+        fn is_bomb(self) -> bool { self.bms.objs[self.pos].is_bomb() }
+        fn is_soundable(self) -> bool { self.bms.objs[self.pos].is_soundable() }
+        fn is_gradable(self) -> bool { self.bms.objs[self.pos].is_gradable() }
+        fn is_renderable(self) -> bool { self.bms.objs[self.pos].is_renderable() }
+        fn is_object(self) -> bool { self.bms.objs[self.pos].is_object() }
+        fn is_bgm(self) -> bool { self.bms.objs[self.pos].is_bgm() }
+        fn is_setbga(self) -> bool { self.bms.objs[self.pos].is_setbga() }
+        fn is_setbpm(self) -> bool { self.bms.objs[self.pos].is_setbpm() }
+        fn is_stop(self) -> bool { self.bms.objs[self.pos].is_stop() }
 
-        pub fn object_lane(self) -> Option<Lane> { self.bms.objs[self.pos].object_lane() }
-        pub fn sounds(self) -> ~[SoundRef] { self.bms.objs[self.pos].sounds() }
-        pub fn keydown_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].keydown_sound() }
-        pub fn keyup_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].keyup_sound() }
-        pub fn through_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].through_sound() }
-        pub fn images(self) -> ~[ImageRef] { self.bms.objs[self.pos].images() }
-        pub fn through_damage(self) -> Option<Damage> { self.bms.objs[self.pos].through_damage() }
+        fn object_lane(self) -> Option<Lane> { self.bms.objs[self.pos].object_lane() }
+        fn sounds(self) -> ~[SoundRef] { self.bms.objs[self.pos].sounds() }
+        fn keydown_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].keydown_sound() }
+        fn keyup_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].keyup_sound() }
+        fn through_sound(self) -> Option<SoundRef> { self.bms.objs[self.pos].through_sound() }
+        fn images(self) -> ~[ImageRef] { self.bms.objs[self.pos].images() }
+        fn through_damage(self) -> Option<Damage> { self.bms.objs[self.pos].through_damage() }
     }
 
     impl Pointer {
@@ -4858,7 +4889,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     /// Finds the next nearest play speed mark if any.
     fn next_speed_mark(current: float) -> Option<float> {
         let mut prev = None;
-        for SPEED_MARKS.iter().advance |&speed| {
+        for &speed in SPEED_MARKS.iter() {
             if speed < current - 0.001 {
                 prev = Some(speed);
             } else {
@@ -4871,7 +4902,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     /// Finds the previous nearest play speed mark if any.
     fn previous_speed_mark(current: float) -> Option<float> {
         let mut next = None;
-        for SPEED_MARKS.rev_iter().advance |&speed| {
+        for &speed in SPEED_MARKS.rev_iter() {
             if speed > current + 0.001 {
                 next = Some(speed);
             } else {
@@ -4940,7 +4971,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// Returns the play speed displayed. Can differ from the actual play speed
         /// (`self.playspeed`) when the play speed is changing.
         pub fn nominal_playspeed(&self) -> float {
-            self.targetspeed.get_or_default(self.playspeed)
+            self.targetspeed.unwrap_or(self.playspeed)
         }
 
         /// Updates the score and associated statistics according to grading. `scoredelta` is
@@ -5045,7 +5076,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             group_channel(Some(ch), Some(group));
 
             let ch = ch as uint;
-            for self.lastchsnd[ch].iter().advance |&idx| { self.sndlastch[idx] = None; }
+            for &idx in self.lastchsnd[ch].iter() { self.sndlastch[idx] = None; }
             self.sndlastch[sref] = Some(ch);
             self.lastchsnd[ch] = Some(sref as uint);
         }
@@ -5072,7 +5103,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // smoothly change the play speed
             if self.targetspeed.is_some() {
-                let target = self.targetspeed.get();
+                let target = self.targetspeed.unwrap();
                 let delta = target - self.playspeed;
                 if num::abs(delta) < 0.001 {
                     self.playspeed = target;
@@ -5123,7 +5154,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             // apply object-like effects while advancing to new `pcur`
             pfront.seek_until(self.bottom);
             let mut prevpcur = pointer_with_pos(self.bms, pcur.pos);
-            for pcur.iter_until(self.line) |&obj| {
+            do pcur.iter_until(self.line) |&obj| {
                 match obj.data {
                     BGM(sref) => {
                         self.play_sound_if_nonzero(sref, true);
@@ -5143,7 +5174,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
                     Visible(_,sref) | LNStart(_,sref) => {
                         if self.opts.is_autoplay() {
-                            for sref.iter().advance |&sref| {
+                            for &sref in sref.iter() {
                                 self.play_sound_if_nonzero(sref, false);
                             }
                             self.update_grade_from_distance(0.0);
@@ -5151,30 +5182,35 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     }
                     _ => {}
                 }
-            }
+                true
+            };
 
             // grade objects that have escaped the grading area
             if !self.opts.is_autoplay() {
-                for pcheck.iter_to(pcur) |&obj| {
+                do pcheck.iter_to(pcur) |&obj| {
                     let dist = self.bpm.measure_to_msec(self.line - obj.time) *
                                bms.shorten(obj.measure()) * self.gradefactor;
-                    if dist < BAD_CUTOFF { break; }
-                    if !self.nograding[pcheck.pos] {
-                        let lane = obj.object_lane(); // XXX #3511
-                        for lane.iter().advance |&Lane(lane)| {
-                            let missable =
-                                match obj.data {
-                                    Visible(*) | LNStart(*) => true,
-                                    LNDone(*) => pthru[lane].is_some(),
-                                    _ => false,
-                                };
-                            if missable {
-                                self.update_grade_to_miss();
-                                pthru[lane] = None;
+                    if dist < BAD_CUTOFF {
+                        false
+                    } else {
+                        if !self.nograding[pcheck.pos] {
+                            let lane = obj.object_lane(); // XXX #3511
+                            for &Lane(lane) in lane.iter() {
+                                let missable =
+                                    match obj.data {
+                                        Visible(*) | LNStart(*) => true,
+                                        LNDone(*) => pthru[lane].is_some(),
+                                        _ => false,
+                                    };
+                                if missable {
+                                    self.update_grade_to_miss();
+                                    pthru[lane] = None;
+                                }
                             }
                         }
+                        true
                     }
-                }
+                };
             }
 
             // process inputs
@@ -5247,12 +5283,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let process_unpress = |lane: Lane| {
                     // if LN grading is in progress and it is not within the threshold then
                     // MISS grade is issued
-                    for pthru[*lane].iter().advance |&thru| {
+                    for &thru in pthru[*lane].iter() {
                         let nextlndone = do thru.find_next_of_type |&obj| {
                             obj.object_lane() == Some(lane) &&
                             obj.is_lndone()
                         };
-                        for nextlndone.iter().advance |&p| {
+                        for &p in nextlndone.iter() {
                             let delta = self.bpm.measure_to_msec(p.time() - self.line) *
                                         lineshorten * self.gradefactor;
                             if num::abs(delta) < BAD_CUTOFF {
@@ -5271,9 +5307,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) && obj.is_soundable()
                         };
-                    for soundable.iter().advance |&p| {
+                    for &p in soundable.iter() {
                         let sounds = p.sounds(); // XXX #3511
-                        for sounds.iter().advance |&sref| {
+                        for &sref in sounds.iter() {
                             self.play_sound(sref, false);
                         }
                     }
@@ -5284,7 +5320,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         do pcur.find_closest_of_type(self.line) |&obj| {
                             obj.object_lane() == Some(lane) && obj.is_gradable()
                         };
-                    for gradable.iter().advance |&p| {
+                    for &p in gradable.iter() {
                         if p.pos >= pcheck.pos && !self.nograding[p.pos] && !p.is_lndone() {
                             let dist = self.bpm.measure_to_msec(p.time() - self.line) *
                                        lineshorten * self.gradefactor;
@@ -5302,17 +5338,17 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
                 match (vkey, state) {
                     (SpeedDownInput, Positive) | (SpeedDownInput, Negative) => {
-                        let current = self.targetspeed.get_or_default(self.playspeed);
+                        let current = self.targetspeed.unwrap_or(self.playspeed);
                         let newspeed = next_speed_mark(current); // XXX #3511
-                        for newspeed.iter().advance |&newspeed| {
+                        for &newspeed in newspeed.iter() {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
                     }
                     (SpeedUpInput, Positive) | (SpeedUpInput, Negative) => {
-                        let current = self.targetspeed.get_or_default(self.playspeed);
+                        let current = self.targetspeed.unwrap_or(self.playspeed);
                         let newspeed = previous_speed_mark(current); // XXX #3511
-                        for newspeed.iter().advance |&newspeed| {
+                        for &newspeed in newspeed.iter() {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
@@ -5334,23 +5370,27 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // process bombs
             if !self.opts.is_autoplay() {
-                for prevpcur.iter_to(pcur) |&obj| {
+                // TODO make `Pointer::iter_*` a proper iterator?
+                let nodeath = do prevpcur.iter_to(pcur) |&obj| {
                     match obj.data {
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
                             // ongoing long note is not graded twice
                             pthru[*lane] = None;
-                            for sref.iter().advance |&sref| {
+                            for &sref in sref.iter() {
                                 self.play_sound(sref, false);
                             }
                             if !self.update_grade_from_damage(damage) {
                                 // instant death
                                 pcur.seek_to_end();
-                                return false;
+                                false
+                            } else {
+                                true
                             }
-                        }
-                        _ => {}
+                        },
+                        _ => true
                     }
-                }
+                };
+                if !nodeath { return false; }
             }
 
             self.pfront = pfront;
@@ -5377,9 +5417,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     pub trait Display {
         /// Renders the current information from `player` to the screen or console. Called after
         /// each call to `Player::tick`.
-        pub fn render(&mut self, player: &Player);
+        fn render(&mut self, player: &Player);
         /// Shows the game play result from `player` to the screen or console. Called only once.
-        pub fn show_result(&self, player: &Player);
+        fn show_result(&self, player: &Player);
     }
 
     //----------------------------------------------------------------------------------------------
@@ -5430,7 +5470,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // render a background sprite (0 at top, <1 at bottom)
             let backcolor = Gradient { zero: RGB(0,0,0), one: self.basecolor };
-            for uint::range(140, SCREENH - 80) |i| {
+            for i in range(140, SCREENH - 80) {
                 sprite.fill_area((left, i), (self.width, 1), backcolor.blend(i as int - 140, 1000));
             }
 
@@ -5438,7 +5478,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             let denom = self.width as int;
             let notecolor = Gradient { zero: RGB(0xff,0xff,0xff), one: self.basecolor };
             let bombcolor = Gradient { zero: RGB(0,0,0),          one: RGB(0xc0,0,0) };
-            for uint::range(0, self.width / 2) |i| {
+            for i in range(0, self.width / 2) {
                 let num = (self.width - i) as int;
                 sprite.fill_area((noteleft+i, 0), (self.width-i*2, SCREENH),
                                  notecolor.blend(num, denom));
@@ -5475,10 +5515,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let mut leftmost = 0;
         let mut rightmost = SCREENW;
         let mut styles = ~[];
-        for keyspec.each_left_lanes |&lane| {
+        for &lane in keyspec.left_lanes().iter() {
             let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
-            let kind = kind.get();
+            let kind = kind.unwrap();
             let style = LaneStyle::from_kind(kind, Left(leftmost));
             styles.push((lane, style));
             leftmost += style.width + 1;
@@ -5486,10 +5526,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 return Err(~"The screen can't hold that many lanes");
             }
         }
-        for keyspec.each_right_lanes |&lane| {
+        for &lane in keyspec.right_lanes().iter() {
             let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
-            let kind = kind.get();
+            let kind = kind.unwrap();
             let style = LaneStyle::from_kind(kind, Right(rightmost));
             styles.push((lane, style));
             if rightmost < leftmost + 40 {
@@ -5502,7 +5542,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         // move lanes to the center if there are too small number of lanes
         let cutoff = 165;
         if leftmost < cutoff {
-            for uint::range(0, keyspec.split) |i| {
+            for i in range(0, keyspec.split) {
                 let (lane, style) = styles[i];
                 let mut style = style;
                 style.left += (cutoff - leftmost) / 2;
@@ -5511,10 +5551,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             leftmost = cutoff;
         }
         if rightmost.map_default(false, |&x| x > SCREENW - cutoff) {
-            for uint::range(keyspec.split, styles.len()) |i| {
+            for i in range(keyspec.split, styles.len()) {
                 let (lane, style) = styles[i];
                 let mut style = style;
-                style.left -= (rightmost.get() - (SCREENW - cutoff)) / 2;
+                style.left -= (rightmost.unwrap() - (SCREENW - cutoff)) / 2;
                 styles[i] = (lane, style);
             }
             rightmost = Some(SCREENW - cutoff);
@@ -5531,7 +5571,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let gray = RGB(0x40,0x40,0x40); // gray used for separators
 
         // render notes and lane backgrounds
-        for styles.iter().advance |&(_lane,style)| {
+        for &(_lane,style) in styles.iter() {
             style.render_to_sprite(sprite);
         }
 
@@ -5539,13 +5579,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         do sprite.with_pixels |pixels| {
             let topgrad = Gradient { zero: RGB(0x60,0x60,0x60), one: RGB(0xc0,0xc0,0xc0) };
             let botgrad = Gradient { zero: RGB(0x40,0x40,0x40), one: RGB(0xc0,0xc0,0xc0) };
-            for int::range(-244, 556) |j| {
-                for int::range(-10, 20) |i| {
+            for j in range(-244, 556) {
+                for i in range(-10, 20) {
                     let c = (i*2+j*3+750) % 2000;
                     put_pixel(pixels, (j+244) as uint, (i+10) as uint, // XXX incorrect lifetime
                               topgrad.blend(850 - num::abs(c-1000), 700));
                 }
-                for int::range(-20, 60) |i| {
+                for i in range(-20, 60) {
                     let c = (i*3+j*2+750) % 2000;
                     let bottom = (SCREENH - 60) as int;
                     put_pixel(pixels, (j+244) as uint, (i+bottom) as uint, // XXX incorrect lifetime
@@ -5562,12 +5602,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         sprite.fill_area((leftgap, 0), (gapwidth, 30), black);
         sprite.fill_area((leftgap, SCREENH-80), (gapwidth, 80), black);
         do sprite.with_pixels |pixels| {
-            for uint::range(0, 20) |i| {
-                for uint::range_rev(20, 0) |j| {
+            for i in range(0, 20u) {
+                for j in iter::range_step(20, 0u, -1) {
                     if i*i + j*j <= 400 { break; } // circled border
                     put_pixel(pixels, leftmost + j, 10 + i, black); // XXX incorrect lifetime
                     put_pixel(pixels, leftmost + j, (SCREENH-61) - i, black); // XXX
-                    for rightmost.iter().advance |&right| {
+                    for &right in rightmost.iter() {
                         put_pixel(pixels, (right-j) - 1, 10 + i, black); // XXX incorrect lifetime
                         put_pixel(pixels, (right-j) - 1, (SCREENH-61) - i, black); // XXX
                     }
@@ -5628,7 +5668,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             Ok(styles) => styles,
             Err(err) => { return Err(err); }
         };
-        let centerwidth = rightmost.get_or_default(SCREENW) - leftmost;
+        let centerwidth = rightmost.unwrap_or(SCREENW) - leftmost;
         let bgax = leftmost + (centerwidth - BGAW) / 2;
         let bgay = (SCREENH - BGAH) / 2;
         let sprite = create_sprite(opts, leftmost, rightmost, styles);
@@ -5676,7 +5716,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             // update display states
             let mut poorlimit = self.poorlimit;
             let mut gradelimit = self.gradelimit;
-            for player.lastgrade.iter().advance |&(grade,when)| {
+            for &(grade,when) in player.lastgrade.iter() {
                 if grade == MISS {
                     // switches to the normal BGA after 600ms
                     poorlimit = poorlimit.merge(Some(when + 600), cmp::max);
@@ -5698,10 +5738,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // fill the lanes to the border color
             screen.fill_area((0, 30), (self.leftmost, SCREENH-110), RGB(0x40,0x40,0x40));
-            for self.rightmost.iter().advance |&rightmost| {
+            for &rightmost in self.rightmost.iter() {
                 screen.fill_area((rightmost, 30), (SCREENH-rightmost, 490), RGB(0x40,0x40,0x40));
             }
-            for self.lanestyles.iter().advance |&(lane,style)| {
+            for &(lane,style) in self.lanestyles.iter() {
                 style.render_back(screen, sprite, player.key_pressed(lane));
             }
 
@@ -5713,12 +5753,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let adjusted = bms.adjust_object_position(player.bottom, time);
                 (SCREENH-70) - (400.0 * player.playspeed * adjusted) as uint
             };
-            for self.lanestyles.iter().advance |&(lane,style)| {
+            for &(lane,style) in self.lanestyles.iter() {
                 let front = do player.pfront.find_next_of_type |&obj| {
                     obj.object_lane() == Some(lane) && obj.is_renderable()
                 };
                 if front.is_none() { loop; }
-                let front = front.get();
+                let front = front.unwrap();
 
                 // LN starting before the bottom and ending after the top
                 if front.time() > player.top && front.is_lndone() {
@@ -5738,7 +5778,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                             LNDone(lane0,_) if lane0 == lane => {
                                 let bottom = SCREENH-80;
                                 style.render_note(screen, sprite, y,
-                                                  nextbottom.get_or_default(bottom));
+                                                  nextbottom.unwrap_or(bottom));
                                 nextbottom = None;
                             }
                             Visible(lane0,_) if lane0 == lane => {
@@ -5754,39 +5794,39 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                         i += 1;
                     }
 
-                    for nextbottom.iter().advance |&y| {
+                    for &y in nextbottom.iter() {
                         style.render_note(screen, sprite, 30, y);
                     }
                 }
             }
 
             // render measure bars
-            for int::range(player.bottom.floor() as int, player.top.floor() as int + 1) |i| {
+            for i in range(player.bottom.floor() as int, player.top.floor() as int + 1) {
                 let y = time_to_y(i as float);
                 screen.fill_area((0, y), (self.leftmost, 1), RGB(0xc0,0xc0,0xc0));
-                for self.rightmost.iter().advance |&rightmost| {
+                for &rightmost in self.rightmost.iter() {
                     screen.fill_area((rightmost, y), (800-rightmost, 1), RGB(0xc0,0xc0,0xc0));
                 }
             }
 
             // render grading text
             if gradelimit.is_some() && player.lastgrade.is_some() {
-                let gradelimit = gradelimit.get();
-                let (lastgrade,_) = player.lastgrade.get();
+                let gradelimit = gradelimit.unwrap();
+                let (lastgrade,_) = player.lastgrade.unwrap();
                 let (gradename,gradecolor) = GRADES[lastgrade as uint];
                 let delta = (cmp::max(gradelimit - player.now, 400) - 400) / 15;
                 do screen.with_pixels |pixels| {
                     font.print_string(pixels, self.leftmost/2, SCREENH/2 - 40 - delta, 2,
-                                      Centered, gradename, gradecolor);
+                                      Centered, gradename, &gradecolor);
                     if player.lastcombo > 1 {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
                                           Centered, fmt!("%u COMBO", player.lastcombo),
-                                          Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
+                                          &Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 + 2 - delta, 1,
                                           Centered, "(AUTO)",
-                                          Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
+                                          &Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
                     }
                 }
             }
@@ -5802,17 +5842,17 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             do screen.with_pixels |pixels| {
                 let black = RGB(0,0,0);
                 font.print_string(pixels, 10, 8, 1, LeftAligned,
-                                  fmt!("SCORE %07u", player.score), black);
+                                  fmt!("SCORE %07u", player.score), &black);
                 let nominalplayspeed = player.nominal_playspeed();
                 font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
-                                  fmt!("%4.1fx", nominalplayspeed), black);
+                                  fmt!("%4.1fx", nominalplayspeed), &black);
                 font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, LeftAligned,
                                   fmt!("%02u:%02u / %02u:%02u", elapsed/60, elapsed%60,
-                                                                duration/60, duration%60), black);
+                                                                duration/60, duration%60), &black);
                 font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
-                                  fmt!("@%9.4f", player.bottom), black);
+                                  fmt!("@%9.4f", player.bottom), &black);
                 font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
-                                  fmt!("BPM %6.2f", *player.bpm), black);
+                                  fmt!("BPM %6.2f", *player.bpm), &black);
                 let timetick =
                     cmp::min(self.leftmost, (player.now - player.origintime) *
                                             self.leftmost / durationmsec);
@@ -5957,117 +5997,110 @@ pub fn play(opts: ~player::Options) {
     let infos = ~parser::analyze_bms(bms);
 
     // applies the modifier if any
-    for opts.modf.iter().advance |&modf| {
+    for &modf in opts.modf.iter() {
         player::apply_modf(bms, modf, &mut r, keyspec, 0, keyspec.split);
         if keyspec.split < keyspec.order.len() {
             player::apply_modf(bms, modf, &mut r, keyspec, keyspec.split, keyspec.order.len());
         }
     }
 
-    let (port, chan) = std::comm::stream();
-    chan.send(~(opts, bms, infos, keyspec));
+    // initialize SDL
+    player::init_sdl();
+    for &joyidx in opts.joystick.iter() { player::init_joystick(joyidx); }
 
-    do ::sdl::start {
-        let ~(opts, bms, infos, keyspec) = port.recv();
+    // read the input mapping (dependent to the SDL initialization)
+    let keymap = ~player::read_keymap(keyspec, std::os::getenv);
 
-        // initialize SDL
-        player::init_sdl();
-        for opts.joystick.iter().advance |&joyidx| { player::init_joystick(joyidx); }
+    // uncompress and populate the bitmap font.
+    let mut font = ~gfx::Font();
+    font.create_zoomed_font(1);
+    font.create_zoomed_font(2);
+    let font = font;
 
-        // read the input mapping (dependent to the SDL initialization)
-        let keymap = ~player::read_keymap(keyspec, std::os::getenv);
+    // initialize the screen if required
+    let mut screen = None;
+    if opts.has_screen() {
+        screen = Some(player::init_video(opts.is_exclusive(), opts.fullscreen));
+    }
 
-        // uncompress and populate the bitmap font.
-        let mut font = ~gfx::Font();
-        font.create_zoomed_font(1);
-        font.create_zoomed_font(2);
-        let font = font;
+    let atexit = || { if opts.is_exclusive() { player::update_line(""); } };
 
-        // initialize the screen if required
-        let mut screen = None;
-        if opts.has_screen() {
-            screen = Some(player::init_video(opts.is_exclusive(), opts.fullscreen));
-        }
-
-        let atexit = || { if opts.is_exclusive() { player::update_line(""); } };
-
-        // render the loading screen
-        let mut ticker = player::Ticker();
-        let mut saved_screen = None; // XXX should be in a trait actually
-        let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
-        let update_status;
-        if !opts.is_exclusive() {
-            let screen_: &gfx::Surface = *screen.get_ref();
-            player::show_stagefile_screen(bms, infos, keyspec, opts, screen_, font);
-            if opts.showinfo {
-                saved_screen = Some(player::save_screen_for_loading(screen_));
-                update_status = |path| {
-                    let screen: &gfx::Surface = *screen.get_ref();
-                    let saved_screen: &gfx::Surface = *saved_screen.get_ref();
-                    player::graphic_update_status(path, screen, saved_screen,
-                                                  font, &mut ticker, || atexit()) // XXX #7363
-                };
-            } else {
-                update_status = |_path| {};
-            }
-        } else if opts.showinfo {
-            player::show_stagefile_noscreen(bms, infos, keyspec, opts);
+    // render the loading screen
+    let mut ticker = player::Ticker();
+    let mut saved_screen = None; // XXX should be in a trait actually
+    let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
+    let update_status;
+    if !opts.is_exclusive() {
+        let screen_: &gfx::Surface = *screen.get_ref();
+        player::show_stagefile_screen(bms, infos, keyspec, opts, screen_, font);
+        if opts.showinfo {
+            saved_screen = Some(player::save_screen_for_loading(screen_));
             update_status = |path| {
-                player::text_update_status(path, &mut ticker, || atexit()) // XXX #7363
+                let screen: &gfx::Surface = *screen.get_ref();
+                let saved_screen: &gfx::Surface = *saved_screen.get_ref();
+                player::graphic_update_status(path, screen, saved_screen,
+                                              font, &mut ticker, || atexit()) // XXX #7363
             };
         } else {
             update_status = |_path| {};
         }
+    } else if opts.showinfo {
+        player::show_stagefile_noscreen(bms, infos, keyspec, opts);
+        update_status = |path| {
+            player::text_update_status(path, &mut ticker, || atexit()) // XXX #7363
+        };
+    } else {
+        update_status = |_path| {};
+    }
 
-        // wait for resources
-        let start = ::sdl::get_ticks() + 3000;
-        let (sndres, imgres) =
-            player::load_resource(bms, opts, |msg| update_status(msg)); // XXX #7363
-        if opts.showinfo {
-            ticker.reset(); // force update
-            update_status(None);
+    // wait for resources
+    let start = ::sdl::get_ticks() + 3000;
+    let (sndres, imgres) =
+        player::load_resource(bms, opts, |msg| update_status(msg)); // XXX #7363
+    if opts.showinfo {
+        ticker.reset(); // force update
+        update_status(None);
+    }
+    while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); } // XXX #7363
+
+    // create the player and transfer ownership of other resources to it
+    let duration = parser::bms_duration(bms, infos.originoffset,
+                                        |sref| sndres[**sref].duration());
+    let player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
+
+    // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
+    fn loop_with_display<T:player::Display>(mut player: player::Player, mut display: T) {
+        while player.tick() {
+            display.render(&player);
         }
-        while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); } // XXX #7363
+        display.show_result(&player);
 
-        // create the player and transfer ownership of other resources to it
-        let duration = parser::bms_duration(bms, infos.originoffset,
-                                            |sref| sndres[**sref].duration());
-        let player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
+        // remove all channels before sound resources are deallocated.
+        // halting alone is not sufficient due to rust-sdl's bug.
+        ::sdl::mixer::allocate_channels(0);
+    }
 
-        // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
-        fn loop_with_display<T:player::Display>(mut player: player::Player, mut display: T) {
-            while player.tick() {
-                display.render(&player);
-            }
-            display.show_result(&player);
-
-            // remove all channels before sound resources are deallocated.
-            // halting alone is not sufficient due to rust-sdl's bug.
-            ::sdl::mixer::allocate_channels(0);
-        }
-
-        // create the display and runs the actual game play loop
-        match screen {
-            Some(screen) => {
-                if player.opts.is_exclusive() {
-                    loop_with_display(player, player::BGAOnlyDisplay(screen, imgres));
-                } else {
-                    let display_ = player::GraphicDisplay(player.opts, player.keyspec,
-                                                          screen, font, imgres);
-                    match display_ {
-                        Ok(display) => loop_with_display(player, display),
-                        Err(err) => die!("%s", err)
-                    }
+    // create the display and runs the actual game play loop
+    match screen {
+        Some(screen) => {
+            if player.opts.is_exclusive() {
+                loop_with_display(player, player::BGAOnlyDisplay(screen, imgres));
+            } else {
+                let display_ = player::GraphicDisplay(player.opts, player.keyspec,
+                                                      screen, font, imgres);
+                match display_ {
+                    Ok(display) => loop_with_display(player, display),
+                    Err(err) => die!("%s", err)
                 }
             }
-            None => {
-                loop_with_display(player, player::TextDisplay());
-            }
         }
-
-        // it's done!
-        atexit();
+        None => {
+            loop_with_display(player, player::TextDisplay());
+        }
     }
+
+    // it's done!
+    atexit();
 }
 
 /// Prints the usage. (C: `usage`)
@@ -6178,7 +6211,7 @@ pub fn main() {
             let nshortargs = shortargs.len();
 
             let mut inside = true;
-            for shortargs.iter().enumerate().advance |(j, c)| {
+            for (j, c) in shortargs.iter().enumerate() {
                 // Reads the argument of the option. Option string should be consumed first.
                 let fetch_arg = |opt| {
                     let off = if inside {j+1} else {j};
@@ -6217,7 +6250,7 @@ pub fn main() {
                     'K' => { leftkeys = Some(fetch_arg('K').to_owned());
                              rightkeys = Some(fetch_arg('K').to_owned()); }
                     'a' => {
-                        match float::from_str(fetch_arg('a')) {
+                        match from_str::<float>(fetch_arg('a')) {
                             Some(speed) if speed > 0.0 => {
                                 playspeed = if speed < 0.1 {0.1}
                                             else if speed > 99.0 {99.0}
@@ -6229,13 +6262,13 @@ pub fn main() {
                     'B' => { bga = NoBga; }
                     'M' => { bga = BgaButNoMovie; }
                     'j' => {
-                        match uint::from_str(fetch_arg('j')) {
+                        match from_str::<uint>(fetch_arg('j')) {
                             Some(n) => { joystick = Some(n); }
                             _ => die!("Invalid argument to option -j")
                         }
                     }
                     ' ' => {} // for ignored long options
-                    '1'..'9' => { playspeed = char::to_digit(c, 10).get() as float; }
+                    '1'..'9' => { playspeed = char::to_digit(c, 10).unwrap() as float; }
                     _ => die!("Invalid option: -%c", c)
                 }
                 if !inside { break; }
