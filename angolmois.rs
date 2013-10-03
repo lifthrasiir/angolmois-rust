@@ -71,7 +71,7 @@
 extern mod extra;
 extern mod sdl;
 
-use std::{char, uint, float, str};
+use std::{char, str};
 use std::num::Round;
 
 // see below for specifics.
@@ -400,32 +400,6 @@ pub mod util {
             if v < low {low} else if v > high {high} else {v}
         }
 
-    }
-
-    /**
-     * Hash table routines for Rust. Parallels to `std::hashmap`.
-     *
-     * NOTE: Some of these additions will be eventually sent to `libstd/hashmap.rs` and are not
-     * subject to the above copyright notice.
-     */
-    pub mod hashmap {
-        use std::hashmap::*;
-
-        /// Constructs a new map from a vector of key-value pairs.
-        pub fn map_from_vec<K:Eq+Hash+IterBytes,V>(items: &[(K,V)]) -> HashMap<K,V> {
-            let mut map = HashMap::new();
-            map.reserve_at_least(items.len());
-            for &(k,v) in items.iter() { map.insert(k, v); }
-            map
-        }
-
-        /// Constructs a new set from a vector of key-value pairs.
-        pub fn set_from_vec<V:Eq+Hash+IterBytes>(items: &[V]) -> HashSet<V> {
-            let mut set = HashSet::new();
-            set.reserve_at_least(items.len());
-            for &v in items.iter() { set.insert(v); }
-            set
-        }
     }
 
     /**
@@ -778,6 +752,7 @@ pub mod util {
 
     /// Immediately terminates the program with given exit code.
     pub fn exit(exitcode: int) -> ! {
+        #[fixed_stack_segment];
         // Rust: `std::os::set_exit_status` doesn't immediately terminate the program.
         unsafe { ::std::libc::exit(exitcode as ::std::libc::c_int); }
     }
@@ -785,6 +760,7 @@ pub mod util {
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(target_os = "win32")]
     pub fn die(s: ~str) -> ! {
+        #[fixed_stack_segment];
         use util::str::StrUtil;
         do ::exename().as_utf16_c_str() |caption| {
             do s.as_utf16_c_str() |text| {
@@ -822,6 +798,7 @@ pub mod util {
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(target_os = "win32")]
     pub fn get_path_from_dialog() -> Option<~str> {
+        #[fixed_stack_segment];
         use std::ptr::{null, mut_null};
         use util::str::StrUtil;
 
@@ -1059,8 +1036,8 @@ pub mod util {
         });
         // end Angolmois-specific
         ($e:expr; $lit:expr, $($tail:tt)*) => ({
-            do $lit.prefix_shifted($e).map_default(false) |&_line| {
-                lex!(_line; $($tail)*)
+            do $lit.prefix_shifted($e).map_default(false) |_line| {
+                lex!(*_line; $($tail)*)
             }
         });
 
@@ -1126,7 +1103,7 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use std::{int, uint, float, str, vec, cmp, iter};
+    use std::{float, str, vec, cmp, iter};
     use std::rand::*;
     use util::str::StrUtil;
 
@@ -1769,11 +1746,9 @@ pub mod parser {
         /// Initial BPM. (C: `initbpm`)
         initbpm: BPM,
         /// Paths to sound file relative to `basepath` or BMS file. (C: `sndpath`)
-        //
-        // Rust: constant expression in the array size is unsupported.
-        sndpath: [Option<~str>, ..MAXKEY],
+        sndpath: ~[Option<~str>],
         /// Paths to image/movie file relative to `basepath` or BMS file. (C: `imgpath`)
-        imgpath: [Option<~str>, ..MAXKEY],
+        imgpath: ~[Option<~str>],
         /// List of blit commands to be executed after `imgpath` is loaded. (C: `blitcmd`)
         blitcmd: ~[BlitCmd],
 
@@ -1788,10 +1763,13 @@ pub mod parser {
 
     /// Creates a default value of BMS data.
     pub fn Bms() -> Bms {
+        // Rust: `None` is not clonable when it has a type of `Option<~str>`, so `[None, ..N]`
+        //       syntax does not work. this makes a fixed size vector unconstructible.
         Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
               player: SinglePlay, playlevel: 0, rank: 2, initbpm: DefaultBPM,
-              sndpath: [None, ..MAXKEY], imgpath: [None, ..MAXKEY], blitcmd: ~[], objs: ~[],
-              shortens: ~[], nmeasures: 0 }
+              sndpath: vec::from_elem(MAXKEY as uint, None),
+              imgpath: vec::from_elem(MAXKEY as uint, None), blitcmd: ~[],
+              objs: ~[], shortens: ~[], nmeasures: 0 }
     }
 
     impl Bms {
@@ -2003,8 +1981,8 @@ pub mod parser {
         // command. (C: `value[V_LNOBJ]`)
         let mut lnobj = None;
 
-        let lines = f.read_whole_stream().split_iter(|&ch| ch == 10u8);
-        for line0 in lines {
+        let file = f.read_whole_stream();
+        for line0 in file.split_iter(|&ch| ch == 10u8) {
             let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
             let line: &str = line0;
 
@@ -2773,7 +2751,7 @@ pub mod parser {
     /// Swaps given lanes in the reverse order. (C: `shuffle_bms` with `MIRROR_MODF`)
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        let assocs = lanes.iter().zip(lanes.rev_iter()); // XXX #3511
+        let mut assocs = lanes.iter().zip(lanes.rev_iter()); // XXX #3511
         for (&Lane(from), &to) in assocs {
             map[from] = to;
         }
@@ -2788,7 +2766,7 @@ pub mod parser {
     pub fn apply_shuffle_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes.to_owned());
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        let assocs = lanes.iter().zip(shuffled.iter()); // XXX #3511
+        let mut assocs = lanes.iter().zip(shuffled.iter()); // XXX #3511
         for (&Lane(from), &to) in assocs {
             map[from] = to;
         }
@@ -2817,8 +2795,8 @@ pub mod parser {
             }
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
-                let shuffled = r.shuffle(movable);
-                let assocs = movable.iter().zip(shuffled.iter()); // XXX #3511
+                let shuffled = r.shuffle(movable.clone());
+                let mut assocs = movable.iter().zip(shuffled.iter()); // XXX #3511
                 for (&Lane(from), &to) in assocs {
                     map[from] = to;
                 }
@@ -2840,7 +2818,7 @@ pub mod parser {
 
 /// Graphic utilities.
 pub mod gfx {
-    use std::{int, uint, vec, num};
+    use std::{vec, num};
     use sdl::Rect;
     pub use sdl::video::*;
 
@@ -3055,6 +3033,7 @@ pub mod gfx {
     }
 
     /// Linear color gradient.
+    #[deriving(Eq)]
     pub struct Gradient {
         /// A color at the position 0.0. Normally used as a topmost value.
         zero: Color,
@@ -3069,18 +3048,21 @@ pub mod gfx {
 
     /// A trait for color or color gradient. The color at the particular position can be calculated
     /// with `blend` method.
-    //
-    // Rust: `Copy` can't be inherited even when it's specified. (#3984)
     pub trait Blend {
+        /// Returns itself. This is same as `Clone::clone` but redefined here due to the inability
+        /// of implementing `Clone` for `Color`.
+        fn clone(&self) -> Self;
         /// Calculates the color at the position `num/denom`. (C: `blend`)
         fn blend(&self, num: int, denom: int) -> Color;
     }
 
     impl Blend for Color {
+        fn clone(&self) -> Color { *self }
         fn blend(&self, _num: int, _denom: int) -> Color { *self }
     }
 
     impl Blend for Gradient {
+        fn clone(&self) -> Gradient { *self }
         fn blend(&self, num: int, denom: int) -> Color {
             fn mix(x: u8, y: u8, num: int, denom: int) -> u8 {
                 let x = x as int;
@@ -3458,7 +3440,7 @@ pub mod gfx {
 
         /// Prints a string with given position, alignment and color. (C: `printstr`)
         pub fn print_string<ColorT:Blend>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
-                                          zoom: uint, align: Alignment, s: &str, color: &ColorT) {
+                                          zoom: uint, align: Alignment, s: &str, color: ColorT) {
             let mut x = match align {
                 LeftAligned  => x,
                 Centered     => x - s.char_len() * (8 * zoom) / 2,
@@ -3467,7 +3449,7 @@ pub mod gfx {
             for c in s.iter() {
                 let nextx = x + 8 * zoom;
                 if nextx >= pixels.width { break; }
-                self.print_char(pixels, x, y, zoom, c, *color);
+                self.print_char(pixels, x, y, zoom, c, color.clone());
                 x = nextx;
             }
         }
@@ -3485,7 +3467,7 @@ pub mod gfx {
  * Angolmois is not well refactored. (In fact, the game logic is usually hard to refactor, right?)
  */
 pub mod player {
-    use std::{int, uint, vec, cmp, num, iter};
+    use std::{vec, cmp, num, iter};
     use sdl::*;
     use sdl::video::*;
     use sdl::event::*;
@@ -3618,14 +3600,14 @@ pub mod player {
                     Some(leftright) => leftright,
                     None => {
                         return Err(fmt!("Invalid preset name: %s",
-                                        opts.preset.map_default(~"", |&v| v.clone())));
+                                        opts.preset.map_default(~"", |v| v.clone())));
                     }
                 }
             } else {
                 // Rust: `Option` of managed pointer is not easy to use due to
                 //       implicit move. `Option<T>::clone_default` maybe?
-                (opts.leftkeys.map_default(~"", |&v| v.clone()),
-                 opts.rightkeys.map_default(~"", |&v| v.clone()))
+                (opts.leftkeys.map_default(~"", |v| v.clone()),
+                 opts.rightkeys.map_default(~"", |v| v.clone()))
             };
 
         let mut keyspec = ~KeySpec { split: 0, order: ~[], kinds: ~[None, ..NLANES] };
@@ -4001,10 +3983,10 @@ pub mod player {
             let kind = keyspec.kinds[*lane].unwrap();
             let envvar = fmt!("ANGOLMOIS_%s%c_KEY", key.to_str(), kind.to_char());
             let val = getenv(envvar); // XXX #3511
-            for &s in val.iter() {
-                match parse_input(s) {
+            for s in val.iter() {
+                match parse_input(*s) {
                     Some(input) => { add_mapping(Some(kind), input, LaneInput(lane)); }
-                    None => die!("Unknown key name in the environment variable %s: %s", envvar, s)
+                    None => die!("Unknown key name in the environment variable %s: %s", envvar, *s)
                 }
             }
         }
@@ -4065,10 +4047,10 @@ pub mod player {
             let part = part.to_ascii_upper();
             let mut found = false;
             let entries = list_dir(&cur); // XXX #3511
-            for &next in entries.iter() {
-                if next == ~"." || next == ~".." { loop; }
+            for next in entries.iter() {
+                if ".".equiv(next) || "..".equiv(next) { loop; }
                 if next.to_ascii_upper() == part {
-                    cur = cur.push(next);
+                    cur = cur.push(*next);
                     found = true;
                     break;
                 }
@@ -4080,8 +4062,8 @@ pub mod player {
 
         let lastpart = lastpart.to_ascii_upper();
         let entries = list_dir(&cur); // XXX #3511
-        for &next in entries.iter() {
-            if next == ~"." || next == ~".." { loop; }
+        for next in entries.iter() {
+            if ".".equiv(next) || "..".equiv(next) { loop; }
             let next_ = next.to_ascii_upper();
             let mut found = (next_ == lastpart);
             if !found {
@@ -4099,7 +4081,7 @@ pub mod player {
                 }
             }
             if found {
-                return Some(cur.push(next));
+                return Some(cur.push(*next));
             }
         }
 
@@ -4356,16 +4338,16 @@ pub mod player {
 
         do screen.with_pixels |pixels| {
             font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2, Centered, "loading bms file...",
-                              &Gradient(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
+                              Gradient(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
         }
         screen.flip();
 
         do screen.with_pixels |pixels| {
-            for &path in bms.stagefile.iter() {
+            for path in bms.stagefile.iter() {
                 let basedir = get_basedir(bms, opts);
-                let resolved = resolve_relative_path(&basedir, path, IMAGE_EXTS); // XXX #3511
-                for &path in resolved.iter() {
-                    match img::load(&path).and_then(|s| s.display_format()) {
+                let resolved = resolve_relative_path(&basedir, *path, IMAGE_EXTS); // XXX #3511
+                for path in resolved.iter() {
+                    match img::load(path).and_then(|s| s.display_format()) {
                         Ok(surface) => {
                             do surface.with_pixels |srcpixels| {
                                 bicubic_interpolation(srcpixels, pixels);
@@ -4387,10 +4369,10 @@ pub mod player {
                         put_blended_pixel(pixels, i, j, bg); // XXX incorrect lifetime
                     }
                 }
-                font.print_string(pixels, 6, 4, 2, LeftAligned, title, &fg);
-                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre, &fg);
-                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist, &fg);
-                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta, &fg);
+                font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
+                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre, fg);
+                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist, fg);
+                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta, fg);
             }
         }
 
@@ -4417,21 +4399,21 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         let basedir = get_basedir(bms, opts);
 
         let sndres: ~[SoundResource] =
-            do bms.sndpath.iter().enumerate().map |(i, &path)| {
-                match path {
-                    Some(path) => {
+            do bms.sndpath.iter().enumerate().map |(i, path)| {
+                match *path {
+                    Some(ref path) => {
                         callback(Some(path.clone()));
-                        load_sound(Key(i as int), path, &basedir)
+                        load_sound(Key(i as int), path.clone(), &basedir)
                     },
                     None => NoSound
                 }
             }.collect();
         let mut imgres: ~[ImageResource] =
-            do bms.imgpath.iter().enumerate().map |(i, &path)| {
-                match path {
-                    Some(path) => {
+            do bms.imgpath.iter().enumerate().map |(i, path)| {
+                match *path {
+                    Some(ref path) => {
                         callback(Some(path.clone()));
-                        load_image(Key(i as int), path, opts, &basedir)
+                        load_image(Key(i as int), path.clone(), opts, &basedir)
                     },
                     None => NoImage
                 }
@@ -4464,7 +4446,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             do screen.with_pixels |pixels| {
                 font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg,
-                                  &Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
+                                  Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
             }
             screen.flip();
         }
@@ -5603,7 +5585,9 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         sprite.fill_area((leftgap, SCREENH-80), (gapwidth, 80), black);
         do sprite.with_pixels |pixels| {
             for i in range(0, 20u) {
-                for j in iter::range_step(20, 0u, -1) {
+                // Rust: this cannot be `uint` since `-1u` underflows!
+                for j in iter::range_step(20, 0, -1) {
+                    let j = j as uint;
                     if i*i + j*j <= 400 { break; } // circled border
                     put_pixel(pixels, leftmost + j, 10 + i, black); // XXX incorrect lifetime
                     put_pixel(pixels, leftmost + j, (SCREENH-61) - i, black); // XXX
@@ -5817,16 +5801,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let delta = (cmp::max(gradelimit - player.now, 400) - 400) / 15;
                 do screen.with_pixels |pixels| {
                     font.print_string(pixels, self.leftmost/2, SCREENH/2 - 40 - delta, 2,
-                                      Centered, gradename, &gradecolor);
+                                      Centered, gradename, gradecolor);
                     if player.lastcombo > 1 {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
                                           Centered, fmt!("%u COMBO", player.lastcombo),
-                                          &Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
+                                          Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 + 2 - delta, 1,
                                           Centered, "(AUTO)",
-                                          &Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
+                                          Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
                     }
                 }
             }
@@ -5842,17 +5826,17 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             do screen.with_pixels |pixels| {
                 let black = RGB(0,0,0);
                 font.print_string(pixels, 10, 8, 1, LeftAligned,
-                                  fmt!("SCORE %07u", player.score), &black);
+                                  fmt!("SCORE %07u", player.score), black);
                 let nominalplayspeed = player.nominal_playspeed();
                 font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
-                                  fmt!("%4.1fx", nominalplayspeed), &black);
+                                  fmt!("%4.1fx", nominalplayspeed), black);
                 font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, LeftAligned,
                                   fmt!("%02u:%02u / %02u:%02u", elapsed/60, elapsed%60,
-                                                                duration/60, duration%60), &black);
+                                                                duration/60, duration%60), black);
                 font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
-                                  fmt!("@%9.4f", player.bottom), &black);
+                                  fmt!("@%9.4f", player.bottom), black);
                 font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
-                                  fmt!("BPM %6.2f", *player.bpm), &black);
+                                  fmt!("BPM %6.2f", *player.bpm), black);
                 let timetick =
                     cmp::min(self.leftmost, (player.now - player.origintime) *
                                             self.leftmost / durationmsec);
@@ -6160,7 +6144,7 @@ pub fn main() {
     use player::*;
     use util::str::StrUtil;
 
-    let longargs = util::hashmap::map_from_vec([
+    let longargs = (~[
         (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
         (~"--autoplay", 'v'), (~"--exclusive", 'x'), (~"--sound-only", 'X'),
         (~"--windowed", 'w'), (~"--no-fullscreen", 'w'),
@@ -6169,7 +6153,7 @@ pub fn main() {
         (~"--random", 'r'), (~"--random-ex", 'R'), (~"--preset", 'k'),
         (~"--key-spec", 'K'), (~"--bga", ' '), (~"--no-bga", 'B'),
         (~"--movie", ' '), (~"--no-movie", 'M'), (~"--joystick", 'j'),
-    ]);
+    ]).move_iter().collect::<std::hashmap::HashMap<~str,char>>();
 
     let args = std::os::args();
     let nargs = args.len();
