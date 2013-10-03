@@ -3958,7 +3958,11 @@ pub mod player {
         // the C version doesn't assume. this difference barely makes the practical issue though.
         match bms.basepath {
             Some(ref basepath) => { let basepath: &str = *basepath; Path(basepath) }
-            None => Path(opts.bmspath).dir_path()
+            None => {
+                // Rust: it turns out that `Path("")` is always invalid. huh?
+                let path = Path(opts.bmspath).dir_path();
+                if path.components.is_empty() {Path(".")} else {path}
+            }
         }
     }
 
@@ -5963,7 +5967,9 @@ pub fn play(opts: ~player::Options) {
         screen = Some(player::init_video(opts.is_exclusive(), opts.fullscreen));
     }
 
-    let atexit = || { if opts.is_exclusive() { player::update_line(""); } };
+    // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }` segfaults ldue to
+    //       the moved `opts`. (#2202)
+    let atexit = if opts.is_exclusive() { || player::update_line("") } else { || {} };
 
     // render the loading screen
     let mut ticker = player::Ticker();
