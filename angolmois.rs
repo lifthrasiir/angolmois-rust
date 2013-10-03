@@ -161,16 +161,16 @@ pub mod util {
             /// Returns a length of the longest prefix of given string, which `uint::from_str`
             /// accepts without a failure, if any.
             //
-            // Rust: actually, it is better to have `{uint,int,float}::from_str` returning a tuple.
+            // Rust: actually, it is better to have `{uint,int,f64}::from_str` returning a tuple.
             fn scan_uint(&self) -> Option<uint>;
 
             /// Returns a length of the longest prefix of given string, which `int::from_str`
             /// accepts without a failure, if any.
             fn scan_int(&self) -> Option<uint>;
 
-            /// Returns a length of the longest prefix of given string, which `float::from_str`
+            /// Returns a length of the longest prefix of given string, which `f64::from_str`
             /// accepts without a failure, if any.
-            fn scan_float(&self) -> Option<uint>;
+            fn scan_f64(&self) -> Option<uint>;
 
             /// Converts all ASCII letters (A-Z/a-z, no accent) to uppercase.
             fn to_ascii_upper(&self) -> ~str;
@@ -223,7 +223,7 @@ pub mod util {
                 }
             }
 
-            fn scan_float(&self) -> Option<uint> {
+            fn scan_f64(&self) -> Option<uint> {
                 do self.scan_int().and_then |pos| {
                     if self.len() > pos && self.char_at(pos) == '.' {
                         let pos2 = self.slice_from(pos + 1u).scan_uint();
@@ -626,7 +626,7 @@ pub mod util {
                     unsafe { ll::SMPEG_seek(self.raw, bytes as c_int); }
                 }
 
-                pub fn skip(&self, seconds: float) {
+                pub fn skip(&self, seconds: f64) {
                     #[fixed_stack_segment]; #[inline(never)];
                     unsafe { ll::SMPEG_skip(self.raw, seconds as c_float); }
                 }
@@ -744,25 +744,25 @@ pub mod util {
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(not(target_os = "win32"))]
     pub fn die(s: ~str) -> ! {
-        ::std::io::stderr().write_line(fmt!("%s: %s", ::exename(), s));
+        ::std::io::stderr().write_line(format!("{}: {}", ::exename(), s));
         exit(1)
     }
 
     /// Prints an warning message. Internally used in the `warn!` macro below.
     pub fn warn(s: ~str) {
-        ::std::io::stderr().write_line(fmt!("*** Warning: %s", s));
+        ::std::io::stderr().write_line(format!("*** Warning: {}", s));
     }
 
     // Exits with a formatted error message. (C: `die`)
     //
     // Rust: this comment cannot be a doc comment (yet).
     macro_rules! die(
-        ($($e:expr),+) => (::util::die(fmt!($($e),+)))
+        ($($e:expr),+) => (::util::die(format!($($e),+)))
     )
 
     // Prints a formatted warning message. (C: `warn`)
     macro_rules! warn(
-        ($($e:expr),+) => (::util::warn(fmt!($($e),+)))
+        ($($e:expr),+) => (::util::warn(format!($($e),+)))
     )
 
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
@@ -837,7 +837,7 @@ pub mod util {
      * - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`. (C: `%d` and `%*d`, but
      *   does not consume preceding whitespace) The integer syntax is slightly limited compared to
      *   `sscanf`.
-     * - `float [-> e2]`: Consumes a real number and optionally saves it to `e2`. (C: `%f` etc.)
+     * - `f64 [-> e2]`: Consumes a real number and optionally saves it to `e2`. (C: `%f` etc.)
      *   Again, the real number syntax is slightly limited; especially an exponent support is
      *   missing.
      * - `str [-> e2]`: Consumes a remaining input as a string and optionally saves it to `e2`.
@@ -891,9 +891,9 @@ pub mod util {
                 }
             }
         });
-        ($e:expr; float -> $dst:expr, $($tail:tt)*) => ({
+        ($e:expr; f64 -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            do _line.scan_float().map_default(false) |&_endpos| {
+            do _line.scan_f64().map_default(false) |&_endpos| {
                 let _prefix = _line.slice_to(_endpos);
                 do from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
@@ -981,9 +981,9 @@ pub mod util {
             let mut _dummy: uint = 0;
             lex!($e; uint -> _dummy, $($tail)*)
         });
-        ($e:expr; float, $($tail:tt)*) => ({
-            let mut _dummy: float = 0.0;
-            lex!($e; float -> _dummy, $($tail)*)
+        ($e:expr; f64, $($tail:tt)*) => ({
+            let mut _dummy: f64 = 0.0;
+            lex!($e; f64 -> _dummy, $($tail)*)
         });
         ($e:expr; str, $($tail:tt)*) => ({
             !$e.is_empty() && lex!(""; $($tail)*) // optimization!
@@ -1013,7 +1013,7 @@ pub mod util {
 
         ($e:expr; int -> $dst:expr) => (lex!($e; int -> $dst, ));
         ($e:expr; uint -> $dst:expr) => (lex!($e; uint -> $dst, ));
-        ($e:expr; float -> $dst:expr) => (lex!($e; float -> $dst, ));
+        ($e:expr; f64 -> $dst:expr) => (lex!($e; f64 -> $dst, ));
         ($e:expr; str -> $dst:expr) => (lex!($e; str -> $dst, ));
         ($e:expr; str -> $dst:expr, ws*) => (lex!($e; str -> $dst, ws*, ));
         ($e:expr; str* -> $dst:expr) => (lex!($e; str* -> $dst, ));
@@ -1028,7 +1028,7 @@ pub mod util {
         ($e:expr; ws*) => (lex!($e; ws*, ));
         ($e:expr; int) => (lex!($e; int, ));
         ($e:expr; uint) => (lex!($e; uint, ));
-        ($e:expr; float) => (lex!($e; float, ));
+        ($e:expr; f64) => (lex!($e; f64, ));
         ($e:expr; str) => (lex!($e; str, ));
         ($e:expr; str*) => (lex!($e; str*, ));
         ($e:expr; char) => (lex!($e; char, ));
@@ -1073,7 +1073,7 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use std::{float, str, vec, cmp, iter};
+    use std::{f64, str, vec, cmp, iter};
     use std::rand::*;
     use util::str::StrUtil;
 
@@ -1117,7 +1117,7 @@ pub mod parser {
         fn to_str(&self) -> ~str {
             assert!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            fmt!("%c%c", map[**self / 36] as char, map[**self % 36] as char)
+            format!("{}{}", map[**self / 36] as char, map[**self % 36] as char)
         }
     }
 
@@ -1276,24 +1276,24 @@ pub mod parser {
     /// Beats per minute. Used as a conversion factor between the time position and actual time
     /// in BMS.
     #[deriving(Eq,Clone)]
-    pub struct BPM(float);
+    pub struct BPM(f64);
 
     impl BPM {
         /// Converts a measure to a millisecond. (C: `MEASURE_TO_MSEC`)
-        pub fn measure_to_msec(self, measure: float) -> float { measure * 240000.0 / *self }
+        pub fn measure_to_msec(self, measure: f64) -> f64 { measure * 240000.0 / *self }
 
         /// Converts a millisecond to a measure. (C: `MSEC_TO_MEASURE`)
-        pub fn msec_to_measure(self, msec: float) -> float { msec * *self / 240000.0 }
+        pub fn msec_to_measure(self, msec: f64) -> f64 { msec * *self / 240000.0 }
     }
 
     /// A duration from the particular point. It may be specified in measures or seconds. Used in
     /// the `Stop` object.
     #[deriving(Eq,Clone)]
-    pub enum Duration { Seconds(float), Measures(float) }
+    pub enum Duration { Seconds(f64), Measures(f64) }
 
     impl Duration {
         /// Calculates the actual milliseconds from the current BPM.
-        pub fn to_msec(&self, bpm: BPM) -> float {
+        pub fn to_msec(&self, bpm: BPM) -> f64 {
             match *self {
                 Seconds(secs) => secs * 1000.0,
                 Measures(measures) => bpm.measure_to_msec(measures)
@@ -1305,7 +1305,7 @@ pub mod parser {
     /// (as in `MAXGAUGE`), but sometimes it may cause an instant death. Used in the `Bomb` object
     /// (normal note objects have a fixed value).
     #[deriving(Eq,Clone)]
-    pub enum Damage { GaugeDamage(float), InstantDeath }
+    pub enum Damage { GaugeDamage(f64), InstantDeath }
 
     //----------------------------------------------------------------------------------------------
     // object
@@ -1554,54 +1554,54 @@ pub mod parser {
     #[deriving(Eq,Clone)]
     pub struct Obj {
         /// Time position in measures.
-        time: float,
+        time: f64,
         /// Actual data.
         data: ObjData
     }
 
     impl Obj {
         /// Creates a `Visible` object.
-        pub fn Visible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn Visible(time: f64, lane: Lane, sref: Option<Key>) -> Obj {
             Obj { time: time, data: Visible(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates an `Invisible` object.
-        pub fn Invisible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn Invisible(time: f64, lane: Lane, sref: Option<Key>) -> Obj {
             Obj { time: time, data: Invisible(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates an `LNStart` object.
-        pub fn LNStart(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn LNStart(time: f64, lane: Lane, sref: Option<Key>) -> Obj {
             Obj { time: time, data: LNStart(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates an `LNDone` object.
-        pub fn LNDone(time: float, lane: Lane, sref: Option<Key>) -> Obj {
+        pub fn LNDone(time: f64, lane: Lane, sref: Option<Key>) -> Obj {
             Obj { time: time, data: LNDone(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates a `Bomb` object.
-        pub fn Bomb(time: float, lane: Lane, sref: Option<Key>, damage: Damage) -> Obj {
+        pub fn Bomb(time: f64, lane: Lane, sref: Option<Key>, damage: Damage) -> Obj {
             Obj { time: time, data: Bomb(lane, sref.map_move(SoundRef), damage) }
         }
 
         /// Creates a `BGM` object.
-        pub fn BGM(time: float, sref: Key) -> Obj {
+        pub fn BGM(time: f64, sref: Key) -> Obj {
             Obj { time: time, data: BGM(SoundRef(sref)) }
         }
 
         /// Creates a `SetBGA` object.
-        pub fn SetBGA(time: float, layer: BGALayer, iref: Option<Key>) -> Obj {
+        pub fn SetBGA(time: f64, layer: BGALayer, iref: Option<Key>) -> Obj {
             Obj { time: time, data: SetBGA(layer, iref.map_move(ImageRef)) }
         }
 
         /// Creates a `SetBPM` object.
-        pub fn SetBPM(time: float, bpm: BPM) -> Obj {
+        pub fn SetBPM(time: f64, bpm: BPM) -> Obj {
             Obj { time: time, data: SetBPM(bpm) }
         }
 
         /// Creates a `Stop` object.
-        pub fn Stop(time: float, duration: Duration) -> Obj {
+        pub fn Stop(time: f64, duration: Duration) -> Obj {
             Obj { time: time, data: Stop(duration) }
         }
 
@@ -1717,7 +1717,7 @@ pub mod parser {
         /// List of objects sorted by the position. (C: `objs`)
         objs: ~[Obj],
         /// The scaling factor of measures. Defaults to 1.0. (C: `shortens`)
-        shortens: ~[float],
+        shortens: ~[f64],
         /// The number of measures after the origin, i.e. the length of the BMS file. The play stops
         /// after the last measure. (C: `length`)
         nmeasures: uint
@@ -1737,7 +1737,7 @@ pub mod parser {
     impl Bms {
         /// Returns a scaling factor of given measure number. The default scaling factor is 1.0, and
         /// that value applies to any out-of-bound measures. (C: `shorten`)
-        pub fn shorten(&self, measure: int) -> float {
+        pub fn shorten(&self, measure: int) -> f64 {
             if measure < 0 || measure as uint >= self.shortens.len() {
                 1.0
             } else {
@@ -1748,10 +1748,10 @@ pub mod parser {
         /// Calculates the virtual time that is `offset` measures away from the virtual time `base`.
         /// This takes account of the scaling factor, so if first four measures are scaled by 1/4,
         /// then `adjust_object_time(0.0, 2.0)` results in `5.0`. (C: `adjust_object_time`)
-        pub fn adjust_object_time(&self, base: float, offset: float) -> float {
+        pub fn adjust_object_time(&self, base: f64, offset: f64) -> f64 {
             let basemeasure = base.floor() as int;
             let baseshorten = self.shorten(basemeasure);
-            let basefrac = base - basemeasure as float;
+            let basefrac = base - basemeasure as f64;
             let tonextmeasure = (1.0 - basefrac) * baseshorten;
             if offset < tonextmeasure {
                 base + offset / baseshorten
@@ -1764,7 +1764,7 @@ pub mod parser {
                     i += 1;
                     curshorten = self.shorten(i);
                 }
-                i as float + offset / curshorten
+                i as f64 + offset / curshorten
             }
         }
 
@@ -1772,11 +1772,11 @@ pub mod parser {
         /// This takes account of the measure scaling factor, so for example, the adjusted offset
         /// between the virtual time 0.0 and 2.0 is, if the measure #000 is scaled by 1.2x,
         /// 2.2 measures instead of 2.0 measures. (C: `adjust_object_position`)
-        pub fn adjust_object_position(&self, base: float, time: float) -> float {
+        pub fn adjust_object_position(&self, base: f64, time: f64) -> f64 {
             let basemeasure = base.floor() as int;
             let timemeasure = time.floor() as int;
-            let basefrac = base - basemeasure as float;
-            let timefrac = time - timemeasure as float;
+            let basefrac = base - basemeasure as f64;
+            let timefrac = time - timemeasure as f64;
             let mut pos = timefrac * self.shorten(timemeasure) -
                           basefrac * self.shorten(basemeasure);
             for i in range(basemeasure, timemeasure) {
@@ -1999,10 +1999,10 @@ pub mod parser {
                 ("BPM", false) => {
                     let mut key = Key(-1);
                     let mut bpm = 0.0;
-                    if lex!(line; Key -> key, ws, float -> bpm) {
+                    if lex!(line; Key -> key, ws, f64 -> bpm) {
                         let Key(key) = key;
                         bpmtab[key] = BPM(bpm);
-                    } else if lex!(line; ws, float -> bpm) {
+                    } else if lex!(line; ws, f64 -> bpm) {
                         bms.initbpm = BPM(bpm);
                     }
                 }
@@ -2050,7 +2050,7 @@ pub mod parser {
                     let mut duration = 0;
                     if lex!(line; Key -> key, ws, int -> duration) {
                         let Key(key) = key;
-                        stoptab[key] = Measures(duration as float / 192.0);
+                        stoptab[key] = Measures(duration as f64 / 192.0);
                     }
                 }
 
@@ -2061,8 +2061,8 @@ pub mod parser {
                     let mut duration = 0;
                     if lex!(line; Measure -> measure, '.', uint -> frac, ws,
                             int -> duration) && duration > 0 {
-                        let pos = measure as float + frac as float * 0.001;
-                        let dur = Seconds(duration as float * 0.001);
+                        let pos = measure as f64 + frac as f64 * 0.001;
+                        let dur = Seconds(duration as f64 * 0.001);
                         bms.objs.push(Obj::Stop(pos, dur));
                     }
                 }
@@ -2164,7 +2164,7 @@ pub mod parser {
         // Handles a non-00 alphanumeric key `v` positioned at the particular channel `chan` and
         // particular position `t`. The position `t2` next to `t` is used for some cases that
         // an alphanumeric key designates an area rather than a point.
-        let handle_key = |chan: Key, t: float, t2: float, v: Key| {
+        let handle_key = |chan: Key, t: f64, t2: f64, v: Key| {
             // Adds an object. Objects are sorted by its position later.
             let add = |obj: Obj| { bms.objs.push(obj); };
             // Adds an object and returns its position. LN parsing generally mutates the existing
@@ -2183,7 +2183,7 @@ pub mod parser {
                 3 => {
                     let v = v.to_hex(); // XXX #3511
                     for &v in v.iter() {
-                        add(Obj::SetBPM(t, BPM(v as float)))
+                        add(Obj::SetBPM(t, BPM(v as f64)))
                     }
                 }
 
@@ -2273,7 +2273,7 @@ pub mod parser {
                 468/*0xD*36*/..539/*0xF*36-1*/ => {
                     let lane = Lane::from_channel(chan);
                     let damage = match *v {
-                        1..200 => Some(GaugeDamage(*v as float / 200.0)),
+                        1..200 => Some(GaugeDamage(*v as f64 / 200.0)),
                         1295 => Some(InstantDeath), // XXX 1295=MAXKEY-1
                         _ => None
                     };
@@ -2294,22 +2294,22 @@ pub mod parser {
         for line in bmsline.iter() {
             if *line.chan == 2 {
                 let mut shorten = 0.0;
-                if lex!(line.data; ws*, float -> shorten) {
+                if lex!(line.data; ws*, f64 -> shorten) {
                     if shorten > 0.001 {
                         bms.shortens.grow_set(line.measure, &1.0, shorten);
                     }
                 }
             } else {
-                let measure = line.measure as float;
+                let measure = line.measure as f64;
                 let data: ~[char] = line.data.iter().collect();
                 let max = data.len() / 2 * 2;
-                let count = max as float;
+                let count = max as f64;
                 for i in iter::range_step(0, max, 2) {
                     let v = key2index(data.slice(i, i+2));
                     for &v in v.iter() {
                         if v != 0 { // ignores 00
-                            let t = measure + i as float / count;
-                            let t2 = measure + (i + 2) as float / count;
+                            let t = measure + i as f64 / count;
+                            let t2 = measure + (i + 2) as f64 / count;
                             handle_key(line.chan, t, t2, Key(v));
                         }
                     }
@@ -2323,7 +2323,7 @@ pub mod parser {
 
         // fix the unterminated longnote
         bms.nmeasures = bmsline.last_opt().map_default(0, |l| l.measure) + 1;
-        let endt = bms.nmeasures as float;
+        let endt = bms.nmeasures as f64;
         for i in range(0, NLANES) {
             if lastvis[i].is_some() || (!consecutiveln && lastln[i].is_some()) {
                 bms.objs.push(Obj::LNDone(endt, Lane(i), None));
@@ -2617,7 +2617,7 @@ pub mod parser {
     pub struct BmsInfo {
         /// The start position of the BMS file. This is either -1.0 or 0.0 depending on the first
         /// measure has any visible objects or not. (C: `originoffset`)
-        originoffset: float,
+        originoffset: f64,
         /// Set to true if the BMS file has a BPM change. (C: `hasbpmchange`)
         hasbpmchange: bool,
         /// Set to true if the BMS file has long note objects. (C: `haslongnote`)
@@ -2645,7 +2645,7 @@ pub mod parser {
         }
 
         for i in range(0, infos.nnotes) {
-            let ratio = (i as float) / (infos.nnotes as float);
+            let ratio = (i as f64) / (infos.nnotes as f64);
             infos.maxscore += (300.0 * (1.0 + ratio)) as int;
         }
 
@@ -2654,8 +2654,8 @@ pub mod parser {
 
     /// Calculates the duration of the loaded BMS file in seconds. `sound_length` should return
     /// the length of sound resources in seconds or 0.0. (C: `get_bms_duration`)
-    pub fn bms_duration(bms: &Bms, originoffset: float,
-                        sound_length: &fn(SoundRef) -> float) -> float {
+    pub fn bms_duration(bms: &Bms, originoffset: f64,
+                        sound_length: &fn(SoundRef) -> f64) -> f64 {
         let mut pos = originoffset;
         let mut bpm = bms.initbpm;
         let mut time = 0.0;
@@ -2687,7 +2687,7 @@ pub mod parser {
         }
 
         if *bpm > 0.0 { // the chart scrolls backwards to `originoffset` for negative BPM
-            let delta = bms.adjust_object_position(pos, (bms.nmeasures + 1) as float);
+            let delta = bms.adjust_object_position(pos, (bms.nmeasures + 1) as f64);
             time += bpm.measure_to_msec(delta);
         }
         cmp::max(time, sndtime) / 1000.0
@@ -2745,7 +2745,7 @@ pub mod parser {
         let mut movable = lanes.to_owned();
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
 
-        let mut lasttime = float::neg_infinity;
+        let mut lasttime = f64::neg_infinity;
         for obj in bms.objs.mut_iter() {
             if obj.is_lnstart() {
                 let lane = obj.object_lane().unwrap();
@@ -3045,7 +3045,7 @@ pub mod gfx {
     pub fn new_surface(w: uint, h: uint) -> ~Surface {
         match Surface::new([SWSurface], w as int, h as int, 32, 0xff0000, 0xff00, 0xff, 0) {
             Ok(surface) => surface,
-            Err(err) => die!("new_surface failed: %s", err)
+            Err(err) => die!("new_surface failed: {}", err)
         }
     }
 
@@ -3504,7 +3504,7 @@ pub mod player {
         /// A right-hand-side key specification if any. Can be an empty string. (C: `rightkeys`)
         rightkeys: Option<~str>,
         /// An initial play speed. (C: `playspeed`)
-        playspeed: float,
+        playspeed: f64,
     }
 
     impl Options {
@@ -3545,15 +3545,13 @@ pub mod player {
                 match preset_to_key_spec(bms, preset) {
                     Some(leftright) => leftright,
                     None => {
-                        return Err(fmt!("Invalid preset name: %s",
-                                        opts.preset.map_default(~"", |v| v.clone())));
+                        return Err(format!("Invalid preset name: {}",
+                                           opts.preset.clone().unwrap_or(~"")));
                     }
                 }
             } else {
-                // Rust: `Option` of managed pointer is not easy to use due to
-                //       implicit move. `Option<T>::clone_default` maybe?
-                (opts.leftkeys.map_default(~"", |v| v.clone()),
-                 opts.rightkeys.map_default(~"", |v| v.clone()))
+                (opts.leftkeys.clone().unwrap_or(~""),
+                 opts.rightkeys.clone().unwrap_or(~""))
             };
 
         let mut keyspec = ~KeySpec { split: 0, order: ~[], kinds: ~[None, ..NLANES] };
@@ -3574,15 +3572,19 @@ pub mod player {
 
         if !leftkeys.is_empty() {
             match parse_and_add(leftkeys) {
-                None => { return Err(fmt!("Invalid key spec for left hand side: %s", leftkeys)); }
+                None => {
+                    return Err(format!("Invalid key spec for left hand side: {}", leftkeys));
+                }
                 Some(nkeys) => { keyspec.split += nkeys; }
             }
         } else {
-            return Err(fmt!("No key model is specified using -k or -K"));
+            return Err(~"No key model is specified using -k or -K");
         }
         if !rightkeys.is_empty() {
             match parse_and_add(rightkeys) {
-                None => { return Err(fmt!("Invalid key spec for right hand side: %s", rightkeys)); }
+                None => {
+                    return Err(format!("Invalid key spec for right hand side: {}", rightkeys));
+                }
                 Some(nkeys) => { // no split panes except for #PLAYER 2
                     if bms.player != CouplePlay { keyspec.split += nkeys; }
                 }
@@ -3634,7 +3636,7 @@ pub mod player {
     /// Writes a line to the console without advancing to the next line. `s` should be short enough
     /// to be replaced (currently up to 72 bytes).
     pub fn update_line(s: &str) {
-        ::std::io::stderr().write_str(fmt!("\r%s\r%s", " ".repeat(72), s));
+        ::std::io::stderr().write_str(format!("\r{:72}\r{}", "", s));
     }
 
     /// A periodic timer for thresholding the rate of information display.
@@ -3696,7 +3698,7 @@ pub mod player {
         let screen =
             match result {
                 Ok(screen) => screen,
-                Err(err) => die!("SDL Video Initialization Failure: %s", err)
+                Err(err) => die!("SDL Video Initialization Failure: {}", err)
             };
         if !exclusive {
             mouse::set_cursor_visible(false);
@@ -3708,7 +3710,7 @@ pub mod player {
     /// Initializes an SDL, SDL_image and SDL_mixer. (C: `init_ui`)
     pub fn init_sdl() {
         if !init([InitVideo, InitAudio, InitJoystick]) {
-            die!("SDL Initialization Failure: %s", get_error());
+            die!("SDL Initialization Failure: {}", get_error());
         }
         img::init([img::InitJPG, img::InitPNG]);
         //mixer::init([mixer::InitOGG, mixer::InitMP3]); // TODO
@@ -3724,7 +3726,7 @@ pub mod player {
         }
         match joy::Joystick::open(joyidx as int) {
             Ok(joy) => joy,
-            Err(err) => die!("SDL Joystick Initialization Failure: %s", err)
+            Err(err) => die!("SDL Joystick Initialization Failure: {}", err)
         }
     }
 
@@ -3915,7 +3917,7 @@ pub mod player {
                             }
                         }
                         None => die!("Unknown key name in the environment \
-                                      variable %s: %s", /*keyset.*/envvar, s)
+                                      variable {}: {}", /*keyset.*/envvar, s)
                     }
                 }
 
@@ -3927,12 +3929,14 @@ pub mod player {
         for &lane in keyspec.order.iter() {
             let key = Key(36 + *lane as int);
             let kind = keyspec.kinds[*lane].unwrap();
-            let envvar = fmt!("ANGOLMOIS_%s%c_KEY", key.to_str(), kind.to_char());
+            let envvar = format!("ANGOLMOIS_{}{}_KEY", key.to_str(), kind.to_char());
             let val = getenv(envvar); // XXX #3511
             for s in val.iter() {
                 match parse_input(*s) {
                     Some(input) => { add_mapping(Some(kind), input, LaneInput(lane)); }
-                    None => die!("Unknown key name in the environment variable %s: %s", envvar, *s)
+                    None => {
+                        die!("Unknown key name in the environment variable {}: {}", envvar, *s);
+                    }
                 }
             }
         }
@@ -4059,12 +4063,12 @@ pub mod player {
         /// Returns the length of associated sound chunk in seconds. This is used for determining
         /// the actual duration of the song in presence of key and background sounds, so it may
         /// return 0.0 if no sound is present.
-        pub fn duration(&self) -> float {
+        pub fn duration(&self) -> f64 {
             match *self {
                 NoSound => 0.0,
                 Sound(chunk) => {
                     let chunk = chunk.to_ll_chunk();
-                    (unsafe {(*chunk).alen} as float) / (BYTESPERSEC as float)
+                    (unsafe {(*chunk).alen} as f64) / (BYTESPERSEC as f64)
                 }
             }
         }
@@ -4079,7 +4083,7 @@ pub mod player {
         match res {
             Ok(res) => Sound(@res),
             Err(_) => {
-                warn!("failed to load sound #WAV%s (%s)", key.to_str(), path);
+                warn!("failed to load sound \\#WAV{} ({})", key.to_str(), path);
                 NoSound
             }
         }
@@ -4162,7 +4166,7 @@ pub mod player {
                         movie.set_display(*surface);
                         return Movie(surface, @movie);
                     }
-                    Err(_) => { warn!("failed to load image #BMP%s (%s)", key.to_str(), path); }
+                    Err(_) => { warn!("failed to load image \\#BMP{} ({})", key.to_str(), path); }
                 }
             }
         } else if opts.has_bga() {
@@ -4177,7 +4181,7 @@ pub mod player {
             };
             match res {
                 Ok(res) => { return res; },
-                Err(_) => { warn!("failed to load image #BMP%s (%s)", key.to_str(), path); }
+                Err(_) => { warn!("failed to load image \\#BMP{} ({})", key.to_str(), path); }
             }
         }
         NoImage
@@ -4266,10 +4270,12 @@ pub mod player {
 
     /// Returns the interface string common to the graphical and textual loading screen.
     fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec) -> (~str, ~str, ~str, ~str) {
-        let meta = fmt!("Level %d | BPM %.2f%s | %d note%s [%uKEY%s]",
-                        bms.playlevel, *bms.initbpm, if infos.hasbpmchange {~"?"} else {~""},
-                        infos.nnotes, if infos.nnotes == 1 {~""} else {~"s"}, keyspec.nkeys(),
-                        if infos.haslongnote {~"-LN"} else {~""});
+        let meta = format!("Level {level} | BPM {bpm:.2}{hasbpmchange} | \
+                            {nnotes, plural, =1{# note} other{# notes}} [{nkeys}KEY{haslongnote}]",
+                           level = bms.playlevel, bpm = *bms.initbpm,
+                           hasbpmchange = if infos.hasbpmchange {"?"} else {""},
+                           nnotes = infos.nnotes as uint, nkeys = keyspec.nkeys(),
+                           haslongnote = if infos.haslongnote {"-LN"} else {""});
         let title = bms.title.clone().unwrap_or(~"");
         let genre = bms.genre.clone().unwrap_or(~"");
         let artist = bms.artist.clone().unwrap_or(~"");
@@ -4330,11 +4336,14 @@ pub mod player {
     pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec, opts: &Options) {
         if opts.showinfo {
             let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
-            ::std::io::stderr().write_line(fmt!("\
+            ::std::io::stderr().write_line(format!("\
 ----------------------------------------------------------------------------------------------
-Title:    %s\nGenre:    %s\nArtist:   %s\n%s
+Title:    {title}
+Genre:    {genre}
+Artist:   {artist}
+{meta}
 ----------------------------------------------------------------------------------------------",
-                title, genre, artist, meta));
+                title = title, genre = genre, artist = artist, meta = meta));
         }
     }
 
@@ -4496,13 +4505,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
     impl Pointer {
         /// Returns the time of pointed object.
-        pub fn time(&self) -> float { self.bms.objs[self.pos].time }
+        pub fn time(&self) -> f64 { self.bms.objs[self.pos].time }
 
         /// Returns the associated game data of pointed object.
         pub fn data(&self) -> ObjData { self.bms.objs[self.pos].data }
 
         /// Seeks to the first object which time is past the limit, if any.
-        pub fn seek_until(&mut self, limit: float) {
+        pub fn seek_until(&mut self, limit: f64) {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
@@ -4513,7 +4522,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// Iterates over objects starting from the current object, until the first object which
         /// time is past the limit is reached.
-        pub fn iter_until(&mut self, limit: float, f: &fn(&Obj) -> bool) -> bool {
+        pub fn iter_until(&mut self, limit: f64, f: &fn(&Obj) -> bool) -> bool {
             let bms = &*self.bms;
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
@@ -4598,7 +4607,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// Finds the closest object from the virtual time `base` that satisfies given condition
         /// if any. `base` should lie between the pointed object and the previous object.
         /// The proximity is measured in terms of virtual time, which can differ from actual time.
-        pub fn find_closest_of_type(&self, base: float,
+        pub fn find_closest_of_type(&self, base: f64,
                                     cond: &fn(&Obj) -> bool) -> Option<Pointer> {
             let previous = self.find_previous_of_type(|obj| cond(obj)); // XXX #7363
             let next = self.find_next_of_type(|obj| cond(obj)); // XXX #7363
@@ -4667,13 +4676,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     /// Required time difference in milliseconds to get at least COOL grade.
-    static COOL_CUTOFF: float = 14.4;
+    static COOL_CUTOFF: f64 = 14.4;
     /// Required time difference in milliseconds to get at least GREAT grade.
-    static GREAT_CUTOFF: float = 48.0;
+    static GREAT_CUTOFF: f64 = 48.0;
     /// Required time difference in milliseconds to get at least GOOD grade.
-    static GOOD_CUTOFF: float = 84.0;
+    static GOOD_CUTOFF: f64 = 84.0;
     /// Required time difference in milliseconds to get at least BAD grade.
-    static BAD_CUTOFF: float = 144.0;
+    static BAD_CUTOFF: f64 = 144.0;
 
     /// The number of available grades.
     static NGRADES: uint = 5;
@@ -4682,7 +4691,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     static MAXGAUGE: int = 512;
     /// A base score per exact input. Actual score can increase by the combo (up to 2x) or decrease
     /// by the larger time difference.
-    static SCOREPERNOTE: float = 300.0;
+    static SCOREPERNOTE: f64 = 300.0;
 
     /// A damage due to the MISS grading. Only applied when the grading is not due to the bomb.
     static MISS_DAMAGE: Damage = GaugeDamage(0.059);
@@ -4702,7 +4711,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// The derived BMS information.
         infos: ~BmsInfo,
         /// The length of BMS file in seconds as calculated by `bms_duration`. (C: `duration`)
-        duration: float,
+        duration: f64,
         /// The key specification.
         keyspec: ~KeySpec,
         /// The input mapping.
@@ -4728,10 +4737,10 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// The chart expansion rate, or "play speed". One measure has the length of 400 pixels
         /// times the play speed, so higher play speed means that objects will fall much more
         /// quickly (hence the name). (C: `playspeed`)
-        playspeed: float,
+        playspeed: f64,
         /// The play speed targeted for speed change if any. It is also the value displayed while
         /// the play speed is changing. (C: `targetspeed`)
-        targetspeed: Option<float>,
+        targetspeed: Option<f64>,
         /// The current BPM. Can be negative, in that case the chart will scroll backwards.
         /// (C: `bpm`)
         bpm: BPM,
@@ -4755,16 +4764,16 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// The timestamp at the end of ongoing scroll stopper, if any. (C: `stoptime`)
         stoptime: Option<uint>,
         /// The virtual time at the last discontinuity. (C: `startoffset`)
-        startoffset: float,
+        startoffset: f64,
         /// The current scaling factor of measure. (C: `startshorten`)
-        startshorten: float,
+        startshorten: f64,
 
         /// The virtual time at the bottom of the visible chart. (C: `bottom`)
-        bottom: float,
+        bottom: f64,
         /// The virtual time at the grading line. Currently same as `bottom`. (C: `line`)
-        line: float,
+        line: f64,
         /// The virtual time at the top of the visible chart. (C: `top`)
-        top: float,
+        top: f64,
         /// A pointer to the first `Obj` after `bottom`. (C: `pfront`)
         pfront: Pointer,
         /// A pointer to the first `Obj` after `line`. (C: `pcur`)
@@ -4780,7 +4789,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// The scale factor for grading area. The factor less than 1 causes the grading area
         /// shrink. (C: `gradefactor`)
-        gradefactor: float,
+        gradefactor: f64,
         /// (C: `grademode` and `gradetime`)
         lastgrade: Option<(Grade,uint)>,
         /// The numbers of each grades. (C: `scocnt`)
@@ -4812,11 +4821,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
     /// A list of play speed marks. `SpeedUpInput` and `SpeedDownInput` changes the play speed to
     /// the next/previous nearest mark. (C: `speeds`)
-    static SPEED_MARKS: &'static [float] = &[0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0,
+    static SPEED_MARKS: &'static [f64] = &[0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0,
         3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0, 10.0, 15.0, 25.0, 40.0, 60.0, 99.0];
 
     /// Finds the next nearest play speed mark if any.
-    fn next_speed_mark(current: float) -> Option<float> {
+    fn next_speed_mark(current: f64) -> Option<f64> {
         let mut prev = None;
         for &speed in SPEED_MARKS.iter() {
             if speed < current - 0.001 {
@@ -4829,7 +4838,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
     }
 
     /// Finds the previous nearest play speed mark if any.
-    fn previous_speed_mark(current: float) -> Option<float> {
+    fn previous_speed_mark(current: f64) -> Option<f64> {
         let mut next = None;
         for &speed in SPEED_MARKS.rev_iter() {
             if speed > current + 0.001 {
@@ -4851,13 +4860,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
     /// Creates a new player object. The player object owns other related structures, including
     /// the options, BMS file, key specification, input mapping and sound resources.
-    pub fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: float, keyspec: ~KeySpec,
+    pub fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: f64, keyspec: ~KeySpec,
                   keymap: ~KeyMap, sndres: ~[SoundResource]) -> Player {
         let now = get_ticks();
         let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
         let startshorten = bms.shorten(originoffset as int);
-        let gradefactor = 1.5 - cmp::min(bms.rank, 5) as float * 0.25;
+        let gradefactor = 1.5 - cmp::min(bms.rank, 5) as f64 * 0.25;
         let initialgauge = MAXGAUGE * 500 / 1000;
         let survival = MAXGAUGE * 293 / 1000;
         let initbpm = bms.initbpm;
@@ -4899,7 +4908,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
         /// Returns the play speed displayed. Can differ from the actual play speed
         /// (`self.playspeed`) when the play speed is changing.
-        pub fn nominal_playspeed(&self) -> float {
+        pub fn nominal_playspeed(&self) -> f64 {
             self.targetspeed.unwrap_or(self.playspeed)
         }
 
@@ -4907,13 +4916,13 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// an weight normalized to [0,1] that is calculated from the distance between the object
         /// and the input time, and `damage` is an optionally associated `Damage` value for bombs.
         /// May return true when `Damage` resulted in the instant death. (C: `update_grade`)
-        pub fn update_grade(&mut self, grade: Grade, scoredelta: float,
+        pub fn update_grade(&mut self, grade: Grade, scoredelta: f64,
                             damage: Option<Damage>) -> bool {
             self.gradecounts[grade as uint] += 1;
             self.lastgrade = Some((grade, self.now));
             self.score += (scoredelta * SCOREPERNOTE *
-                           (1.0 + (self.lastcombo as float) /
-                                  (self.infos.nnotes as float))) as uint;
+                           (1.0 + (self.lastcombo as f64) /
+                                  (self.infos.nnotes as f64))) as uint;
 
             match grade {
                 MISS | BAD => { self.lastcombo = 0; }
@@ -4930,7 +4939,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             match damage {
                 Some(GaugeDamage(ratio)) => {
-                    self.gauge -= (MAXGAUGE as float * ratio) as int; true
+                    self.gauge -= (MAXGAUGE as f64 * ratio) as int; true
                 }
                 Some(InstantDeath) => {
                     self.gauge = cmp::min(self.gauge, 0); false
@@ -4943,7 +4952,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         /// between the object and input time in milliseconds. The normalized distance equals to
         /// the actual time difference when `gradefactor` is 1.0. (C: `update_grade(grade,
         /// scoredelta, 0)` where `grade` and `scoredelta` are pre-calculated from `dist`)
-        pub fn update_grade_from_distance(&mut self, dist: float) {
+        pub fn update_grade_from_distance(&mut self, dist: f64) {
             let dist = num::abs(dist);
             let (grade, damage) = if      dist <  COOL_CUTOFF {(COOL,None)}
                                   else if dist < GREAT_CUTOFF {(GREAT,None)}
@@ -5053,14 +5062,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                     self.startoffset
                 }
                 None => {
-                    let msecdiff = (self.now - self.starttime) as float;
+                    let msecdiff = (self.now - self.starttime) as f64;
                     let measurediff = self.bpm.msec_to_measure(msecdiff);
                     self.startoffset + measurediff / self.startshorten
                 }
             };
 
             // Breaks a continuity at given virtual time.
-            let break_continuity = |at: float| {
+            let break_continuity = |at: f64| {
                 assert!(at >= self.startoffset);
                 self.starttime += (self.bpm.measure_to_msec(at - self.startoffset) *
                                    self.startshorten) as uint;
@@ -5328,7 +5337,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             self.pthru = pthru;
 
             // determines if we should keep playing
-            if self.bottom > (bms.nmeasures + 1) as float {
+            if self.bottom > (bms.nmeasures + 1) as f64 {
                 if self.opts.is_autoplay() {
                     num_playing(None) != num_playing(Some(0))
                 } else {
@@ -5733,7 +5742,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
 
             // render measure bars
             for i in range(player.bottom.floor() as int, player.top.floor() as int + 1) {
-                let y = time_to_y(i as float);
+                let y = time_to_y(i as f64);
                 screen.fill_area((0, y), (self.leftmost, 1), RGB(0xc0,0xc0,0xc0));
                 for &rightmost in self.rightmost.iter() {
                     screen.fill_area((rightmost, y), (800-rightmost, 1), RGB(0xc0,0xc0,0xc0));
@@ -5751,7 +5760,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                                       Centered, gradename, gradecolor);
                     if player.lastcombo > 1 {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
-                                          Centered, fmt!("%u COMBO", player.lastcombo),
+                                          Centered, format!("{} COMBO", player.lastcombo),
                                           Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
@@ -5773,20 +5782,19 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             do screen.with_pixels |pixels| {
                 let black = RGB(0,0,0);
                 font.print_string(pixels, 10, 8, 1, LeftAligned,
-                                  fmt!("SCORE %07u", player.score), black);
+                                  format!("SCORE {:07}", player.score), black);
                 let nominalplayspeed = player.nominal_playspeed();
                 font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
-                                  fmt!("%4.1fx", nominalplayspeed), black);
+                                  format!("{:4.1}x", nominalplayspeed), black);
                 font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, LeftAligned,
-                                  fmt!("%02u:%02u / %02u:%02u", elapsed/60, elapsed%60,
-                                                                duration/60, duration%60), black);
+                                  format!("{:02}:{:02} / {:02}:{:02}",
+                                          elapsed/60, elapsed%60, duration/60, duration%60), black);
                 font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
-                                  fmt!("@%9.4f", player.bottom), black);
+                                  format!("@{:9.4}", player.bottom), black);
                 font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
-                                  fmt!("BPM %6.2f", *player.bpm), black);
-                let timetick =
-                    cmp::min(self.leftmost, (player.now - player.origintime) *
-                                            self.leftmost / durationmsec);
+                                  format!("BPM {:6.2}", *player.bpm), black);
+                let timetick = cmp::min(self.leftmost, (player.now - player.origintime) *
+                                                       self.leftmost / durationmsec);
                 font.print_glyph(pixels, 6 + timetick, SCREENH-52, 1,
                                  95, RGB(0x40,0x40,0x40)); // glyph #95: tick
             }
@@ -5815,14 +5823,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             if nextgradable.is_some() { return; }
 
             if player.gauge >= player.survival {
-                println(fmt!("*** CLEARED! ***\n\
-                              COOL  %4u    GREAT %4u    GOOD  %4u\n\
-                              BAD   %4u    MISS  %4u    MAX COMBO %u\n\
-                              SCORE %07u (max %07d)",
-                             player.gradecounts[4], player.gradecounts[3],
-                             player.gradecounts[2], player.gradecounts[1],
-                             player.gradecounts[0], player.bestcombo,
-                             player.score, player.infos.maxscore));
+                println(format!("*** CLEARED! ***\n\
+                                 COOL  {:4}    GREAT {:4}    GOOD  {:4}\n\
+                                 BAD   {:4}    MISS  {:4}    MAX COMBO {}\n\
+                                 SCORE {:07} (max {:07})",
+                                player.gradecounts[4], player.gradecounts[3],
+                                player.gradecounts[2], player.gradecounts[1],
+                                player.gradecounts[0], player.bestcombo,
+                                player.score, player.infos.maxscore));
             } else {
                 println("YOU FAILED!");
             }
@@ -5850,11 +5858,12 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             do self.ticker.on_tick(player.now) {
                 let elapsed = (player.now - player.origintime) / 100;
                 let duration = (player.duration * 10.0) as uint;
-                update_line(fmt!("%02u:%02u.%u / %02u:%02u.%u (@%9.4f) | BPM %6.2f | %u / %d notes",
-                                 elapsed/600, elapsed/10%60, elapsed%10,
-                                 duration/600, duration/10%60, duration%10,
-                                 player.bottom, *player.bpm,
-                                 player.lastcombo, player.infos.nnotes));
+                update_line(format!("{:02}:{:02}.{} / {:02}:{:02}.{} (@{pos:9.4}) | \
+                                     BPM {bpm:6.2} | {lastcombo} / {nnotes} notes",
+                                    elapsed/600, elapsed/10%60, elapsed%10,
+                                    duration/600, duration/10%60, duration%10,
+                                    pos = player.bottom, bpm = *player.bpm,
+                                    lastcombo = player.lastcombo, nnotes = player.infos.nnotes));
             }
         }
 
@@ -5915,14 +5924,14 @@ pub fn play(opts: ~player::Options) {
     let mut r = ::std::rand::rng();
     let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
         Ok(bms) => ~bms,
-        Err(err) => die!("Couldn't load BMS file: %s", err)
+        Err(err) => die!("Couldn't load BMS file: {}", err)
     };
     parser::sanitize_bms(bms);
 
     // parses the key specification and further sanitizes `bms` with it
     let keyspec = match player::key_spec(bms, opts) {
         Ok(keyspec) => keyspec,
-        Err(err) => die!("%s", err)
+        Err(err) => die!("{}", err)
     };
     parser::compact_bms(bms, keyspec);
     let infos = ~parser::analyze_bms(bms);
@@ -6009,7 +6018,7 @@ pub fn play(opts: ~player::Options) {
                                                       screen, font, imgres);
                 match display_ {
                     Ok(display) => @mut display as @mut player::Display,
-                    Err(err) => die!("%s", err)
+                    Err(err) => die!("{}", err)
                 }
             }
         },
@@ -6031,20 +6040,20 @@ pub fn play(opts: ~player::Options) {
 /// Prints the usage. (C: `usage`)
 pub fn usage() {
     // Rust: this is actually a good use case of `include_str!`...
-    std::io::stderr().write_str(fmt!("\
-%s -- the simple BMS player
+    std::io::stderr().write_str(format!("\
+{} -- the simple BMS player
 http://mearie.org/projects/angolmois/
 https://github.com/lifthrasiir/angolmois-rust/
 
-Usage: %s <options> <path>
+Usage: {} <options> <path>
   Accepts any BMS, BME, BML or PMS file.
   Resources should be in the same directory as the BMS file.
 
 Options:
   -h, --help              This help
   -V, --version           Shows the version
-  -a #.#, --speed #.#     Sets the initial play speed (default: 1.0x)
-  -#                      Same as '-a #.0'
+  -a X.X, --speed X.X     Sets the initial play speed (default: 1.0x)
+  -1, .., -9              Same as '-a 1.0', .., '-a 9.0'
   -v, --autoplay          Enables AUTO PLAY (viewer) mode
   -x, --exclusive         Enables exclusive (BGA and sound only) mode
   -X, --sound-only        Enables sound only mode, equivalent to -xB
@@ -6063,7 +6072,7 @@ Options:
   --bga                   Loads and shows the BGA (default)
   -B, --no-bga            Do not load and show the BGA
   -M, --no-movie          Do not load and show the BGA movie
-  -j #, --joystick #      Enable the joystick with index # (normally 0)
+  -j N, --joystick N      Enable the joystick with index N (normally 0)
 
 Environment Variables:
   ANGOLMOIS_1P_KEYS=<scratch>|<key 1>|<2>|<3>|<4>|<5>|<6>|<7>|<pedal>
@@ -6072,7 +6081,7 @@ Environment Variables:
   ANGOLMOIS_SPEED_KEYS=<speed down>|<speed up>
   ANGOLMOIS_XXy_KEY=<keys for channel XX and channel kind y>
     Sets keys used for game play. Use either SDL key names or joystick names
-    like 'button #' or 'axis #' can be used. Separate multiple keys by '%%'.
+    like 'button N' or 'axis N' can be used. Separate multiple keys by '%'.
     See the manual for more information.
 
 ", version(), exename()));
@@ -6127,7 +6136,7 @@ pub fn main() {
                 if args[i].starts_with("--") {
                     match longargs.find(&args[i]) {
                         Some(&c) => str::from_char(c),
-                        None => die!("Invalid option: %s", args[i])
+                        None => die!("Invalid option: {}", args[i])
                     }
                 } else {
                     args[i].slice_from(1).to_owned()
@@ -6150,7 +6159,7 @@ pub fn main() {
                                 let arg: &str = args[i];
                                 arg
                             } else {
-                                die!("No argument to the option -%c", opt);
+                                die!("No argument to the option -{}", opt);
                             }
                         };
                     inside = false;
@@ -6174,7 +6183,7 @@ pub fn main() {
                     'K' => { leftkeys = Some(fetch_arg('K').to_owned());
                              rightkeys = Some(fetch_arg('K').to_owned()); }
                     'a' => {
-                        match from_str::<float>(fetch_arg('a')) {
+                        match from_str::<f64>(fetch_arg('a')) {
                             Some(speed) if speed > 0.0 => {
                                 playspeed = if speed < 0.1 {0.1}
                                             else if speed > 99.0 {99.0}
@@ -6192,8 +6201,8 @@ pub fn main() {
                         }
                     }
                     ' ' => {} // for ignored long options
-                    '1'..'9' => { playspeed = char::to_digit(c, 10).unwrap() as float; }
-                    _ => die!("Invalid option: -%c", c)
+                    '1'..'9' => { playspeed = char::to_digit(c, 10).unwrap() as f64; }
+                    _ => die!("Invalid option: -{}", c)
                 }
                 if !inside { break; }
             }
