@@ -141,14 +141,6 @@ pub mod util {
 
         /// Extensions to `str`.
         pub trait StrUtil<'self> {
-            /// Returns a slice of the given string starting from `begin`.
-            ///
-            /// # Failure
-            ///
-            /// If `begin` does not point to valid characters or beyond the last character of
-            /// the string
-            fn slice_to_end(&self, begin: uint) -> &'self str;
-
             /// Returns a slice of the given string starting from `begin` and up to the byte
             /// position `end`. `end` doesn't have to point to valid characters.
             ///
@@ -192,10 +184,6 @@ pub mod util {
         }
 
         impl<'self> StrUtil<'self> for &'self str {
-            fn slice_to_end(&self, begin: uint) -> &'self str {
-                self.slice(begin, self.len())
-            }
-
             fn slice_upto(&self, begin: uint, end: uint) -> &'self str {
                 self.slice(begin, begin + self.count_bytes_upto(begin, end))
             }
@@ -229,7 +217,7 @@ pub mod util {
 
             fn scan_int(&self) -> Option<uint> {
                 if self.starts_with("-") || self.starts_with("+") {
-                    self.slice_to_end(1u).scan_uint().map(|&pos| pos + 1u)
+                    self.slice_from(1u).scan_uint().map(|&pos| pos + 1u)
                 } else {
                     self.scan_uint()
                 }
@@ -238,7 +226,7 @@ pub mod util {
             fn scan_float(&self) -> Option<uint> {
                 do self.scan_int().and_then |pos| {
                     if self.len() > pos && self.char_at(pos) == '.' {
-                        let pos2 = self.slice_to_end(pos + 1u).scan_uint();
+                        let pos2 = self.slice_from(pos + 1u).scan_uint();
                         pos2.map(|&pos2| pos + pos2 + 1u)
                     } else {
                         Some(pos)
@@ -266,15 +254,15 @@ pub mod util {
         pub trait ShiftablePrefix {
             /// Returns a slice of given string with `self` at the start of the string stripped only
             /// once, if any.
-            fn prefix_shifted(&self, s: &str) -> Option<~str>;
+            fn prefix_shifted<'r>(&self, s: &'r str) -> Option<&'r str>;
         }
 
         impl ShiftablePrefix for char {
-            fn prefix_shifted(&self, s: &str) -> Option<~str> {
+            fn prefix_shifted<'r>(&self, s: &'r str) -> Option<&'r str> {
                 if !s.is_empty() {
                     let CharRange {ch, next} = s.char_range_at(0u);
                     if ch == *self {
-                        return Some(s.slice_to_end(next).to_owned());
+                        return Some(s.slice_from(next));
                     }
                 }
                 None
@@ -282,9 +270,9 @@ pub mod util {
         }
 
         impl<'self> ShiftablePrefix for &'self str {
-            fn prefix_shifted(&self, s: &str) -> Option<~str> {
+            fn prefix_shifted<'r>(&self, s: &'r str) -> Option<&'r str> {
                 if s.starts_with(*self) {
-                    Some(s.slice_to_end(self.len()).to_owned())
+                    Some(s.slice_from(self.len()))
                 } else {
                     None
                 }
@@ -381,23 +369,6 @@ pub mod util {
                     if !it(self.read_and_fix_utf8_line(|buf| handler(buf))) { break; } // XXX #7363
                 }
             }
-        }
-
-    }
-
-    /**
-     * Comparison routines for Rust. Parallels to `std::cmp`.
-     *
-     * NOTE: Some of these additions will be eventually sent to `libstd/cmp.rs` and are not subject
-     * to the above copyright notice.
-     */
-    pub mod cmp {
-
-        /// Returns `v`, unless it is not between `low` and `high` in which cases returns whichever
-        /// is the closest to `v`.
-        #[inline(always)]
-        pub fn clamp<T:Ord>(low: T, v: T, high: T) -> T {
-            if v < low {low} else if v > high {high} else {v}
         }
 
     }
@@ -903,38 +874,37 @@ pub mod util {
             // Rust: `std::num::from_str_bytes_common` does not recognize a number followed
             //        by garbage, so we need to parse it ourselves.
             do _line.scan_int().map_default(false) |&_endpos| {
-                let _prefix = _line.slice(0, _endpos);
+                let _prefix = _line.slice_to(_endpos);
                 do from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
-                    lex!(_line.slice_to_end(_endpos); $($tail)*)
+                    lex!(_line.slice_from(_endpos); $($tail)*)
                 }
             }
         });
         ($e:expr; uint -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             do _line.scan_uint().map_default(false) |&_endpos| {
-                let _prefix = _line.slice(0, _endpos);
+                let _prefix = _line.slice_to(_endpos);
                 do from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
-                    lex!(_line.slice_to_end(_endpos); $($tail)*)
+                    lex!(_line.slice_from(_endpos); $($tail)*)
                 }
             }
         });
         ($e:expr; float -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             do _line.scan_float().map_default(false) |&_endpos| {
-                let _prefix = _line.slice(0, _endpos);
+                let _prefix = _line.slice_to(_endpos);
                 do from_str(_prefix).map_default(false) |&_value| {
                     $dst = _value;
-                    lex!(_line.slice_to_end(_endpos); $($tail)*)
+                    lex!(_line.slice_from(_endpos); $($tail)*)
                 }
             }
         });
         ($e:expr; str -> $dst:expr, ws*, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                // Rust: we should be able to avoid a copy here. (#5550)
-                $dst = _line.trim_right().to_owned(); // XXX #5550
+                $dst = _line.trim_right();
                 lex!(""; $($tail)*) // optimization!
             } else {
                 false
@@ -943,7 +913,7 @@ pub mod util {
         ($e:expr; str -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                $dst = _line.to_owned(); // XXX #5550
+                $dst = _line.slice_from(0); // Rust: why we need to reborrow `_line` here?!
                 lex!(""; $($tail)*) // optimization!
             } else {
                 false
@@ -951,12 +921,12 @@ pub mod util {
         });
         ($e:expr; str* -> $dst:expr, ws*, $($tail:tt)*) => ({
             let _line: &str = $e;
-            $dst = _line.trim_right().to_owned(); // XXX #5550
+            $dst = _line.trim_right();
             lex!(""; $($tail)*) // optimization!
         });
         ($e:expr; str* -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            $dst = _line.to_owned(); // XXX #5550
+            $dst = _line.slice_from(0); // Rust: why we need to reborrow `_line` here?!
             lex!(""; $($tail)*) // optimization!
         });
         ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
@@ -964,7 +934,7 @@ pub mod util {
             if !_line.is_empty() {
                 let _range = _line.char_range_at(0);
                 $dst = _range.ch;
-                lex!(_line.slice_to_end(_range.next); $($tail)*)
+                lex!(_line.slice_from(_range.next); $($tail)*)
             } else {
                 false
             }
@@ -974,7 +944,7 @@ pub mod util {
             let _line: &str = $e;
             do key2index_str(_line).map_default(false) |&_value| {
                 $dst = Key(_value);
-                lex!(_line.slice_to_end(2u); $($tail)*)
+                lex!(_line.slice_from(2u); $($tail)*)
             }
         });
         ($e:expr; Measure -> $dst:expr, $($tail:tt)*) => ({
@@ -983,8 +953,8 @@ pub mod util {
             // Rust: this is plain annoying.
             if _line.len() >= 3 && _isdigit(_line.char_at(0)) && _isdigit(_line.char_at(1)) &&
                     _isdigit(_line.char_at(2)) {
-                $dst = from_str(_line.slice(0u, 3u)).unwrap();
-                lex!(_line.slice_to_end(3u); $($tail)*)
+                $dst = from_str(_line.slice_to(3u)).unwrap();
+                lex!(_line.slice_from(3u); $($tail)*)
             } else {
                 false
             }
@@ -1989,26 +1959,26 @@ pub mod parser {
             // skip non-command lines
             let line = line.trim_left();
             if !line.starts_with("#") { loop; }
-            let line = line.slice_to_end(1);
+            let line = line.slice_from(1);
 
             // search for header prefix. the header list (`bmsheader`) is in the decreasing order
             // of prefix length.
             let mut prefix = "";
             for &header in bmsheader.iter() {
                 if line.len() >= header.len() &&
-                   line.slice(0, header.len()).to_ascii_upper() == header.to_owned() {
+                   line.slice_to(header.len()).to_ascii_upper() == header.to_owned() {
                     prefix = header;
                     break;
                 }
             }
-            let line = line.slice_to_end(prefix.len());
+            let line = line.slice_from(prefix.len());
 
             // Common readers.
             macro_rules! read(
                 (string $string:ident) => ({
-                    let mut text = ~"";
+                    let mut text = "";
                     if lex!(line; ws, str* -> text, ws*, !) {
-                        bms.$string = Some(text);
+                        bms.$string = Some(text.to_owned());
                     }
                 });
                 (value $value:ident) => ({
@@ -2016,10 +1986,10 @@ pub mod parser {
                 });
                 (path $paths:ident) => ({
                     let mut key = Key(-1);
-                    let mut path = ~"";
+                    let mut path = "";
                     if lex!(line; Key -> key, ws, str -> path, ws*, !) {
                         let Key(key) = key;
-                        bms.$paths[key] = Some(path);
+                        bms.$paths[key] = Some(path.to_owned());
                     }
                 })
             )
@@ -2172,9 +2142,10 @@ pub mod parser {
                 ("", false) => {
                     let mut measure = 0;
                     let mut chan = Key(0);
-                    let mut data = ~"";
+                    let mut data = "";
                     if lex!(line; Measure -> measure, Key -> chan, ':', ws*, str -> data, ws*, !) {
-                        bmsline.push(BmsLine { measure: measure, chan: chan, data: data })
+                        bmsline.push(BmsLine { measure: measure, chan: chan,
+                                               data: data.to_owned() })
                     }
                 }
 
@@ -2421,15 +2392,13 @@ pub mod parser {
     /// Parses the key specification from the string. (C: `parse_key_spec`)
     pub fn parse_key_spec(s: &str) -> Option<~[(Lane, KeyKind)]> {
         let mut specs = ~[];
-        let mut s = s.trim_left().to_owned();
+        let mut s = s.trim_left();
         while !s.is_empty() {
             let mut chan = Key(0);
             let mut kind = '\x00';
-            let mut s2 = ~"";
-            if !lex!(s; Key -> chan, char -> kind, ws*, str* -> s2, !) {
+            if !lex!(s; Key -> chan, char -> kind, ws*, str* -> s, !) {
                 return None;
             }
-            s = s2;
             match (chan, KeyKind::from_char(kind)) {
                 (Key(36/*1*36*/..107/*3*36-1*/), Some(kind)) => {
                     specs.push((Lane(*chan as uint - 1*36), kind));
@@ -3119,43 +3088,28 @@ pub mod gfx {
         }
     }
 
-    /// Returns a pixel at given position. (C: `getpixel`)
-    //
-    // Rust: this and subsequent `*_pixel` functions are required due to the incorrect lifetime
-    //       inference in 0.6 borrowck algorithm. This problem has been fixed in 0.7 with a new
-    //       flow-sensitive borrowck, but for now we keep them.
-    pub fn get_pixel(surface: &SurfacePixels, x: uint, y: uint) -> Color {
-        Color::from_mapped(surface.pixels[x + y * surface.pitch], surface.fmt)
-    }
-
-    /// Sets a pixel to given position. (C: `putpixel`)
-    pub fn put_pixel(surface: &mut SurfacePixels, x: uint, y: uint, c: Color) {
-        surface.pixels[x + y * surface.pitch] = c.to_mapped(surface.fmt);
-    }
-
-    /// Sets or blends (if `c` is `RGBA`) a pixel to given position. (C: `putblendedpixel`)
-    pub fn put_blended_pixel(surface: &mut SurfacePixels, x: uint, y: uint, c: Color) {
-        match c {
-            RGB(*) => put_pixel(surface, x, y, c),
-            RGBA(r,g,b,a) => match get_pixel(surface, x, y) {
-                RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
-                    let grad = Gradient { zero: RGB(r,g,b), one: RGB(r2,g2,b2) };
-                    put_pixel(surface, x, y, grad.blend(a as int, 255));
-                }
-            }
-        }
-    }
-
     impl<'self> SurfacePixels<'self> {
         /// Returns a pixel at given position. (C: `getpixel`)
-        pub fn get_pixel(&self, x: uint, y: uint) -> Color { get_pixel(self, x, y) }
+        pub fn get_pixel(&self, x: uint, y: uint) -> Color {
+            Color::from_mapped(self.pixels[x + y * self.pitch], self.fmt)
+        }
 
         /// Sets a pixel to given position. (C: `putpixel`)
-        pub fn put_pixel(&mut self, x: uint, y: uint, c: Color) { put_pixel(self, x, y, c) }
+        pub fn put_pixel(&mut self, x: uint, y: uint, c: Color) {
+            self.pixels[x + y * self.pitch] = c.to_mapped(self.fmt);
+        }
 
         /// Sets or blends (if `c` is `RGBA`) a pixel to given position. (C: `putblendedpixel`)
         pub fn put_blended_pixel(&mut self, x: uint, y: uint, c: Color) {
-            put_blended_pixel(self, x, y, c)
+            match c {
+                RGB(*) => self.put_pixel(x, y, c),
+                RGBA(r,g,b,a) => match self.get_pixel(x, y) {
+                    RGB(r2,g2,b2) | RGBA(r2,g2,b2,_) => {
+                        let grad = Gradient { zero: RGB(r,g,b), one: RGB(r2,g2,b2) };
+                        self.put_pixel(x, y, grad.blend(a as int, 255));
+                    }
+                }
+            }
         }
     }
 
@@ -3227,10 +3181,10 @@ pub mod gfx {
                     }
                 }
 
-                let r = ::util::cmp::clamp(0, r >> FP_SHIFT2, 255) as u8;
-                let g = ::util::cmp::clamp(0, g >> FP_SHIFT2, 255) as u8;
-                let b = ::util::cmp::clamp(0, b >> FP_SHIFT2, 255) as u8;
-                put_pixel(dest, i as uint, j as uint, RGB(r, g, b)); // XXX incorrect lifetime
+                let r = num::clamp(r >> FP_SHIFT2, 0, 255) as u8;
+                let g = num::clamp(g >> FP_SHIFT2, 0, 255) as u8;
+                let b = num::clamp(b >> FP_SHIFT2, 0, 255) as u8;
+                dest.put_pixel(i as uint, j as uint, RGB(r, g, b));
 
                 dy += hh;
                 if dy > h {
@@ -3422,7 +3376,7 @@ pub mod gfx {
                 let rowcolor = color.blend(iy as int, 16 * zoom as int);
                 for ix in range(0, 8 * zoom) {
                     if ((row >> ix) & 1) != 0 {
-                        put_pixel(pixels, x + ix, y + iy, rowcolor); // XXX incorrect lifetime
+                        pixels.put_pixel(x + ix, y + iy, rowcolor);
                     }
                 }
             }
@@ -4069,7 +4023,7 @@ pub mod player {
             if !found {
                 match next_.rfind('.') {
                     Some(idx) => {
-                        let nextnoext = next_.slice(0, idx).to_owned();
+                        let nextnoext = next_.slice_to(idx).to_owned();
                         for ext in exts.iter() {
                             if nextnoext + ext.to_owned() == lastpart {
                                 found = true;
@@ -4363,10 +4317,10 @@ pub mod player {
                 let fg = Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
                 for i in range(0, SCREENW) {
                     for j in range(0, 42u) {
-                        put_blended_pixel(pixels, i, j, bg); // XXX incorrect lifetime
+                        pixels.put_blended_pixel(i, j, bg);
                     }
                     for j in range(SCREENH-20, SCREENH) {
-                        put_blended_pixel(pixels, i, j, bg); // XXX incorrect lifetime
+                        pixels.put_blended_pixel(i, j, bg);
                     }
                 }
                 font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
@@ -4460,7 +4414,8 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
         do ticker.on_tick(get_ticks()) {
             match ::std::util::replace(&mut path, None) { // XXX #4654
                 Some(path) => {
-                    let path = if path.len() < 63 {path} else {path.slice(0, 63).to_owned()};
+                    use util::str::StrUtil;
+                    let path = if path.len() < 63 {path} else {path.slice_upto(0, 63).to_owned()};
                     update_line(~"Loading: " + path);
                 }
                 None => { update_line("Loading done."); }
@@ -5564,14 +5519,14 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
             for j in range(-244, 556) {
                 for i in range(-10, 20) {
                     let c = (i*2+j*3+750) % 2000;
-                    put_pixel(pixels, (j+244) as uint, (i+10) as uint, // XXX incorrect lifetime
-                              topgrad.blend(850 - num::abs(c-1000), 700));
+                    pixels.put_pixel((j+244) as uint, (i+10) as uint,
+                                     topgrad.blend(850 - num::abs(c-1000), 700));
                 }
                 for i in range(-20, 60) {
                     let c = (i*3+j*2+750) % 2000;
                     let bottom = (SCREENH - 60) as int;
-                    put_pixel(pixels, (j+244) as uint, (i+bottom) as uint, // XXX incorrect lifetime
-                              botgrad.blend(850 - num::abs(c-1000), 700));
+                    pixels.put_pixel((j+244) as uint, (i+bottom) as uint,
+                                     botgrad.blend(850 - num::abs(c-1000), 700));
                 }
             }
         }
@@ -5589,11 +5544,11 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 for j in iter::range_step(20, 0, -1) {
                     let j = j as uint;
                     if i*i + j*j <= 400 { break; } // circled border
-                    put_pixel(pixels, leftmost + j, 10 + i, black); // XXX incorrect lifetime
-                    put_pixel(pixels, leftmost + j, (SCREENH-61) - i, black); // XXX
+                    pixels.put_pixel(leftmost + j, 10 + i, black);
+                    pixels.put_pixel(leftmost + j, (SCREENH-61) - i, black);
                     for &right in rightmost.iter() {
-                        put_pixel(pixels, (right-j) - 1, 10 + i, black); // XXX incorrect lifetime
-                        put_pixel(pixels, (right-j) - 1, (SCREENH-61) - i, black); // XXX
+                        pixels.put_pixel((right-j) - 1, 10 + i, black);
+                        pixels.put_pixel((right-j) - 1, (SCREENH-61) - i, black);
                     }
                 }
             }
@@ -5850,7 +5805,7 @@ Title:    %s\nGenre:    %s\nArtist:   %s\n%s
                 let cycle = (160.0 * player.startshorten * player.bottom).floor() % 40.0;
                 let width = if player.gauge < 0 {0}
                             else {player.gauge * 400 / MAXGAUGE - (cycle as int)};
-                let width = ::util::cmp::clamp(5, width, 360);
+                let width = num::clamp(width, 5, 360);
                 let color = if player.gauge >= player.survival {RGB(0xc0,0,0)}
                             else {RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0)};
                 screen.fill_area((4, SCREENH-12), (width, 8), color);
@@ -6142,7 +6097,6 @@ Environment Variables:
 /// (C: `main`)
 pub fn main() {
     use player::*;
-    use util::str::StrUtil;
 
     let longargs = (~[
         (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
@@ -6190,7 +6144,7 @@ pub fn main() {
                         None => die!("Invalid option: %s", args[i])
                     }
                 } else {
-                    args[i].slice_to_end(1).to_owned()
+                    args[i].slice_from(1).to_owned()
                 };
             let nshortargs = shortargs.len();
 
@@ -6202,7 +6156,7 @@ pub fn main() {
                     let nextarg =
                         if inside && off < nshortargs {
                             // remaining portion of `args[i]` is an argument
-                            shortargs.slice_to_end(off)
+                            shortargs.slice_from(off)
                         } else {
                             // `args[i+1]` is an argument as a whole
                             i += 1;
