@@ -723,7 +723,7 @@ pub mod util {
 
     /// Immediately terminates the program with given exit code.
     pub fn exit(exitcode: int) -> ! {
-        #[fixed_stack_segment];
+        #[fixed_stack_segment]; #[inline(never)];
         // Rust: `std::os::set_exit_status` doesn't immediately terminate the program.
         unsafe { ::std::libc::exit(exitcode as ::std::libc::c_int); }
     }
@@ -731,7 +731,7 @@ pub mod util {
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(target_os = "win32")]
     pub fn die(s: ~str) -> ! {
-        #[fixed_stack_segment];
+        #[fixed_stack_segment]; #[inline(never)];
         use util::str::StrUtil;
         do ::exename().as_utf16_c_str() |caption| {
             do s.as_utf16_c_str() |text| {
@@ -769,7 +769,7 @@ pub mod util {
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(target_os = "win32")]
     pub fn get_path_from_dialog() -> Option<~str> {
-        #[fixed_stack_segment];
+        #[fixed_stack_segment]; #[inline(never)];
         use std::ptr::{null, mut_null};
         use util::str::StrUtil;
 
