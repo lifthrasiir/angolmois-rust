@@ -1,6 +1,6 @@
 # Angolmois Rust Edition
 
-*2013-07-06*
+*2013-10-03*
 
 This is a direct, one-to-one translation of Angolmois to [Rust](http://www.rust-lang.org/) programming language. [Angolmois](http://mearie.org/projects/angolmois/) is a [BM98](http://bm98.yaneu.com/bm98/)-like minimalistic music video game which supports the [BMS format](http://en.wikipedia.org/wiki/Be-Music_Source) for playing.
 
@@ -28,13 +28,13 @@ Assuming a proper Rust environment, get [rust-sdl](https://github.com/brson/rust
 
 Since both rustc and rust-sdl are moving targets, you will probably need a specific version of rustc and rust-sdl. The following combinations are known to work:
 
-- rustc 0.7 + rust-sdl `48cb490` 2013-07-02 (an unmerged branch from rossmurray/rust-sdl)
+- rustc 0.8 + rust-sdl `5598e68` 2013-10-03
 
 If you use Windows and you are super lazy, then try the following:
 
 1. Follow the [compilation instruction](https://github.com/lifthrasiir/angolmois/blob/master/README.md#how-to-compile-windows) of Angolmois up to the actual compilation.
-2. Download and run [Rust 0.7 installer](http://static.rust-lang.org/dist/rust-0.7-install.exe).
-3. Download and extract Angolmois Rust edition (direct link [here](https://github.com/lifthrasiir/angolmois-rust/archive/master.zip)) to some directory (let me call it `angolmois\`). Download and extract rust-sdl (direct link [here](https://github.com/rossmurray/rust-sdl/archive/48cb49047c48a16ad2c75f4d0fa225c4de5a101d.zip)) to `angolmois\rust-sdl\`.
+2. Download and run [Rust 0.8 installer](http://static.rust-lang.org/dist/rust-0.8-install.exe).
+3. Download and extract Angolmois Rust edition (direct link [here](https://github.com/lifthrasiir/angolmois-rust/archive/master.zip)) to some directory (let me call it `angolmois\`). Download and extract rust-sdl (direct link [here](https://github.com/brson/rust-sdl/archive/5598e6814cf39fad3f0a601122ab64c80c604ad2.zip)) to `angolmois\rust-sdl\`.
 4. Run MinGW shell and `cd` into `angolmois\`. (Tip: `C:\Foo\Bar` translates to `/c/Foo/Bar`.)
 5. Type `make` to compile. This will also compile rust-sdl as well.
 6. Type `./angolmois` to run. See the remainder of Angolmois' compilation instruction for later usage.
@@ -42,4 +42,16 @@ If you use Windows and you are super lazy, then try the following:
 ### Why did you put everything to one file?
 
 Mainly because this is a direct translation of Angolmois, which consists of a single C file with less than 2,000 lines of code. I tried to keep the entire structure of code while doing some refactoring since this makes the translation much more obvious. (This also explains why we have rather big bindings; the original Angolmois was also self-contained besides from SDL libraries.) I intend to write more idiomatic version of Angolmois Rust Edition in the future.
+
+### What's a difference between the Rust Edition and the original Angolmois?
+
+In theory, Angolmois Rust Edition should be identical to Angolmois 2.0.0 alpha 2. In practice, there are some differences:
+
+- They behave differently on the files with invalid UTF-8 sequences.
+- SDL\_image and SDL\_mixer are known to be noticeably (up to 10x) slower than C.
+- The C version is unable to handle 2,000 or more measures in the display. (Fixed in 2.0 alpha 3)
+- The C version allows a non-native path separator in `#PATH_WAV`; the Rust Edition doesn't.
+- The C version allows "rewinding" the movie by repeatedly setting the same alphanumeric key to the BGA layer; the Rust Edition doesn't. I'm not sure that this *feature* is portable at all.
+
+Please also note that the Rust Edition, based on 2.0.0 alpha 2, is also substantially different to 2.0 alpha 3 in the development. Targeting 2.0 alpha 3 is not hard but currently blocked by the immaturity of SDL 2.0 bindings for Rust.
 

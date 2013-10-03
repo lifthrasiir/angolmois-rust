@@ -34,7 +34,7 @@
  * and MIT license. Also note that:
  *
  * - This code is known to compile with the following combinations of rustc and rust-sdl:
- *     - rustc 0.7 + rust-sdl `48cb490` 2013-07-02 (an unmerged branch from rossmurray/rust-sdl)
+ *     - rustc 0.8 + rust-sdl `5598e68` 2013-10-03
  *
  * - Unlike the original Angolmois code (which sacrifices most comments due to code size concerns),
  *   the Rust version has much more comments which can be beneficial for understanding Angolmois
