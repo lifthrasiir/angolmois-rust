@@ -1562,34 +1562,27 @@ pub mod parser {
     impl Obj {
         /// Creates a `Visible` object.
         pub fn Visible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
-            // Rust: `SoundRef` itself cannot be used as a function (#5315)
-            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
-            Obj { time: time, data: Visible(lane, sref) }
+            Obj { time: time, data: Visible(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates an `Invisible` object.
         pub fn Invisible(time: float, lane: Lane, sref: Option<Key>) -> Obj {
-            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
-            Obj { time: time, data: Invisible(lane, sref) }
+            Obj { time: time, data: Invisible(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates an `LNStart` object.
         pub fn LNStart(time: float, lane: Lane, sref: Option<Key>) -> Obj {
-            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
-            Obj { time: time, data: LNStart(lane, sref) }
+            Obj { time: time, data: LNStart(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates an `LNDone` object.
         pub fn LNDone(time: float, lane: Lane, sref: Option<Key>) -> Obj {
-            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
-            Obj { time: time, data: LNDone(lane, sref) }
+            Obj { time: time, data: LNDone(lane, sref.map_move(SoundRef)) }
         }
 
         /// Creates a `Bomb` object.
-        pub fn Bomb(time: float, lane: Lane, sref: Option<Key>,
-                damage: Damage) -> Obj {
-            let sref = sref.map_move(|s| SoundRef(s)); // XXX #5315
-            Obj { time: time, data: Bomb(lane, sref, damage) }
+        pub fn Bomb(time: float, lane: Lane, sref: Option<Key>, damage: Damage) -> Obj {
+            Obj { time: time, data: Bomb(lane, sref.map_move(SoundRef), damage) }
         }
 
         /// Creates a `BGM` object.
@@ -1599,8 +1592,7 @@ pub mod parser {
 
         /// Creates a `SetBGA` object.
         pub fn SetBGA(time: float, layer: BGALayer, iref: Option<Key>) -> Obj {
-            let iref = iref.map_move(|i| ImageRef(i)); // XXX #5315
-            Obj { time: time, data: SetBGA(layer, iref) }
+            Obj { time: time, data: SetBGA(layer, iref.map_move(ImageRef)) }
         }
 
         /// Creates a `SetBPM` object.
@@ -6005,38 +5997,32 @@ pub fn play(opts: ~player::Options) {
     // create the player and transfer ownership of other resources to it
     let duration = parser::bms_duration(bms, infos.originoffset,
                                         |sref| sndres[**sref].duration());
-    let player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
-
-    // Rust: `@mut` upcasting is unsupported as of 0.6. (#5725)
-    fn loop_with_display<T:player::Display>(mut player: player::Player, mut display: T) {
-        while player.tick() {
-            display.render(&player);
-        }
-        display.show_result(&player);
-
-        // remove all channels before sound resources are deallocated.
-        // halting alone is not sufficient due to rust-sdl's bug.
-        ::sdl::mixer::allocate_channels(0);
-    }
+    let mut player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
 
     // create the display and runs the actual game play loop
-    match screen {
+    let display = match screen {
         Some(screen) => {
             if player.opts.is_exclusive() {
-                loop_with_display(player, player::BGAOnlyDisplay(screen, imgres));
+                @mut player::BGAOnlyDisplay(screen, imgres) as @mut player::Display
             } else {
                 let display_ = player::GraphicDisplay(player.opts, player.keyspec,
                                                       screen, font, imgres);
                 match display_ {
-                    Ok(display) => loop_with_display(player, display),
+                    Ok(display) => @mut display as @mut player::Display,
                     Err(err) => die!("%s", err)
                 }
             }
-        }
-        None => {
-            loop_with_display(player, player::TextDisplay());
-        }
+        },
+        None => @mut player::TextDisplay() as @mut player::Display
+    };
+    while player.tick() {
+        display.render(&player);
     }
+    display.show_result(&player);
+
+    // remove all channels before sound resources are deallocated.
+    // halting alone is not sufficient due to rust-sdl's bug.
+    ::sdl::mixer::allocate_channels(0);
 
     // it's done!
     atexit();
