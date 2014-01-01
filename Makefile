@@ -15,8 +15,8 @@ RUSTFLAGS ?= -O
 
 all: $(BIN)
 
-$(BIN): $(SRC) $(RUSTSDL)/libsdl.dummy
-	$(RUSTC) $(RUSTFLAGS) -L $(RUSTSDL) $(SRC) -o $(BIN)
+$(BIN): $(SRC)
+	$(RUSTC) $(RUSTFLAGS) -L . $(SRC) -o $(BIN)
 
 $(RUSTSDL)/libsdl.dummy:
 	cd $(RUSTSDL) && ./configure && $(MAKE) RUSTC=$(RUSTC)
