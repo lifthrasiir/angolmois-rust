@@ -30,7 +30,7 @@ $(LIBSDLMIXER):
 	cd $(RUSTSDL) && $(RUSTPKG) build $(RUSTPKGFLAGS) sdl_mixer
 
 doc:
-	$(RUSTDOC) $(SRC)
+	$(RUSTDOC) -L $(LIBSDL) -L $(LIBSDLIMAGE) -L $(LIBSDLMIXER) $(SRC)
 
 clean:
 	rm -rf $(BIN) $(RUSTSDL)/bin $(RUSTSDL)/lib $(RUSTSDL)/build $(RUSTSDL)/.rust

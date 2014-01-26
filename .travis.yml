@@ -1,3 +1,6 @@
+env:
+  global:
+    - secure: Wvt1H+1UmE6loztT4GrjpekDmEjwtpMm+GiENGGdeC5SlyCq7FXg0ezj53oWZ/F7RBi82WglllrlF3aCAue5TaoODuO7VhzgeqMezLIytVVUJYE2zmEh4tAXk6s3w/pXBgV/K3fKxe/Sc5rw7e8OZNuoRr/e8hSEBMx2UnxLtwM=
 before_install:
   - yes | sudo add-apt-repository ppa:hansjorg/rust
   - sudo apt-get update
@@ -5,9 +8,10 @@ install:
   - sudo apt-get install rust-nightly
   - sudo apt-get install libsdl1.2-dev libsdl-mixer1.2-dev libsdl-image1.2-dev libsmpeg-dev
 script:
-  - git submodule init
-  - git submodule update
   - make RUSTFLAGS= RUSTPKGFLAGS=
+  - make doc
 branches:
   only:
     - master
+after_script:
+  - curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh
