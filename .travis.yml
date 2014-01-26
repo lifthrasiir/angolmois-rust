@@ -1,0 +1,13 @@
+before_install:
+  - yes | sudo add-apt-repository ppa:hansjorg/rust
+  - sudo apt-get update
+install:
+  - sudo apt-get install rust-nightly
+  - sudo apt-get install libsdl1.2-dev libsdl-mixer1.2-dev libsdl-image1.2-dev libsmpeg-dev
+script:
+  - git submodule init
+  - git submodule update
+  - make RUSTFLAGS= RUSTPKGFLAGS=
+branches:
+  only:
+    - master
