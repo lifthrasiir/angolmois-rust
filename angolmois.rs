@@ -1,6 +1,6 @@
 /*
  * Angolmois -- the simple BMS player
- * Copyright (c) 2005, 2007, 2009, 2012, 2013, Kang Seonghoon.
+ * Copyright (c) 2005, 2007, 2009, 2012, 2013, 2014, Kang Seonghoon.
  * Project Angolmois is copyright (c) 2003-2007, Choi Kaya (CHKY).
  * 
  * This program is free software; you can redistribute it and/or
