@@ -3859,8 +3859,28 @@ pub mod player {
      *    then a list of alternative extensions is applied with the same matching procedure.
      */
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
-        use std::{str, io};
+        use std::{str, io, hashmap, local_data};
         use std::ascii::StrAsciiExt;
+
+        // `std::io::fs::readdir` is different from C's `dirent.h`, as it always reads
+        // the whole list of entries (and `std::io::fs::Directories` is no different).
+        // This causes a serious slowdown compared to the C version of Angolmois,
+        // so we use a thread-local cache for `readdir` to avoid the performance penalty.
+        local_data_key!(key_readdir_cache: hashmap::HashMap<Path,~[Path]>);
+
+        fn readdir_cache(path: Path, cb: |&[Path]|) {
+            let mut cache = match local_data::pop(key_readdir_cache) {
+                Some(cache) => cache,
+                None => hashmap::HashMap::new()
+            };
+            {
+                let ret = cache.find_or_insert_with(path, |path| {
+                    match io::fs::readdir(path) { Ok(ret) => ret, Err(..) => ~[] }
+                });
+                cb(*ret);
+            }
+            local_data::set(key_readdir_cache, cache);
+        }
 
         let mut parts = ~[];
         for part in path.split(|c: char| c == '/' || c == '\\') {
@@ -3877,8 +3897,8 @@ pub mod player {
 
             let part = part.to_ascii_upper();
             let mut found = false;
-            for entries in io::fs::readdir(&cur).ok().move_iter() {
-                for next in entries.move_iter() {
+            readdir_cache(cur.clone(), |entries| {
+                for next in entries.iter() {
                     let name = next.filename().and_then(str::from_utf8).map(|v| v.to_ascii_upper());
                     if name.as_ref().map_or(false, |name| *name == part) {
                         cur = next.clone();
@@ -3886,15 +3906,16 @@ pub mod player {
                         break;
                     }
                 }
-            }
+            });
             if !found { return None; }
         }
 
         if !cur.is_dir() { return None; }
 
         let lastpart = lastpart.to_ascii_upper();
-        for entries in io::fs::readdir(&cur).ok().move_iter() {
-            for next in entries.move_iter() {
+        let mut ret = None;
+        readdir_cache(cur, |entries| {
+            for next in entries.iter() {
                 let name = next.filename().and_then(str::from_utf8).map(|v| v.to_ascii_upper());
                 let mut found = name.as_ref().map_or(false, |name| *name == lastpart);
                 if !found && name.is_some() {
@@ -3913,12 +3934,13 @@ pub mod player {
                     }
                 }
                 if found {
-                    return Some(next);
+                    ret = Some(next.clone());
+                    break;
                 }
             }
-        }
+        });
 
-        None
+        ret
     }
 
     /// Sound resource associated to `SoundRef`. It contains the actual SDL_mixer chunk that can be

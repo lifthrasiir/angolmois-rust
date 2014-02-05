@@ -1,5 +1,10 @@
 # Angolmois Rust Edition
 
+[![Angolmois Rust Edition on Travis CI][travis-image]][travis]
+
+[travis-image]: https://travis-ci.org/lifthrasiir/angolmois-rust.png
+[travis]: https://travis-ci.org/lifthrasiir/angolmois-rust
+
 This is a direct, one-to-one translation of Angolmois to [Rust](http://www.rust-lang.org/) programming language. [Angolmois](http://mearie.org/projects/angolmois/) is a [BM98](http://bm98.yaneu.com/bm98/)-like minimalistic music video game which supports the [BMS format](http://en.wikipedia.org/wiki/Be-Music_Source) for playing.
 
 Angolmois is a combination of string parsing, path manipulation, two-dimensional graphics and complex game play carefully packed into some thousand lines of code. This translation is intended to provide an example of translating a moderately-sized C code to Rust, and also to investigate additional library supports required for such moderately-sized programs. The resulting translation is certainly one of the largest applications written in Rust to date (most Rust projects are libraries for now), weighing more than 6,000 lines of Rust code. This is partly due to the fact that, unlike the original Angolmois code (which sacrifices most comments due to code size concerns), the Rust version has much more comments which can be beneficial for understanding Angolmois itself too.
@@ -26,18 +31,20 @@ Clone this repo and run the following commands (yes, you need the MinGW shell fo
     git submodule update
     make
 
-You require the most recent Rust master, and it may or may not compile in the 0.9 release. Consider using unofficial nightly builds if you don't want to compile rustc. (See the [separate document](https://github.com/mozilla/rust/wiki/Doc-how-to-install-an-unofficial-nightly-for-Windows) for Windows.)
+You require the most recent Rust master. Consider using unofficial nightly builds if you don't want to compile rustc. (See the [separate document](https://github.com/mozilla/rust/wiki/Doc-how-to-install-an-unofficial-nightly-for-Windows) for Windows.)
 
 ### Why did you put everything to one file?
 
-Mainly because this is a direct translation of Angolmois, which consists of a single C file with less than 2,000 lines of code. I tried to keep the entire structure of code while doing some refactoring since this makes the translation much more obvious. (This also explains why we have rather big bindings; the original Angolmois was also self-contained besides from SDL libraries.) I intend to write more idiomatic version of Angolmois Rust Edition in the future.
+Mainly because this is a direct translation of Angolmois, which consists of a single C file with less than 2,000 lines of code. I tried to keep the entire structure of code while doing some refactoring since this makes the translation much more obvious. This also explains why we have rather big bindings; the original Angolmois was also self-contained besides from SDL libraries.
+
+There is now a fork of Angolmois called [Sonorous](https://github.com/snrs/sonorous) which has outgrown the original to become a full-featured game. If you don't like one big file, please consider taking a look at it.
 
 ### What's a difference between the Rust Edition and the original Angolmois?
 
 In theory, Angolmois Rust Edition should be identical to Angolmois 2.0.0 alpha 2. In practice, there are some differences:
 
 - They behave differently on the files with invalid UTF-8 sequences.
-- SDL\_image and SDL\_mixer are known to be noticeably (up to 10x) slower than C.
+- The Rust version caches the directory entries in order to avoid the performance penalty due to the different directory listing semantics.
 - The C version is unable to handle 2,000 or more measures in the display. (Fixed in 2.0 alpha 3)
 - The C version allows a non-native path separator in `#PATH_WAV`; the Rust Edition doesn't.
 - The C version allows "rewinding" the movie by repeatedly setting the same alphanumeric key to the BGA layer; the Rust Edition doesn't. I'm not sure that this *feature* is portable at all.
