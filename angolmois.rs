@@ -47,15 +47,6 @@
  *   issue number like #1234.
  * * XXX - should be fixed as soon as Rust issue is gone.
  * * TODO - other problems unrelated to Rust.
- *
- * # Common Issues
- *
- * Those issues are common enough that they have to be discussed before the source code.
- *
- * * #3511 - iterator needs to ensure its underlying object available but rvalue lifetime is too
- *           short for it. rooting the underlying object is necessary for now.
- * * #7363 - implicit borrowing of stack closures is currently disabled due to the soundness issue.
- *           can be worked around by wrapping a reference to the closure to another closure.
  */
 
 #[crate_id = "https://github.com/lifthrasiir/angolmois-rust#angolmois:2.0.0-alpha2"];
@@ -672,8 +663,7 @@ pub mod util {
                 if ret != 0 {
                     let path: &[u16] = match buf.position_elem(&0) {
                         Some(idx) => buf.slice(0, idx),
-                        // Rust: why can't we cast `&[u16, ..512]` to `&[u16]`?!
-                        None => buf.slice(0, buf.len())
+                        None => buf.as_slice()
                     };
                     Some(::std::str::from_utf16(path))
                 } else {
@@ -1628,8 +1618,6 @@ pub mod parser {
 
     /// Creates a default value of BMS data.
     pub fn Bms() -> Bms {
-        // Rust: `None` is not clonable when it has a type of `Option<~str>`, so `[None, ..N]`
-        //       syntax does not work. this makes a fixed size vector unconstructible.
         Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
               player: SINGLE_PLAY, playlevel: 0, rank: 2, initbpm: DefaultBPM,
               sndpath: vec::from_elem(MAXKEY as uint, None),
@@ -2012,8 +2000,7 @@ pub mod parser {
 
                 // #END(IF)
                 ("END", _) => {
-                    let lastinside = blk.iter().rposition(|&i| i.state != Outside); // XXX #3511
-                    for &idx in lastinside.iter() {
+                    for &idx in blk.iter().rposition(|&i| i.state != Outside).iter() {
                         if idx > 0 { blk.truncate(idx + 1); }
                     }
 
@@ -2072,8 +2059,7 @@ pub mod parser {
 
                 // channel #03: BPM as an hexadecimal key
                 Key(3) => {
-                    let v = v.to_hex(); // XXX #3511
-                    for &v in v.iter() {
+                    for &v in v.to_hex().iter() {
                         add(Obj::SetBPM(t, BPM(v as f64)))
                     }
                 }
@@ -2328,8 +2314,7 @@ pub mod parser {
 
         let mut present = [false, ..NLANES];
         for &obj in bms.objs.iter() {
-            let lane = obj.object_lane(); // XXX #3511
-            for &Lane(lane) in lane.iter() {
+            for &Lane(lane) in obj.object_lane().iter() {
                 present[lane] = true;
             }
         }
@@ -2387,8 +2372,7 @@ pub mod parser {
                 let mut j = i;
                 while j < len && objs[j].time <= cur {
                     let obj = &mut objs[j];
-                    let ty = to_type(obj); // XXX #3511
-                    for &t in ty.iter() {
+                    for &t in to_type(obj).iter() {
                         if (types & (1 << t)) != 0 {
                             // duplicate type
                             remove_or_replace_note(obj);
@@ -2403,8 +2387,7 @@ pub mod parser {
 
                 while i < j {
                     let obj = &mut objs[i];
-                    let ty = to_type(obj); // XXX #3511
-                    for &t in ty.iter() {
+                    for &t in to_type(obj).iter() {
                         if (types & (1 << t)) == 0 {
                             remove_or_replace_note(obj);
                         }
@@ -2434,7 +2417,7 @@ pub mod parser {
             };
 
             let mut inside = false;
-            sanitize(bms.objs, |obj| to_type(obj), |mut types| { // XXX #7363
+            sanitize(bms.objs, |obj| to_type(obj), |mut types| {
                 static LNMASK: uint = (1 << LNSTART) | (1 << LNDONE);
 
                 // remove overlapping LN endpoints altogether
@@ -2495,8 +2478,7 @@ pub mod parser {
     /// `Deleted` object. (C: `analyze_and_compact_bms`)
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
         for obj in bms.objs.mut_iter() {
-            let lane = obj.object_lane(); // XXX #3511
-            for &Lane(lane) in lane.iter() {
+            for &Lane(lane) in obj.object_lane().iter() {
                 if keyspec.kinds[lane].is_none() {
                     remove_or_replace_note(obj)
                 }
@@ -2608,8 +2590,7 @@ pub mod parser {
     /// Swaps given lanes in the reverse order. (C: `shuffle_bms` with `MIRROR_MODF`)
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        let mut assocs = lanes.iter().zip(lanes.rev_iter()); // XXX #3511
-        for (&Lane(from), &to) in assocs {
+        for (&Lane(from), &to) in lanes.iter().zip(lanes.rev_iter()) {
             map[from] = to;
         }
 
@@ -2623,8 +2604,7 @@ pub mod parser {
     pub fn apply_shuffle_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes.to_owned());
         let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
-        let mut assocs = lanes.iter().zip(shuffled.iter()); // XXX #3511
-        for (&Lane(from), &to) in assocs {
+        for (&Lane(from), &to) in lanes.iter().zip(shuffled.iter()) {
             map[from] = to;
         }
 
@@ -2653,8 +2633,7 @@ pub mod parser {
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
                 let shuffled = r.shuffle(movable.clone());
-                let mut assocs = movable.iter().zip(shuffled.iter()); // XXX #3511
-                for (&Lane(from), &to) in assocs {
+                for (&Lane(from), &to) in movable.iter().zip(shuffled.iter()) {
                     map[from] = to;
                 }
             }
@@ -3653,11 +3632,11 @@ pub mod player {
     impl IterBytes for Input {
         fn iter_bytes(&self, lsb0: bool, f: ::std::to_bytes::Cb) -> bool {
             match *self {
-                KeyInput(key) => // XXX #7363
+                KeyInput(key) =>
                     0u8.iter_bytes(lsb0, |b| f(b)) && (key as uint).iter_bytes(lsb0, |b| f(b)),
-                JoyAxisInput(axis) => // XXX #7363
+                JoyAxisInput(axis) =>
                     1u8.iter_bytes(lsb0, |b| f(b)) && axis.iter_bytes(lsb0, |b| f(b)),
-                JoyButtonInput(button) => // XXX #7363
+                JoyButtonInput(button) =>
                     2u8.iter_bytes(lsb0, |b| f(b)) && button.iter_bytes(lsb0, |b| f(b)),
             }
         }
@@ -3708,27 +3687,19 @@ pub mod player {
     }
 
     /// An information about an environment variable for multiple keys.
-    //
-    // Rust: static struct seems not working somehow... (#5688)
-    /*
     struct KeySet {
         envvar: &'static str,
         default: &'static str,
         mapping: &'static [(Option<KeyKind>, &'static [VirtualInput])],
     }
-    */
-    type KeySet = (
-        &'static str,
-        &'static str,
-        &'static [(Option<KeyKind>, &'static [VirtualInput])]);
 
     /// A list of environment variables that set the mapping for multiple keys, and corresponding
     /// default values and the order of keys. (C: `envvars`)
     static KEYSETS: &'static [KeySet] = &[
-        (/*KeySet { envvar:*/ &"ANGOLMOIS_1P_KEYS",
-                 /*default:*/ &"left shift%axis 3|z%button 3|s%button 6|x%button 2|d%button 7|\
+        KeySet { envvar: &"ANGOLMOIS_1P_KEYS",
+                 default: &"left shift%axis 3|z%button 3|s%button 6|x%button 2|d%button 7|\
                             c%button 1|f%button 4|v%axis 2|left alt",
-                 /*mapping:*/ &[(Some(Scratch),   &[LaneInput(Lane(6))]),
+                 mapping: &[(Some(Scratch),   &[LaneInput(Lane(6))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(1))]),
                             (Some(BlackKey),  &[LaneInput(Lane(2))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(3))]),
@@ -3736,10 +3707,10 @@ pub mod player {
                             (Some(WhiteKey),  &[LaneInput(Lane(5))]),
                             (Some(BlackKey),  &[LaneInput(Lane(8))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(9))]),
-                            (Some(FootPedal), &[LaneInput(Lane(7))])] /*}*/),
-        (/*KeySet { envvar:*/ &"ANGOLMOIS_2P_KEYS",
-                 /*default:*/ &"right alt|m|k|,|l|.|;|/|right shift",
-                 /*mapping:*/ &[(Some(FootPedal), &[LaneInput(Lane(36+7))]),
+                            (Some(FootPedal), &[LaneInput(Lane(7))])] },
+        KeySet { envvar: &"ANGOLMOIS_2P_KEYS",
+                 default: &"right alt|m|k|,|l|.|;|/|right shift",
+                 mapping: &[(Some(FootPedal), &[LaneInput(Lane(36+7))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(36+1))]),
                             (Some(BlackKey),  &[LaneInput(Lane(36+2))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(36+3))]),
@@ -3747,10 +3718,10 @@ pub mod player {
                             (Some(WhiteKey),  &[LaneInput(Lane(36+5))]),
                             (Some(BlackKey),  &[LaneInput(Lane(36+8))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(36+9))]),
-                            (Some(Scratch),   &[LaneInput(Lane(36+6))])] ),
-        (/*KeySet { envvar:*/ &"ANGOLMOIS_PMS_KEYS",
-                 /*default:*/ &"z|s|x|d|c|f|v|g|b",
-                 /*mapping:*/ &[(Some(Button1), &[LaneInput(Lane(1))]),
+                            (Some(Scratch),   &[LaneInput(Lane(36+6))])] },
+        KeySet { envvar: &"ANGOLMOIS_PMS_KEYS",
+                 default: &"z|s|x|d|c|f|v|g|b",
+                 mapping: &[(Some(Button1), &[LaneInput(Lane(1))]),
                             (Some(Button2), &[LaneInput(Lane(2))]),
                             (Some(Button3), &[LaneInput(Lane(3))]),
                             (Some(Button4), &[LaneInput(Lane(4))]),
@@ -3758,11 +3729,11 @@ pub mod player {
                             (Some(Button4), &[LaneInput(Lane(8)), LaneInput(Lane(36+2))]),
                             (Some(Button3), &[LaneInput(Lane(9)), LaneInput(Lane(36+3))]),
                             (Some(Button2), &[LaneInput(Lane(6)), LaneInput(Lane(36+4))]),
-                            (Some(Button1), &[LaneInput(Lane(7)), LaneInput(Lane(36+5))])] ),
-        (/*KeySet { envvar:*/ &"ANGOLMOIS_SPEED_KEYS",
-                 /*default:*/ &"f3|f4",
-                 /*mapping:*/ &[(None, &[SpeedDownInput]),
-                            (None, &[SpeedUpInput])] ),
+                            (Some(Button1), &[LaneInput(Lane(7)), LaneInput(Lane(36+5))])] },
+        KeySet { envvar: &"ANGOLMOIS_SPEED_KEYS",
+                 default: &"f3|f4",
+                 mapping: &[(None, &[SpeedDownInput]),
+                            (None, &[SpeedUpInput])] },
     ];
 
     /// An input mapping, i.e. a mapping from the actual input to the virtual input.
@@ -3809,13 +3780,12 @@ pub mod player {
         };
 
         for &keyset in KEYSETS.iter() {
-            let (envvar, default, mapping) = keyset; // XXX
-            let spec = getenv(/*keyset.*/envvar);
-            let spec = spec.unwrap_or(/*keyset.*/default.to_owned());
+            let spec = getenv(keyset.envvar);
+            let spec = spec.unwrap_or(keyset.default.to_owned());
 
             let mut i = 0;
             for part in spec.split('|') {
-                let (kind, vinputs) = /*keyset.*/mapping[i];
+                let (kind, vinputs) = keyset.mapping[i];
                 for s in part.split('%') {
                     match parse_input(s) {
                         Some(input) => {
@@ -3824,12 +3794,12 @@ pub mod player {
                             }
                         }
                         None => die!("Unknown key name in the environment \
-                                      variable {}: {}", /*keyset.*/envvar, s)
+                                      variable {}: {}", keyset.envvar, s)
                     }
                 }
 
                 i += 1;
-                if i >= /*keyset.*/mapping.len() { break; }
+                if i >= keyset.mapping.len() { break; }
             }
         }
 
@@ -3837,8 +3807,7 @@ pub mod player {
             let key = Key(36 + lane.to_uint() as int);
             let kind = keyspec.kinds[lane.to_uint()].unwrap();
             let envvar = format!("ANGOLMOIS_{}{}_KEY", key.to_str(), kind.to_char());
-            let val = getenv(envvar); // XXX #3511
-            for s in val.iter() {
+            for s in getenv(envvar).iter() {
                 match parse_input(*s) {
                     Some(input) => { add_mapping(Some(kind), input, LaneInput(lane)); }
                     None => {
@@ -4178,8 +4147,7 @@ pub mod player {
             screen.fill_area((x,y), (256,256), RGB(0,0,0));
             for &layer in layers.iter() {
                 for &iref in self[layer as uint].iter() {
-                    let surface = imgres[iref.to_uint()].surface(); // XXX #3511
-                    for &surface in surface.iter() {
+                    for &surface in imgres[iref.to_uint()].surface().iter() {
                         screen.blit_area(&**surface, (0,0), (x,y), (256,256));
                     }
                 }
@@ -4219,8 +4187,7 @@ pub mod player {
         screen.with_pixels(|pixels| {
             for path in bms.stagefile.iter() {
                 let basedir = get_basedir(bms, opts);
-                let resolved = resolve_relative_path(&basedir, *path, IMAGE_EXTS); // XXX #3511
-                for path in resolved.iter() {
+                for path in resolve_relative_path(&basedir, *path, IMAGE_EXTS).iter() {
                     match sdl_image::load(path).and_then(|s| s.display_format()) {
                         Ok(surface) => {
                             surface.with_pixels(|srcpixels| {
@@ -4531,8 +4498,8 @@ Artist:   {artist}
         /// if any. `base` should lie between the pointed object and the previous object.
         /// The proximity is measured in terms of virtual time, which can differ from actual time.
         pub fn find_closest_of_type(&self, base: f64, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let previous = self.find_previous_of_type(|obj| cond(obj)); // XXX #7363
-            let next = self.find_next_of_type(|obj| cond(obj)); // XXX #7363
+            let previous = self.find_previous_of_type(|obj| cond(obj));
+            let next = self.find_next_of_type(|obj| cond(obj));
             match (previous, next) {
                 (None, None) => None,
                 (None, Some(next)) => Some(next),
@@ -5048,8 +5015,7 @@ Artist:   {artist}
                         false
                     } else {
                         if !self.nograding[pcheck.pos] {
-                            let lane = obj.object_lane(); // XXX #3511
-                            for &Lane(lane) in lane.iter() {
+                            for &Lane(lane) in obj.object_lane().iter() {
                                 let missable =
                                     match obj.data {
                                         Visible(..) | LNStart(..) => true,
@@ -5161,8 +5127,7 @@ Artist:   {artist}
                         obj.object_lane() == Some(lane) && obj.is_soundable()
                     });
                     for p in soundable.iter() {
-                        let sounds = p.sounds(); // XXX #3511
-                        for &sref in sounds.iter() {
+                        for &sref in p.sounds().iter() {
                             self.play_sound(sref, false);
                         }
                     }
@@ -5192,16 +5157,14 @@ Artist:   {artist}
                 match (vkey, state) {
                     (SpeedDownInput, Positive) | (SpeedDownInput, Negative) => {
                         let current = self.targetspeed.unwrap_or(self.playspeed);
-                        let newspeed = next_speed_mark(current); // XXX #3511
-                        for &newspeed in newspeed.iter() {
+                        for &newspeed in next_speed_mark(current).iter() {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
                     }
                     (SpeedUpInput, Positive) | (SpeedUpInput, Negative) => {
                         let current = self.targetspeed.unwrap_or(self.playspeed);
-                        let newspeed = previous_speed_mark(current); // XXX #3511
-                        for &newspeed in newspeed.iter() {
+                        for &newspeed in previous_speed_mark(current).iter() {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
@@ -5903,7 +5866,7 @@ pub fn play(opts: ~player::Options) {
                 let screen: &gfx::Surface = *screen.get_ref();
                 let saved_screen: &gfx::Surface = *saved_screen.get_ref();
                 player::graphic_update_status(path, screen, saved_screen,
-                                              font, &mut ticker, || atexit()) // XXX #7363
+                                              font, &mut ticker, || atexit())
             };
         } else {
             update_status = |_path| {};
@@ -5911,7 +5874,7 @@ pub fn play(opts: ~player::Options) {
     } else if opts.showinfo {
         player::show_stagefile_noscreen(bms, infos, keyspec, opts);
         update_status = |path| {
-            player::text_update_status(path, &mut ticker, || atexit()) // XXX #7363
+            player::text_update_status(path, &mut ticker, || atexit())
         };
     } else {
         update_status = |_path| {};
@@ -5920,12 +5883,12 @@ pub fn play(opts: ~player::Options) {
     // wait for resources
     let start = ::sdl::get_ticks() + 3000;
     let (sndres, imgres) =
-        player::load_resource(bms, opts, |msg| update_status(msg)); // XXX #7363
+        player::load_resource(bms, opts, |msg| update_status(msg));
     if opts.showinfo {
         ticker.reset(); // force update
         update_status(None);
     }
-    while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); } // XXX #7363
+    while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); }
 
     // create the player and transfer ownership of other resources to it
     let duration = parser::bms_duration(bms, infos.originoffset,
