@@ -3584,8 +3584,13 @@ pub mod player {
 
     /// Creates a small screen for BGAs (`BGAW` by `BGAH` pixels) if `exclusive` is set,
     /// or a full-sized screen (`SCREENW` by `SCREENH` pixels) otherwise. `fullscreen` is ignored
-    /// when `exclusive` is set. (C: `init_video`)
+    /// when `exclusive` is set. (C: `init_ui` and `init_video`)
     pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
+        if !init([InitVideo]) {
+            die!("SDL Initialization Failure: {}", get_error());
+        }
+        sdl_image::init([sdl_image::InitJPG, sdl_image::InitPNG]);
+
         let result =
             if exclusive {
                 set_video_mode(BGAW as int, BGAH as int, 32, [SWSurface], [DoubleBuf])
@@ -3606,12 +3611,11 @@ pub mod player {
         screen
     }
 
-    /// Initializes an SDL, SDL_image and SDL_mixer. (C: `init_ui`)
-    pub fn init_sdl() {
-        if !init([InitVideo, InitAudio, InitJoystick]) {
+    /// Initializes SDL_mixer. (C: `init_ui`)
+    pub fn init_audio() {
+        if !init([InitAudio]) {
             die!("SDL Initialization Failure: {}", get_error());
         }
-        sdl_image::init([sdl_image::InitJPG, sdl_image::InitPNG]);
         //sdl_mixer::init([sdl_mixer::InitOGG, sdl_mixer::InitMP3]); // TODO
         if sdl_mixer::open(SAMPLERATE, audio::S16_AUDIO_FORMAT, audio::Stereo, 2048).is_err() {
             die!("SDL Mixer Initialization Failure");
@@ -3620,6 +3624,9 @@ pub mod player {
 
     /// Initializes a joystick with given index.
     pub fn init_joystick(joyidx: uint) -> ~joy::Joystick {
+        if !init([InitJoystick]) {
+            die!("SDL Initialization Failure: {}", get_error());
+        }
         unsafe {
             joy::ll::SDL_JoystickEventState(1); // TODO rust-sdl patch
         }
@@ -5858,11 +5865,8 @@ pub fn play(opts: ~player::Options) {
     }
 
     // initialize SDL
-    player::init_sdl();
+    player::init_audio();
     for &joyidx in opts.joystick.iter() { player::init_joystick(joyidx); }
-
-    // read the input mapping (dependent to the SDL initialization)
-    let keymap = ~player::read_keymap(keyspec, std::os::getenv);
 
     // uncompress and populate the bitmap font.
     let mut font = ~gfx::Font();
@@ -5872,8 +5876,13 @@ pub fn play(opts: ~player::Options) {
 
     // initialize the screen if required
     let mut screen = None;
+    let keymap;
     if opts.has_screen() {
         screen = Some(player::init_video(opts.is_exclusive(), opts.fullscreen));
+        // read the input mapping (dependent to the SDL initialization)
+        keymap = ~player::read_keymap(keyspec, std::os::getenv);
+    } else {
+        keymap = ~std::hashmap::HashMap::new();
     }
 
     // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }` segfaults ldue to
