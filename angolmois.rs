@@ -608,17 +608,17 @@ pub mod util {
     #[cfg(not(target_os = "win32"))]
     pub fn die(args: &::std::fmt::Arguments) -> ! {
         let mut stderr = ::std::io::stderr();
-        stderr.write(::exename().as_bytes());
-        stderr.write(bytes!(": "));
-        ::std::fmt::writeln(&mut stderr, args);
+        let _ = stderr.write(::exename().as_bytes());
+        let _ = stderr.write(bytes!(": "));
+        let _ = ::std::fmt::writeln(&mut stderr, args);
         exit(1)
     }
 
     /// Prints an warning message. Internally used in the `warn!` macro below.
     pub fn warn(args: &::std::fmt::Arguments) {
         let mut stderr = ::std::io::stderr();
-        stderr.write(bytes!("*** Warning: "));
-        ::std::fmt::writeln(&mut stderr, args);
+        let _ = stderr.write(bytes!("*** Warning: "));
+        let _ = ::std::fmt::writeln(&mut stderr, args);
     }
 
     // Exits with a formatted error message. (C: `die`)
@@ -939,7 +939,7 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use std::{f64, str, vec, cmp, iter};
+    use std::{f64, str, vec, cmp, iter, io};
     use std::rand::*;
     use util::str::StrUtil;
 
@@ -1724,7 +1724,7 @@ pub mod parser {
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
-    pub fn parse_bms_from_reader<R:Rng>(f: &mut Reader, r: &mut R) -> Bms {
+    pub fn parse_bms_from_reader<R:Rng>(f: &mut Reader, r: &mut R) -> io::IoResult<Bms> {
         /// The list of recognized prefixes of directives. The longest prefix should come first.
         /// Also note that not all recognized prefixes are processed (counterexample being `ENDSW`).
         /// (C: `bmsheader`)
@@ -1833,7 +1833,7 @@ pub mod parser {
         // command. (C: `value[V_LNOBJ]`)
         let mut lnobj = None;
 
-        let file = f.read_to_end();
+        let file = if_ok!(f.read_to_end());
         for line0 in file.split(|&ch| ch == 10u8) {
             let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
             let line: &str = line0;
@@ -2223,14 +2223,13 @@ pub mod parser {
             }
         }
 
-        bms
+        Ok(bms)
     }
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
-    pub fn parse_bms<R:Rng>(bmspath: &str, r: &mut R) -> Option<Bms> {
-        ::std::io::File::open(&Path::new(bmspath)).map(|mut f| {
-            parse_bms_from_reader(&mut f, r)
-        })
+    pub fn parse_bms<R:Rng>(bmspath: &str, r: &mut R) -> io::IoResult<Bms> {
+        let mut f = if_ok!(io::File::open(&Path::new(bmspath)));
+        parse_bms_from_reader(&mut f, r)
     }
 
     //----------------------------------------------------------------------------------------------
@@ -3536,7 +3535,7 @@ pub mod player {
     /// Writes a line to the console without advancing to the next line. `s` should be short enough
     /// to be replaced (currently up to 72 bytes).
     pub fn update_line(s: &str) {
-        write!(&mut ::std::io::stderr(), "\r{:72}\r{}", "", s);
+        let _ = write!(&mut ::std::io::stderr(), "\r{:72}\r{}", "", s);
     }
 
     /// A periodic timer for thresholding the rate of information display.
@@ -3902,13 +3901,14 @@ pub mod player {
 
             let part = part.to_ascii_upper();
             let mut found = false;
-            let entries = io::fs::readdir(&cur); // XXX #3511
-            for next in entries.move_iter() {
-                let name = next.filename().and_then(str::from_utf8).map(|v| v.to_ascii_upper());
-                if name.as_ref().map_or(false, |name| *name == part) {
-                    cur = next.clone();
-                    found = true;
-                    break;
+            for entries in io::fs::readdir(&cur).ok().move_iter() {
+                for next in entries.move_iter() {
+                    let name = next.filename().and_then(str::from_utf8).map(|v| v.to_ascii_upper());
+                    if name.as_ref().map_or(false, |name| *name == part) {
+                        cur = next.clone();
+                        found = true;
+                        break;
+                    }
                 }
             }
             if !found { return None; }
@@ -3917,27 +3917,28 @@ pub mod player {
         if !cur.is_dir() { return None; }
 
         let lastpart = lastpart.to_ascii_upper();
-        let entries = io::fs::readdir(&cur); // XXX #3511
-        for next in entries.move_iter() {
-            let name = next.filename().and_then(str::from_utf8).map(|v| v.to_ascii_upper());
-            let mut found = name.as_ref().map_or(false, |name| *name == lastpart);
-            if !found && name.is_some() {
-                let name = name.unwrap();
-                match name.rfind('.') {
-                    Some(idx) => {
-                        let namenoext = name.slice_to(idx).to_owned();
-                        for ext in exts.iter() {
-                            if namenoext + ext.to_owned() == lastpart {
-                                found = true;
-                                break;
+        for entries in io::fs::readdir(&cur).ok().move_iter() {
+            for next in entries.move_iter() {
+                let name = next.filename().and_then(str::from_utf8).map(|v| v.to_ascii_upper());
+                let mut found = name.as_ref().map_or(false, |name| *name == lastpart);
+                if !found && name.is_some() {
+                    let name = name.unwrap();
+                    match name.rfind('.') {
+                        Some(idx) => {
+                            let namenoext = name.slice_to(idx).to_owned();
+                            for ext in exts.iter() {
+                                if namenoext + ext.to_owned() == lastpart {
+                                    found = true;
+                                    break;
+                                }
                             }
                         }
+                        None => {} // does not try alternative extensions if there was no extension
                     }
-                    None => {} // does not try alternative extensions if there was no extension
                 }
-            }
-            if found {
-                return Some(next);
+                if found {
+                    return Some(next);
+                }
             }
         }
 
@@ -4250,7 +4251,7 @@ pub mod player {
     pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec, opts: &Options) {
         if opts.showinfo {
             let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
-            writeln!(&mut ::std::io::stderr(), "\
+            let _ = writeln!(&mut ::std::io::stderr(), "\
 ----------------------------------------------------------------------------------------------
 Title:    {title}
 Genre:    {genre}
@@ -4354,7 +4355,7 @@ Artist:   {artist}
 
     /// Returns true if two pointers share the common BMS data.
     fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
-        ::std::borrow::ref_eq(lhs.bms.borrow(), rhs.bms.borrow())
+        lhs.bms.borrow() as *Bms == rhs.bms.borrow() as *Bms
     }
 
     impl Eq for Pointer {
@@ -5835,8 +5836,8 @@ pub fn play(opts: ~player::Options) {
     // parses the file and sanitizes it
     let mut r = ::std::rand::rng();
     let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
-        Some(bms) => ~bms,
-        None => die!("Couldn't load BMS file: {}", opts.bmspath)
+        Ok(bms) => ~bms,
+        Err(err) => die!("Couldn't load BMS file: {}", err)
     };
     parser::sanitize_bms(bms);
 
@@ -5954,7 +5955,7 @@ pub fn play(opts: ~player::Options) {
 /// Prints the usage. (C: `usage`)
 pub fn usage() {
     // Rust: this is actually a good use case of `include_str!`...
-    write!(&mut std::io::stderr(), "\
+    let _ = write!(&mut std::io::stderr(), "\
 {} -- the simple BMS player
 http://mearie.org/projects/angolmois/
 https://github.com/lifthrasiir/angolmois-rust/

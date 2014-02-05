@@ -2,15 +2,13 @@ SRC = angolmois.rs
 BIN = angolmois
 RUSTC ?= rustc
 RUSTDOC ?= rustdoc
-RUSTPKG ?= rustpkg
 RUSTSDL ?= rust-sdl
 RUSTFLAGS ?= -O
-RUSTPKGFLAGS ?= -O
+RUSTPKGFLAGS ?= -O --rlib
 
-TRIPLE = $(shell rustc -v | grep host: | cut -b7-)
-LIBSDL = $(RUSTSDL)/build/$(TRIPLE)/sdl
-LIBSDLIMAGE = $(RUSTSDL)/build/$(TRIPLE)/sdl_image
-LIBSDLMIXER = $(RUSTSDL)/build/$(TRIPLE)/sdl_mixer
+LIBSDL = $(RUSTSDL)/libsdl.dummy
+LIBSDLIMAGE = $(RUSTSDL)/libsdl_image.dummy
+LIBSDLMIXER = $(RUSTSDL)/libsdl_mixer.dummy
 
 
 .PHONY: all clean
@@ -18,20 +16,21 @@ LIBSDLMIXER = $(RUSTSDL)/build/$(TRIPLE)/sdl_mixer
 all: $(BIN)
 
 $(BIN): $(SRC) $(LIBSDL) $(LIBSDLIMAGE) $(LIBSDLMIXER)
-	$(RUSTC) $(RUSTFLAGS) -L $(LIBSDL) -L $(LIBSDLIMAGE) -L $(LIBSDLMIXER) $(SRC) -o $(BIN)
+	$(RUSTC) $(RUSTFLAGS) -L $(RUSTSDL) $(SRC) -o $(BIN)
 
-$(LIBSDL):
-	cd $(RUSTSDL) && $(RUSTPKG) build $(RUSTPKGFLAGS) sdl
+$(LIBSDL): $(RUSTSDL)/src/sdl/lib.rs
+	$(RUSTC) $(RUSTPKGFLAGS) $< -o $@ && touch $@
 
-$(LIBSDLIMAGE):
-	cd $(RUSTSDL) && $(RUSTPKG) build $(RUSTPKGFLAGS) sdl_image
+$(LIBSDLIMAGE): $(RUSTSDL)/src/sdl_image/lib.rs $(LIBSDL)
+	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< -o $@ && touch $@
 
-$(LIBSDLMIXER):
-	cd $(RUSTSDL) && $(RUSTPKG) build $(RUSTPKGFLAGS) sdl_mixer
+$(LIBSDLMIXER): $(RUSTSDL)/src/sdl_mixer/lib.rs $(LIBSDL)
+	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< -o $@ && touch $@
 
 doc:
-	$(RUSTDOC) -L $(LIBSDL) -L $(LIBSDLIMAGE) -L $(LIBSDLMIXER) $(SRC)
+	$(RUSTDOC) -L $(RUSTSDL) $(SRC)
 
 clean:
-	rm -rf $(BIN) $(RUSTSDL)/bin $(RUSTSDL)/lib $(RUSTSDL)/build $(RUSTSDL)/.rust
+	rm -rf $(BIN)
+	cd $(RUSTSDL) && rm -f *.so *.dll *.rlib *.dylib *.dummy
 
