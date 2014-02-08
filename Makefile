@@ -4,7 +4,7 @@ RUSTC ?= rustc
 RUSTDOC ?= rustdoc
 RUSTSDL ?= rust-sdl
 RUSTFLAGS ?= -O
-RUSTPKGFLAGS ?= -O --rlib
+RUSTPKGFLAGS ?= -O --crate-type=rlib
 
 LIBSDL = $(RUSTSDL)/libsdl.dummy
 LIBSDLIMAGE = $(RUSTSDL)/libsdl_image.dummy
@@ -19,13 +19,13 @@ $(BIN): $(SRC) $(LIBSDL) $(LIBSDLIMAGE) $(LIBSDLMIXER)
 	$(RUSTC) $(RUSTFLAGS) -L $(RUSTSDL) $(SRC) -o $(BIN)
 
 $(LIBSDL): $(RUSTSDL)/src/sdl/lib.rs
-	$(RUSTC) $(RUSTPKGFLAGS) $< -o $@ && touch $@
+	$(RUSTC) $(RUSTPKGFLAGS) $< --out-dir $(RUSTSDL) && touch $@
 
 $(LIBSDLIMAGE): $(RUSTSDL)/src/sdl_image/lib.rs $(LIBSDL)
-	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< -o $@ && touch $@
+	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< --out-dir $(RUSTSDL) && touch $@
 
 $(LIBSDLMIXER): $(RUSTSDL)/src/sdl_mixer/lib.rs $(LIBSDL)
-	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< -o $@ && touch $@
+	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< --out-dir $(RUSTSDL) && touch $@
 
 doc:
 	$(RUSTDOC) -L $(RUSTSDL) $(SRC)
