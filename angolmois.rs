@@ -3288,7 +3288,7 @@ pub mod gfx {
  * Angolmois is not well refactored. (In fact, the game logic is usually hard to refactor, right?)
  */
 pub mod player {
-    use std::{vec, cmp, num, iter, util};
+    use std::{vec, cmp, num, iter};
     use std::rc::Rc;
     use sdl::*;
     use sdl::video::*;
@@ -4091,6 +4091,8 @@ pub mod player {
 
     /// Applies the blit command to given list of image resources. (C: a part of `load_resource`)
     fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
+        use std::mem;
+
         let src = bc.src.to_uint();
         let dst = bc.dst.to_uint();
         if src == dst { return; }
@@ -4111,7 +4113,7 @@ pub mod player {
         }
 
         // temporarily swap imgres[src], otherwise it will cause an error
-        let savedorigin = util::replace(&mut imgres[src], NoImage);
+        let savedorigin = mem::replace(&mut imgres[src], NoImage);
         {
             let origin = savedorigin.surface().unwrap();
             let target = imgres[dst].surface().unwrap();
@@ -4302,12 +4304,11 @@ Artist:   {artist}
     /// (C: `resource_loaded`)
     pub fn graphic_update_status(path: Option<~str>, screen: &Surface, saved_screen: &Surface,
                                  font: &Font, ticker: &mut Ticker, atexit: ||) {
-        // Rust: `on_tick` calls the closure at most once so `path` won't be referenced twice,
-        //       but the analysis can't reason that. (#4654) an "option dance" via
-        //       `Option<T>::swap_unwrap` is not helpful here since `path` can be `None`.
-        let mut path = path; // XXX #4654
+        use std::mem;
+
+        let mut path = path;
         ticker.on_tick(get_ticks(), || {
-            let path = ::std::util::replace(&mut path, None); // XXX #4654
+            let path = mem::replace(&mut path, None);
             let msg = path.unwrap_or(~"loading...");
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             screen.with_pixels(|pixels| {
@@ -4322,9 +4323,11 @@ Artist:   {artist}
     /// A callback template for `load_resource` with the textual loading screen.
     /// (C: `resource_loaded`)
     pub fn text_update_status(path: Option<~str>, ticker: &mut Ticker, atexit: ||) {
-        let mut path = path; // XXX #4654
+        use std::mem;
+
+        let mut path = path;
         ticker.on_tick(get_ticks(), || {
-            match ::std::util::replace(&mut path, None) { // XXX #4654
+            match mem::replace(&mut path, None) {
                 Some(path) => {
                     use util::str::StrUtil;
                     let path = if path.len() < 63 {path} else {path.slice_upto(0, 63).to_owned()};
