@@ -2039,157 +2039,160 @@ pub mod parser {
         // the LN or not. (C: `prev56`)
         let mut lastln: [Option<uint>, ..NLANES] = [None, ..NLANES];
 
-        // Handles a non-00 alphanumeric key `v` positioned at the particular channel `chan` and
-        // particular position `t`. The position `t2` next to `t` is used for some cases that
-        // an alphanumeric key designates an area rather than a point.
-        let handle_key = |chan: Key, t: f64, t2: f64, v: Key| {
+        {
             // Adds an object. Objects are sorted by its position later.
-            let add = |obj: Obj| { bms.objs.push(obj); };
+            let add = |bms: &mut Bms, obj: Obj| { bms.objs.push(obj); };
+
             // Adds an object and returns its position. LN parsing generally mutates the existing
             // object for simplicity.
-            let mark = |obj: Obj| -> Option<uint> {
+            let mark = |bms: &mut Bms, obj: Obj| -> Option<uint> {
                 let marked = bms.objs.len();
                 bms.objs.push(obj);
                 Some(marked)
             };
 
-            match chan {
-                // channel #01: BGM
-                Key(1) => { add(Obj::BGM(t, v)); }
+            // Handles a non-00 alphanumeric key `v` positioned at the particular channel `chan` and
+            // particular position `t`. The position `t2` next to `t` is used for some cases that
+            // an alphanumeric key designates an area rather than a point.
+            let handle_key = |bms: &mut Bms, chan: Key, t: f64, t2: f64, v: Key| {
+                match chan {
+                    // channel #01: BGM
+                    Key(1) => { add(bms, Obj::BGM(t, v)); }
 
-                // channel #03: BPM as an hexadecimal key
-                Key(3) => {
-                    for &v in v.to_hex().iter() {
-                        add(Obj::SetBPM(t, BPM(v as f64)))
-                    }
-                }
-
-                // channel #04: BGA layer 1
-                Key(4) => { add(Obj::SetBGA(t, Layer1, Some(v))); }
-
-                // channel #06: POOR BGA
-                Key(6) => {
-                    add(Obj::SetBGA(t, PoorBGA, Some(v)));
-                    poorbgafix = false; // we don't add artificial BGA
-                }
-
-                // channel #07: BGA layer 2
-                Key(7) => { add(Obj::SetBGA(t, Layer2, Some(v))); }
-
-                // channel #08: BPM defined by #BPMxx
-                // TODO bpmtab validity check
-                Key(8) => { add(Obj::SetBPM(t, bpmtab[v.to_int() as uint])); }
-
-                // channel #09: scroll stopper defined by #STOPxx
-                // TODO stoptab validity check
-                Key(9) => { add(Obj::Stop(t, stoptab[v.to_int() as uint])); }
-
-                // channel #0A: BGA layer 3
-                Key(10) => { add(Obj::SetBGA(t, Layer3, Some(v))); }
-
-                // channels #1x/2x: visible object, possibly LNs when #LNOBJ is in active
-                Key(36/*1*36*/..107/*3*36-1*/) => {
-                    let lane = Lane::from_channel(chan);
-                    if lnobj.is_some() && lnobj == Some(v) {
-                        // change the last inserted visible object to the start of LN if any.
-                        let lastvispos = lastvis[lane.to_uint()];
-                        for &pos in lastvispos.iter() {
-                            assert!(bms.objs[pos].is_visible());
-                            bms.objs[pos] = bms.objs[pos].to_lnstart();
-                            add(Obj::LNDone(t, lane, Some(v)));
-                            lastvis[lane.to_uint()] = None;
-                        }
-                    } else {
-                        lastvis[lane.to_uint()] = mark(Obj::Visible(t, lane, Some(v)));
-                    }
-                }
-
-                // channels #3x/4x: invisible object
-                Key(108/*3*36*/..179/*5*36-1*/) => {
-                    let lane = Lane::from_channel(chan);
-                    add(Obj::Invisible(t, lane, Some(v)));
-                }
-
-                // channels #5x/6x, #LNTYPE 1: LN endpoints
-                Key(180/*5*36*/..251/*7*36-1*/) if !consecutiveln => {
-                    let lane = Lane::from_channel(chan);
-
-                    // a pair of non-00 alphanumeric keys designate one LN. if there are an odd
-                    // number of them, the last LN is implicitly closed later.
-                    if lastln[lane.to_uint()].is_some() {
-                        lastln[lane.to_uint()] = None;
-                        add(Obj::LNDone(t, lane, Some(v)));
-                    } else {
-                        lastln[lane.to_uint()] = mark(Obj::LNStart(t, lane, Some(v)));
-                    }
-                }
-
-                // channels #5x/6x, #LNTYPE 2: LN areas
-                Key(180/*5*36*/..251/*7*36-1*/) if consecutiveln => {
-                    let lane = Lane::from_channel(chan);
-
-                    // one non-00 alphanumeric key, in the absence of other information, inserts one
-                    // complete LN starting at `t` and ending at `t2`.
-                    //
-                    // the next non-00 alphanumeric key also inserts one complete LN from `t` to
-                    // `t2`, unless there is already an end of LN at `t` in which case the end of LN
-                    // is simply moved from `t` to `t2` (effectively increasing the length of
-                    // previous LN).
-                    match lastln[lane.to_uint()] {
-                        Some(pos) if bms.objs[pos].time == t => {
-                            assert!(bms.objs[pos].is_lndone());
-                            bms.objs[pos].time = t2;
-                        }
-                        _ => {
-                            add(Obj::LNStart(t, lane, Some(v)));
-                            lastln[lane.to_uint()] = mark(Obj::LNDone(t2, lane, Some(v)));
+                    // channel #03: BPM as an hexadecimal key
+                    Key(3) => {
+                        for &v in v.to_hex().iter() {
+                            add(bms, Obj::SetBPM(t, BPM(v as f64)))
                         }
                     }
-                }
 
-                // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5% of the full gauge) or
-                // instant death (ZZ)
-                Key(468/*0xD*36*/..539/*0xF*36-1*/) => {
-                    let lane = Lane::from_channel(chan);
-                    let damage = match v {
-                        Key(v @ 1..200) => Some(GaugeDamage(v as f64 / 200.0)),
-                        Key(1295) => Some(InstantDeath), // XXX 1295=MAXKEY-1
-                        _ => None
-                    };
-                    for &damage in damage.iter() {
-                        add(Obj::Bomb(t, lane, Some(Key(0)), damage));
+                    // channel #04: BGA layer 1
+                    Key(4) => { add(bms, Obj::SetBGA(t, Layer1, Some(v))); }
+
+                    // channel #06: POOR BGA
+                    Key(6) => {
+                        add(bms, Obj::SetBGA(t, PoorBGA, Some(v)));
+                        poorbgafix = false; // we don't add artificial BGA
                     }
-                }
 
-                // unsupported: channels #0B/0C/0D/0E (BGA opacity), #97/98 (sound volume),
-                // #99 (text), #A0 (dynamic #RANK), #A1/A2/A3/A4 (BGA color key update),
-                // #A5 (BGA on keypress), #A6 (player-specific option)
-                _ => {}
-            }
-        };
+                    // channel #07: BGA layer 2
+                    Key(7) => { add(bms, Obj::SetBGA(t, Layer2, Some(v))); }
 
-        // loops over the sorted bmslines
-        bmsline.sort_by(|a, b| (a.measure, b.chan).cmp(&(a.measure, b.chan)));
-        for line in bmsline.iter() {
-            if line.chan == Key(2) {
-                let mut shorten = 0.0;
-                if lex!(line.data; ws*, f64 -> shorten) {
-                    if shorten > 0.001 {
-                        bms.shortens.grow_set(line.measure, &1.0, shorten);
+                    // channel #08: BPM defined by #BPMxx
+                    // TODO bpmtab validity check
+                    Key(8) => { add(bms, Obj::SetBPM(t, bpmtab[v.to_int() as uint])); }
+
+                    // channel #09: scroll stopper defined by #STOPxx
+                    // TODO stoptab validity check
+                    Key(9) => { add(bms, Obj::Stop(t, stoptab[v.to_int() as uint])); }
+
+                    // channel #0A: BGA layer 3
+                    Key(10) => { add(bms, Obj::SetBGA(t, Layer3, Some(v))); }
+
+                    // channels #1x/2x: visible object, possibly LNs when #LNOBJ is in active
+                    Key(36/*1*36*/..107/*3*36-1*/) => {
+                        let lane = Lane::from_channel(chan);
+                        if lnobj.is_some() && lnobj == Some(v) {
+                            // change the last inserted visible object to the start of LN if any.
+                            let lastvispos = lastvis[lane.to_uint()];
+                            for &pos in lastvispos.iter() {
+                                assert!(bms.objs[pos].is_visible());
+                                bms.objs[pos] = bms.objs[pos].to_lnstart();
+                                add(bms, Obj::LNDone(t, lane, Some(v)));
+                                lastvis[lane.to_uint()] = None;
+                            }
+                        } else {
+                            lastvis[lane.to_uint()] = mark(bms, Obj::Visible(t, lane, Some(v)));
+                        }
                     }
+
+                    // channels #3x/4x: invisible object
+                    Key(108/*3*36*/..179/*5*36-1*/) => {
+                        let lane = Lane::from_channel(chan);
+                        add(bms, Obj::Invisible(t, lane, Some(v)));
+                    }
+
+                    // channels #5x/6x, #LNTYPE 1: LN endpoints
+                    Key(180/*5*36*/..251/*7*36-1*/) if !consecutiveln => {
+                        let lane = Lane::from_channel(chan);
+
+                        // a pair of non-00 alphanumeric keys designate one LN. if there are an odd
+                        // number of them, the last LN is implicitly closed later.
+                        if lastln[lane.to_uint()].is_some() {
+                            lastln[lane.to_uint()] = None;
+                            add(bms, Obj::LNDone(t, lane, Some(v)));
+                        } else {
+                            lastln[lane.to_uint()] = mark(bms, Obj::LNStart(t, lane, Some(v)));
+                        }
+                    }
+
+                    // channels #5x/6x, #LNTYPE 2: LN areas
+                    Key(180/*5*36*/..251/*7*36-1*/) if consecutiveln => {
+                        let lane = Lane::from_channel(chan);
+
+                        // one non-00 alphanumeric key, in the absence of other information,
+                        // inserts one complete LN starting at `t` and ending at `t2`.
+                        //
+                        // the next non-00 alphanumeric key also inserts one complete LN
+                        // from `t` to `t2`, unless there is already an end of LN at `t`
+                        // in which case the end of LN is simply moved from `t` to `t2`
+                        // (effectively increasing the length of previous LN).
+                        match lastln[lane.to_uint()] {
+                            Some(pos) if bms.objs[pos].time == t => {
+                                assert!(bms.objs[pos].is_lndone());
+                                bms.objs[pos].time = t2;
+                            }
+                            _ => {
+                                add(bms, Obj::LNStart(t, lane, Some(v)));
+                                lastln[lane.to_uint()] = mark(bms, Obj::LNDone(t2, lane, Some(v)));
+                            }
+                        }
+                    }
+
+                    // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5% of the full gauge)
+                    // or instant death (ZZ)
+                    Key(468/*0xD*36*/..539/*0xF*36-1*/) => {
+                        let lane = Lane::from_channel(chan);
+                        let damage = match v {
+                            Key(v @ 1..200) => Some(GaugeDamage(v as f64 / 200.0)),
+                            Key(1295) => Some(InstantDeath), // XXX 1295=MAXKEY-1
+                            _ => None
+                        };
+                        for &damage in damage.iter() {
+                            add(bms, Obj::Bomb(t, lane, Some(Key(0)), damage));
+                        }
+                    }
+
+                    // unsupported: channels #0B/0C/0D/0E (BGA opacity), #97/98 (sound volume),
+                    // #99 (text), #A0 (dynamic #RANK), #A1/A2/A3/A4 (BGA color key update),
+                    // #A5 (BGA on keypress), #A6 (player-specific option)
+                    _ => {}
                 }
-            } else {
-                let measure = line.measure as f64;
-                let data: ~[char] = line.data.chars().collect();
-                let max = data.len() / 2 * 2;
-                let count = max as f64;
-                for i in iter::range_step(0, max, 2) {
-                    let v = key2index(data.slice(i, i+2));
-                    for &v in v.iter() {
-                        if v != 0 { // ignores 00
-                            let t = measure + i as f64 / count;
-                            let t2 = measure + (i + 2) as f64 / count;
-                            handle_key(line.chan, t, t2, Key(v));
+            };
+
+            // loops over the sorted bmslines
+            bmsline.sort_by(|a, b| (a.measure, b.chan).cmp(&(a.measure, b.chan)));
+            for line in bmsline.iter() {
+                if line.chan == Key(2) {
+                    let mut shorten = 0.0;
+                    if lex!(line.data; ws*, f64 -> shorten) {
+                        if shorten > 0.001 {
+                            bms.shortens.grow_set(line.measure, &1.0, shorten);
+                        }
+                    }
+                } else {
+                    let measure = line.measure as f64;
+                    let data: ~[char] = line.data.chars().collect();
+                    let max = data.len() / 2 * 2;
+                    let count = max as f64;
+                    for i in iter::range_step(0, max, 2) {
+                        let v = key2index(data.slice(i, i+2));
+                        for &v in v.iter() {
+                            if v != 0 { // ignores 00
+                                let t = measure + i as f64 / count;
+                                let t2 = measure + (i + 2) as f64 / count;
+                                handle_key(&mut bms, line.chan, t, t2, Key(v));
+                            }
                         }
                     }
                 }
@@ -3197,7 +3200,8 @@ pub mod gfx {
             let nglyphs = self.glyphs.len() / nrows / 2;
             let mut pixels = vec::from_elem(nglyphs, vec::from_elem(zoom*nrows, 0u32));
 
-            let put_zoomed_pixel = |glyph: uint, row: uint, col: uint, v: u32| {
+            let put_zoomed_pixel = |pixels: &mut ~[~[ZoomedFontRow]],
+                                    glyph: uint, row: uint, col: uint, v: u32| {
                 let zoomrow = row * zoom;
                 let zoomcol = col * zoom;
                 for r in range(0, zoom) {
@@ -3225,7 +3229,7 @@ pub mod gfx {
                     i += 2;
                     for col in range(0, 8u) {
                         let v = (data >> (4 * col)) & 15;
-                        put_zoomed_pixel(glyph, row, col, v);
+                        put_zoomed_pixel(&mut pixels, glyph, row, col, v);
                     }
                 }
             }
@@ -3433,7 +3437,7 @@ pub mod player {
             };
 
         let mut keyspec = ~KeySpec { split: 0, order: ~[], kinds: ~[None, ..NLANES] };
-        let parse_and_add = |keys: &str| -> Option<uint> {
+        let parse_and_add = |keyspec: &mut KeySpec, keys: &str| -> Option<uint> {
             match parse_key_spec(keys) {
                 None | Some([]) => None,
                 Some(left) => {
@@ -3449,7 +3453,7 @@ pub mod player {
         };
 
         if !leftkeys.is_empty() {
-            match parse_and_add(leftkeys) {
+            match parse_and_add(keyspec, leftkeys) {
                 None => {
                     return Err(format!("Invalid key spec for left hand side: {}", leftkeys));
                 }
@@ -3459,7 +3463,7 @@ pub mod player {
             return Err(~"No key model is specified using -k or -K");
         }
         if !rightkeys.is_empty() {
-            match parse_and_add(rightkeys) {
+            match parse_and_add(keyspec, rightkeys) {
                 None => {
                     return Err(format!("Invalid key spec for right hand side: {}", rightkeys));
                 }
@@ -3773,7 +3777,8 @@ pub mod player {
         }
 
         let mut map = ::std::hashmap::HashMap::new();
-        let add_mapping = |kind: Option<KeyKind>, input: Input, vinput: VirtualInput| {
+        let add_mapping = |map: &mut KeyMap, kind: Option<KeyKind>,
+                           input: Input, vinput: VirtualInput| {
             if kind.map_or(true, |kind| vinput.active_in_key_spec(kind, keyspec)) {
                 map.insert(input, vinput);
             }
@@ -3790,7 +3795,7 @@ pub mod player {
                     match parse_input(s) {
                         Some(input) => {
                             for &vinput in vinputs.iter() {
-                                add_mapping(kind, input, vinput);
+                                add_mapping(&mut map, kind, input, vinput);
                             }
                         }
                         None => die!("Unknown key name in the environment \
@@ -3809,7 +3814,7 @@ pub mod player {
             let envvar = format!("ANGOLMOIS_{}{}_KEY", key.to_str(), kind.to_char());
             for s in getenv(envvar).iter() {
                 match parse_input(*s) {
-                    Some(input) => { add_mapping(Some(kind), input, LaneInput(lane)); }
+                    Some(input) => { add_mapping(&mut map, Some(kind), input, LaneInput(lane)); }
                     None => {
                         die!("Unknown key name in the environment variable {}: {}", envvar, *s);
                     }
@@ -4349,7 +4354,12 @@ Artist:   {artist}
         /// A BMS data holding objects.
         bms: Rc<Bms>,
         /// The current position. Can be the past-the-end value.
-        pos: uint
+        pos: uint,
+        /// The next position used by `next_*` methods, which are required to delay advancing `pos`
+        /// by one step (so that the first iteration sees the current pointer yet to be updated).
+        /// Therefore `next` is initially set to `None`, then each `next_*` call sets `next` to
+        /// what `pos` needs to be after the next invocation.
+        next: Option<uint>,
     }
 
     /// Returns true if two pointers share the common BMS data.
@@ -4387,7 +4397,7 @@ Artist:   {artist}
 
     impl Clone for Pointer {
         fn clone(&self) -> Pointer {
-            Pointer { bms: self.bms.clone(), pos: self.pos }
+            Pointer { bms: self.bms.clone(), pos: self.pos, next: None }
         }
     }
 
@@ -4426,31 +4436,38 @@ Artist:   {artist}
         /// Returns the time of pointed object.
         pub fn time(&self) -> f64 { self.objs()[self.pos].time }
 
+        /// Returns the number of a measure containing the pointed object.
+        pub fn measure(&self) -> int { self.objs()[self.pos].measure() }
+
         /// Returns the associated game data of pointed object.
         pub fn data(&self) -> ObjData { self.objs()[self.pos].data }
 
         /// Seeks to the first object which time is past the limit, if any.
         pub fn seek_until(&mut self, limit: f64) {
-            let bms = self.bms.clone();
-            let nobjs = bms.borrow().objs.len();
+            let bms = self.bms.borrow();
+            let nobjs = bms.objs.len();
             while self.pos < nobjs {
-                if bms.borrow().objs[self.pos].time >= limit { break; }
+                if bms.objs[self.pos].time >= limit { break; }
                 self.pos += 1;
             }
+            self.next = None;
         }
 
-        /// Iterates over objects starting from the current object, until the first object which
-        /// time is past the limit is reached.
-        pub fn iter_until(&mut self, limit: f64, f: |&Obj| -> bool) -> bool {
-            let bms = self.bms.clone();
-            let nobjs = bms.borrow().objs.len();
-            while self.pos < nobjs {
-                let current = &bms.borrow().objs[self.pos];
-                if current.time >= limit { return false; }
-                if !f(current) { return false; }
-                self.pos += 1;
+        /// Tries to advance to the next object which time is within the limit.
+        /// Returns false if it's impossible.
+        pub fn next_until(&mut self, limit: f64) -> bool {
+            let bms = self.bms.borrow();
+            match self.next {
+                Some(next) => { self.pos = next; }
+                None => {}
             }
-            true
+            if self.pos < bms.objs.len() && bms.objs[self.pos].time < limit {
+                self.next = Some(self.pos + 1);
+                true
+            } else {
+                self.next = None;
+                false
+            }
         }
 
         /// Seeks to the object pointed by the other pointer.
@@ -4458,47 +4475,48 @@ Artist:   {artist}
             assert!(has_same_bms(self, limit));
             assert!(limit.pos <= self.bms.borrow().objs.len());
             self.pos = limit.pos;
+            self.next = None;
         }
 
-        /// Iterates over objects starting from the current object, until the object pointed by
-        /// the other pointer is reached.
-        pub fn iter_to(&mut self, limit: &Pointer, f: |&Obj| -> bool) -> bool {
+        /// Tries to advance to the next object which precedes the other pointer.
+        /// Returns false if it's impossible.
+        pub fn next_to(&mut self, limit: &Pointer) -> bool {
             assert!(has_same_bms(self, limit));
-            let bms = self.bms.clone();
-            assert!(limit.pos <= bms.borrow().objs.len());
-            while self.pos < limit.pos {
-                let current = &bms.borrow().objs[self.pos];
-                if !f(current) { return false; }
-                self.pos += 1;
+            match self.next {
+                Some(next) => { self.pos = next; }
+                None => {}
             }
+            if self.pos >= limit.pos { return false; }
+            self.next = Some(self.pos + 1);
             true
         }
 
         /// Seeks to the end of objects.
         pub fn seek_to_end(&mut self) {
             self.pos = self.bms.borrow().objs.len();
+            self.next = None;
         }
 
-        /// Iterates over objects starting from the current object.
-        pub fn iter_to_end(&mut self, f: |&Obj| -> bool) -> bool {
-            let bms = self.bms.clone();
-            let nobjs = bms.borrow().objs.len();
-            while self.pos < nobjs {
-                let current = &bms.borrow().objs[self.pos];
-                if !f(current) { return false; }
-                self.pos += 1;
+        /// Tries to advance to the next object. Returns false if it's the end of objects.
+        pub fn next_to_end(&mut self) -> bool {
+            let bms = self.bms.borrow();
+            match self.next {
+                Some(next) => { self.pos = next; }
+                None => {}
             }
+            if self.pos >= bms.objs.len() { return false; }
+            self.next = Some(self.pos + 1);
             true
         }
 
         /// Finds the next object that satisfies given condition if any, without updating itself.
         pub fn find_next_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let bms = self.bms.clone();
-            let nobjs = bms.borrow().objs.len();
+            let bms = self.bms.borrow();
+            let nobjs = bms.objs.len();
             let mut i = self.pos;
             while i < nobjs {
-                if cond(&bms.borrow().objs[i]) {
-                    return Some(Pointer { bms: bms, pos: i });
+                if cond(&bms.objs[i]) {
+                    return Some(Pointer { bms: self.bms.clone(), pos: i, next: None });
                 }
                 i += 1;
             }
@@ -4508,12 +4526,12 @@ Artist:   {artist}
         /// Finds the previous object that satisfies given condition if any, without updating
         /// itself.
         pub fn find_previous_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let bms = self.bms.clone();
+            let bms = self.bms.borrow();
             let mut i = self.pos;
             while i > 0 {
                 i -= 1;
-                if cond(&bms.borrow().objs[i]) {
-                    return Some(Pointer { bms: bms, pos: i });
+                if cond(&bms.objs[i]) {
+                    return Some(Pointer { bms: self.bms.clone(), pos: i, next: None });
                 }
             }
             None
@@ -4539,12 +4557,12 @@ Artist:   {artist}
 
     /// Returns a pointer pointing the first object in `bms`.
     fn Pointer(bms: Rc<Bms>) -> Pointer {
-        Pointer { bms: bms, pos: 0 }
+        Pointer { bms: bms, pos: 0, next: None }
     }
 
     /// Returns a pointer pointing given object in `bms`.
     fn pointer_with_pos(bms: Rc<Bms>, pos: uint) -> Pointer {
-        Pointer { bms: bms, pos: pos }
+        Pointer { bms: bms, pos: pos, next: None }
     }
 
     //----------------------------------------------------------------------------------------------
@@ -4940,13 +4958,16 @@ Artist:   {artist}
             self.beep.play(Some(0), 0);
         }
 
+        /// Breaks a continuity at given virtual time.
+        fn break_continuity(&mut self, at: f64) {
+            assert!(at >= self.startoffset);
+            self.starttime += (self.bpm.measure_to_msec(at - self.startoffset) *
+                               self.startshorten) as uint;
+            self.startoffset = at;
+        }
+
         /// Updates the player state. (C: `play_process`)
         pub fn tick(&mut self) -> bool {
-            let mut pfront = self.pfront.clone();
-            let mut pcur = self.pcur.clone();
-            let mut pcheck = self.pcheck.clone();
-            let mut pthru = self.pthru.clone();
-
             // smoothly change the play speed
             if self.targetspeed.is_some() {
                 let target = self.targetspeed.unwrap();
@@ -4976,19 +4997,11 @@ Artist:   {artist}
                 }
             };
 
-            // Breaks a continuity at given virtual time.
-            let break_continuity = |at: f64| {
-                assert!(at >= self.startoffset);
-                self.starttime += (self.bpm.measure_to_msec(at - self.startoffset) *
-                                   self.startshorten) as uint;
-                self.startoffset = at;
-            };
-
             // process the measure scale factor change
             let bottommeasure = self.bottom.floor();
             let curshorten = self.bms.borrow().shorten(bottommeasure as int);
             if bottommeasure >= -1.0 && self.startshorten != curshorten {
-                break_continuity(bottommeasure);
+                self.break_continuity(bottommeasure);
                 self.startshorten = curshorten;
             }
 
@@ -4998,10 +5011,11 @@ Artist:   {artist}
             let lineshorten = self.bms.borrow().shorten(self.line.floor() as int);
 
             // apply object-like effects while advancing to new `pcur`
-            pfront.seek_until(self.bottom);
-            let mut prevpcur = pointer_with_pos(self.bms.clone(), pcur.pos);
-            pcur.iter_until(self.line, |&obj| {
-                match obj.data {
+            self.pfront.seek_until(self.bottom);
+            let mut prevpcur = pointer_with_pos(self.bms.clone(), self.pcur.pos);
+            while self.pcur.next_until(self.line) {
+                let time = self.pcur.time();
+                match self.pcur.data() {
                     BGM(sref) => {
                         self.play_sound_if_nonzero(sref, true);
                     }
@@ -5009,14 +5023,14 @@ Artist:   {artist}
                         self.bga[layer as uint] = iref;
                     }
                     SetBPM(newbpm) => {
-                        break_continuity(obj.time);
+                        self.break_continuity(time);
                         self.bpm = newbpm;
                     }
                     Stop(duration) => {
                         let msecs = duration.to_msec(self.bpm);
                         let newstoptime = msecs as uint + self.now;
                         self.stoptime.mutate_or_set(newstoptime, |t| cmp::max(t, newstoptime));
-                        self.startoffset = obj.time;
+                        self.startoffset = time;
                     }
                     Visible(_,sref) | LNStart(_,sref) => {
                         if self.opts.is_autoplay() {
@@ -5028,34 +5042,30 @@ Artist:   {artist}
                     }
                     _ => {}
                 }
-                true
-            });
+            }
 
             // grade objects that have escaped the grading area
             if !self.opts.is_autoplay() {
-                pcheck.iter_to(&pcur, |&obj| {
-                    let dist = self.bpm.measure_to_msec(self.line - obj.time) *
-                               self.bms.borrow().shorten(obj.measure()) * self.gradefactor;
-                    if dist < BAD_CUTOFF {
-                        false
-                    } else {
-                        if !self.nograding[pcheck.pos] {
-                            for &Lane(lane) in obj.object_lane().iter() {
-                                let missable =
-                                    match obj.data {
-                                        Visible(..) | LNStart(..) => true,
-                                        LNDone(..) => pthru[lane].is_some(),
-                                        _ => false,
-                                    };
-                                if missable {
-                                    self.update_grade_to_miss();
-                                    pthru[lane] = None;
-                                }
+                while self.pcheck.next_to(&self.pcur) {
+                    let dist = self.bpm.measure_to_msec(self.line - self.pcheck.time()) *
+                               self.bms.borrow().shorten(self.pcheck.measure()) * self.gradefactor;
+                    if dist < BAD_CUTOFF { break; }
+
+                    if !self.nograding[self.pcheck.pos] {
+                        for &Lane(lane) in self.pcheck.object_lane().iter() {
+                            let missable =
+                                match self.pcheck.data() {
+                                    Visible(..) | LNStart(..) => true,
+                                    LNDone(..) => self.pthru[lane].is_some(),
+                                    _ => false,
+                                };
+                            if missable {
+                                self.update_grade_to_miss();
+                                self.pthru[lane] = None;
                             }
                         }
-                        true
                     }
-                });
+                }
             }
 
             // process inputs
@@ -5094,15 +5104,17 @@ Artist:   {artist}
                 // Returns true if the given lane is previously pressed and now unpressed.
                 // When the virtual input is mapped to multiple actual inputs it can update
                 // the internal state but still return false.
-                let is_unpressed = |lane: Lane, continuous: bool, state: InputState| {
-                    if state == Neutral || (continuous && self.joystate[lane.to_uint()] != state) {
+                let is_unpressed = |player: &mut Player, lane: Lane,
+                                    continuous: bool, state: InputState| {
+                    if state == Neutral || (continuous &&
+                                            player.joystate[lane.to_uint()] != state) {
                         if continuous {
-                            self.joystate[lane.to_uint()] = state; true
+                            player.joystate[lane.to_uint()] = state; true
                         } else {
-                            if self.keymultiplicity[lane.to_uint()] > 0 {
-                                self.keymultiplicity[lane.to_uint()] -= 1;
+                            if player.keymultiplicity[lane.to_uint()] > 0 {
+                                player.keymultiplicity[lane.to_uint()] -= 1;
                             }
-                            (self.keymultiplicity[lane.to_uint()] == 0)
+                            (player.keymultiplicity[lane.to_uint()] == 0)
                         }
                     } else {
                         false
@@ -5112,67 +5124,70 @@ Artist:   {artist}
                 // Returns true if the given lane is previously unpressed and now pressed.
                 // When the virtual input is mapped to multiple actual inputs it can update
                 // the internal state but still return false.
-                let is_pressed = |lane: Lane, continuous: bool, state: InputState| {
+                let is_pressed = |player: &mut Player, lane: Lane,
+                                  continuous: bool, state: InputState| {
                     if state != Neutral {
                         if continuous {
-                            self.joystate[lane.to_uint()] = state; true
+                            player.joystate[lane.to_uint()] = state; true
                         } else {
-                            self.keymultiplicity[lane.to_uint()] += 1;
-                            (self.keymultiplicity[lane.to_uint()] == 1)
+                            player.keymultiplicity[lane.to_uint()] += 1;
+                            (player.keymultiplicity[lane.to_uint()] == 1)
                         }
                     } else {
                         false
                     }
                 };
 
-                let process_unpress = |lane: Lane| {
+                let process_unpress = |player: &mut Player, lane: Lane| {
                     // if LN grading is in progress and it is not within the threshold then
                     // MISS grade is issued
-                    for thru in pthru[lane.to_uint()].iter() {
-                        let nextlndone = thru.find_next_of_type(|&obj| {
-                            obj.object_lane() == Some(lane) &&
-                            obj.is_lndone()
+                    let nextlndone =
+                        player.pthru[lane.to_uint()].as_ref().and_then(|thru| {
+                            thru.find_next_of_type(|obj| {
+                                obj.object_lane() == Some(lane) &&
+                                obj.is_lndone()
+                            })
                         });
-                        for p in nextlndone.iter() {
-                            let delta = self.bpm.measure_to_msec(p.time() - self.line) *
-                                        lineshorten * self.gradefactor;
-                            if num::abs(delta) < BAD_CUTOFF {
-                                self.nograding[p.pos] = true;
-                            } else {
-                                self.update_grade_to_miss();
-                            }
+                    for p in nextlndone.iter() {
+                        let delta = player.bpm.measure_to_msec(p.time() - player.line) *
+                                    lineshorten * player.gradefactor;
+                        if num::abs(delta) < BAD_CUTOFF {
+                            player.nograding[p.pos] = true;
+                        } else {
+                            player.update_grade_to_miss();
                         }
                     }
-                    pthru[lane.to_uint()] = None;
+                    player.pthru[lane.to_uint()] = None;
                 };
 
-                let process_press = |lane: Lane| {
+                let process_press = |player: &mut Player, lane: Lane| {
                     // plays the closest key sound
-                    let soundable = pcur.find_closest_of_type(self.line, |&obj| {
+                    let soundable = player.pcur.find_closest_of_type(player.line, |obj| {
                         obj.object_lane() == Some(lane) && obj.is_soundable()
                     });
                     for p in soundable.iter() {
                         for &sref in p.sounds().iter() {
-                            self.play_sound(sref, false);
+                            player.play_sound(sref, false);
                         }
                     }
 
                     // tries to grade the closest gradable object in
                     // the grading area
-                    let gradable = pcur.find_closest_of_type(self.line, |&obj| {
+                    let gradable = player.pcur.find_closest_of_type(player.line, |obj| {
                         obj.object_lane() == Some(lane) && obj.is_gradable()
                     });
                     for p in gradable.iter() {
-                        if p.pos >= pcheck.pos && !self.nograding[p.pos] && !p.is_lndone() {
-                            let dist = self.bpm.measure_to_msec(p.time() - self.line) *
-                                       lineshorten * self.gradefactor;
+                        if p.pos >= player.pcheck.pos && !player.nograding[p.pos] &&
+                                                         !p.is_lndone() {
+                            let dist = player.bpm.measure_to_msec(p.time() - player.line) *
+                                       lineshorten * player.gradefactor;
                             if num::abs(dist) < BAD_CUTOFF {
                                 if p.is_lnstart() {
-                                    pthru[lane.to_uint()] =
-                                        Some(pointer_with_pos(self.bms.clone(), p.pos));
+                                    player.pthru[lane.to_uint()] =
+                                        Some(pointer_with_pos(player.bms.clone(), p.pos));
                                 }
-                                self.nograding[p.pos] = true;
-                                self.update_grade_from_distance(dist);
+                                player.nograding[p.pos] = true;
+                                player.update_grade_from_distance(dist);
                             }
                         }
                     }
@@ -5196,11 +5211,11 @@ Artist:   {artist}
                     }
                     (LaneInput(lane), state) => {
                         if !self.opts.is_autoplay() {
-                            if is_unpressed(lane, continuous, state) {
-                                process_unpress(lane);
+                            if is_unpressed(self, lane, continuous, state) {
+                                process_unpress(self, lane);
                             }
-                            if is_pressed(lane, continuous, state) {
-                                process_press(lane);
+                            if is_pressed(self, lane, continuous, state) {
+                                process_press(self, lane);
                             }
                         }
                     }
@@ -5211,33 +5226,24 @@ Artist:   {artist}
 
             // process bombs
             if !self.opts.is_autoplay() {
-                // TODO make `Pointer::iter_*` a proper iterator?
-                let nodeath = prevpcur.iter_to(&pcur.clone(), |&obj| {
-                    match obj.data {
+                while prevpcur.next_to(&self.pcur) {
+                    match prevpcur.data() {
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
                             // ongoing long note is not graded twice
-                            pthru[lane.to_uint()] = None;
+                            self.pthru[lane.to_uint()] = None;
                             for &sref in sref.iter() {
                                 self.play_sound(sref, false);
                             }
                             if !self.update_grade_from_damage(damage) {
                                 // instant death
-                                pcur.seek_to_end();
-                                false
-                            } else {
-                                true
+                                self.pcur.seek_to_end();
+                                return false;
                             }
                         },
-                        _ => true
+                        _ => {}
                     }
-                });
-                if !nodeath { return false; }
+                }
             }
-
-            self.pfront = pfront;
-            self.pcur = pcur;
-            self.pcheck = pcheck;
-            self.pthru = pthru;
 
             // determines if we should keep playing
             if self.bottom > (self.bms.borrow().nmeasures + 1) as f64 {
@@ -5602,7 +5608,7 @@ Artist:   {artist}
                 (SCREENH-70) - (400.0 * player.playspeed * adjusted) as uint
             };
             for &(lane,style) in self.lanestyles.iter() {
-                let front = player.pfront.find_next_of_type(|&obj| {
+                let front = player.pfront.find_next_of_type(|obj| {
                     obj.object_lane() == Some(lane) && obj.is_renderable()
                 });
                 if front.is_none() { continue; }
@@ -5877,43 +5883,47 @@ pub fn play(opts: ~player::Options) {
     //       the moved `opts`. (#2202)
     let atexit = if opts.is_exclusive() { || player::update_line("") } else { || {} };
 
-    // render the loading screen
-    let mut ticker = player::Ticker();
-    let mut saved_screen = None; // XXX should be in a trait actually
-    let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
-    let update_status;
-    if !opts.is_exclusive() {
-        let screen_: &gfx::Surface = *screen.get_ref();
-        player::show_stagefile_screen(bms, infos, keyspec, opts, screen_, font);
-        if opts.showinfo {
-            saved_screen = Some(player::save_screen_for_loading(screen_));
+    let (sndres, imgres) = {
+        // render the loading screen
+        let ticker = std::cell::RefCell::new(player::Ticker());
+        let mut saved_screen = None; // XXX should be in a trait actually
+        let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
+        let update_status;
+        if !opts.is_exclusive() {
+            let screen_: &gfx::Surface = *screen.get_ref();
+            player::show_stagefile_screen(bms, infos, keyspec, opts, screen_, font);
+            if opts.showinfo {
+                saved_screen = Some(player::save_screen_for_loading(screen_));
+                update_status = |path| {
+                    let screen: &gfx::Surface = *screen.get_ref();
+                    let saved_screen: &gfx::Surface = *saved_screen.get_ref();
+                    player::graphic_update_status(path, screen, saved_screen,
+                                                  font, ticker.borrow_mut().get(), || atexit())
+                };
+            } else {
+                update_status = |_path| {};
+            }
+        } else if opts.showinfo {
+            player::show_stagefile_noscreen(bms, infos, keyspec, opts);
             update_status = |path| {
-                let screen: &gfx::Surface = *screen.get_ref();
-                let saved_screen: &gfx::Surface = *saved_screen.get_ref();
-                player::graphic_update_status(path, screen, saved_screen,
-                                              font, &mut ticker, || atexit())
+                player::text_update_status(path, ticker.borrow_mut().get(), || atexit())
             };
         } else {
             update_status = |_path| {};
         }
-    } else if opts.showinfo {
-        player::show_stagefile_noscreen(bms, infos, keyspec, opts);
-        update_status = |path| {
-            player::text_update_status(path, &mut ticker, || atexit())
-        };
-    } else {
-        update_status = |_path| {};
-    }
 
-    // wait for resources
-    let start = ::sdl::get_ticks() + 3000;
-    let (sndres, imgres) =
-        player::load_resource(bms, opts, |msg| update_status(msg));
-    if opts.showinfo {
-        ticker.reset(); // force update
-        update_status(None);
-    }
-    while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); }
+        // wait for resources
+        let start = ::sdl::get_ticks() + 3000;
+        let (sndres, imgres) =
+            player::load_resource(bms, opts, |msg| update_status(msg));
+        if opts.showinfo {
+            ticker.borrow_mut().get().reset(); // force update
+            update_status(None);
+        }
+        while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); }
+
+        (sndres, imgres)
+    };
 
     // create the player and transfer ownership of other resources to it
     let duration = parser::bms_duration(bms, infos.originoffset,
