@@ -4442,6 +4442,11 @@ Artist:   {artist}
         /// Returns the associated game data of pointed object.
         pub fn data(&self) -> ObjData { self.objs()[self.pos].data }
 
+        /// Resets the internal iteration state.
+        pub fn reset(&mut self) {
+            self.next = None;
+        }
+
         /// Seeks to the first object which time is past the limit, if any.
         pub fn seek_until(&mut self, limit: f64) {
             let bms = self.bms.borrow();
@@ -5013,6 +5018,7 @@ Artist:   {artist}
             // apply object-like effects while advancing to new `pcur`
             self.pfront.seek_until(self.bottom);
             let mut prevpcur = pointer_with_pos(self.bms.clone(), self.pcur.pos);
+            self.pcur.reset();
             while self.pcur.next_until(self.line) {
                 let time = self.pcur.time();
                 match self.pcur.data() {
@@ -5046,6 +5052,7 @@ Artist:   {artist}
 
             // grade objects that have escaped the grading area
             if !self.opts.is_autoplay() {
+                self.pcheck.reset();
                 while self.pcheck.next_to(&self.pcur) {
                     let dist = self.bpm.measure_to_msec(self.line - self.pcheck.time()) *
                                self.bms.borrow().shorten(self.pcheck.measure()) * self.gradefactor;
@@ -5226,6 +5233,7 @@ Artist:   {artist}
 
             // process bombs
             if !self.opts.is_autoplay() {
+                prevpcur.reset();
                 while prevpcur.next_to(&self.pcur) {
                     match prevpcur.data() {
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
