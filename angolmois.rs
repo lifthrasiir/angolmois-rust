@@ -2657,7 +2657,7 @@ pub mod parser {
 
 /// Graphic utilities.
 pub mod gfx {
-    use std::{vec, num};
+    use std::{vec, num, cmp};
     use sdl::Rect;
     pub use sdl::video::*;
 
@@ -3051,9 +3051,9 @@ pub mod gfx {
                     }
                 }
 
-                let r = num::clamp(r >> FP_SHIFT2, 0, 255) as u8;
-                let g = num::clamp(g >> FP_SHIFT2, 0, 255) as u8;
-                let b = num::clamp(b >> FP_SHIFT2, 0, 255) as u8;
+                let r = cmp::min(cmp::max(r >> FP_SHIFT2, 0), 255) as u8;
+                let g = cmp::min(cmp::max(g >> FP_SHIFT2, 0), 255) as u8;
+                let b = cmp::min(cmp::max(b >> FP_SHIFT2, 0), 255) as u8;
                 dest.put_pixel(i as uint, j as uint, RGB(r, g, b));
 
                 dy += hh;
@@ -5727,7 +5727,7 @@ Artist:   {artist}
                 let cycle = (160.0 * player.startshorten * player.bottom).floor() % 40.0;
                 let width = if player.gauge < 0 {0}
                             else {player.gauge * 400 / MAXGAUGE - (cycle as int)};
-                let width = num::clamp(width, 5, 360);
+                let width = cmp::min(cmp::max(width, 5), 360);
                 let color = if player.gauge >= player.survival {RGB(0xc0,0,0)}
                             else {RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0)};
                 screen.fill_area((4, SCREENH-12), (width, 8), color);
