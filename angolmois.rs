@@ -57,10 +57,10 @@
 #[comment = "Angolmois"];
 #[license = "GPLv2+"];
 
-extern mod extra;
-extern mod sdl;
-extern mod sdl_mixer;
-extern mod sdl_image;
+extern crate extra;
+extern crate sdl;
+extern crate sdl_mixer;
+extern crate sdl_image;
 
 use std::{char, str};
 
