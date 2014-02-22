@@ -1821,7 +1821,7 @@ pub mod parser {
         // command. (C: `value[V_LNOBJ]`)
         let mut lnobj = None;
 
-        let file = if_ok!(f.read_to_end());
+        let file = try!(f.read_to_end());
         for line0 in file.split(|&ch| ch == 10u8) {
             let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
             let line: &str = line0;
@@ -2217,7 +2217,7 @@ pub mod parser {
 
     /// Reads and parses the BMS file with given RNG. (C: `parse_bms`)
     pub fn parse_bms<R:Rng>(bmspath: &str, r: &mut R) -> io::IoResult<Bms> {
-        let mut f = if_ok!(io::File::open(&Path::new(bmspath)));
+        let mut f = try!(io::File::open(&Path::new(bmspath)));
         parse_bms_from_reader(&mut f, r)
     }
 
@@ -3439,7 +3439,8 @@ pub mod player {
         let mut keyspec = ~KeySpec { split: 0, order: ~[], kinds: ~[None, ..NLANES] };
         let parse_and_add = |keyspec: &mut KeySpec, keys: &str| -> Option<uint> {
             match parse_key_spec(keys) {
-                None | Some([]) => None,
+                None => None,
+                Some(ref left) if left.is_empty() => None,
                 Some(left) => {
                     let mut err = false;
                     for &(lane,kind) in left.iter() {
