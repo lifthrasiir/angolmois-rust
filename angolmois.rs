@@ -57,7 +57,7 @@
 #[comment = "Angolmois"];
 #[license = "GPLv2+"];
 
-extern crate extra;
+extern crate collections;
 extern crate sdl;
 extern crate sdl_mixer;
 extern crate sdl_image;
@@ -323,6 +323,8 @@ pub mod util {
      * the above copyright notice.
      */
     pub mod smpeg {
+        #[allow(non_camel_case_types)];
+
         use std::libc::{c_int, c_float};
         use std::ptr::null;
         use sdl::video::Surface;
@@ -1895,7 +1897,7 @@ pub mod parser {
                 ("LNTYPE", false) => {
                     let mut lntype = 1;
                     if lex!(line; ws, int -> lntype) {
-                        consecutiveln = (lntype == 2);
+                        consecutiveln = lntype == 2;
                     }
                 }
                 // #LNOBJ <key>
@@ -2324,8 +2326,8 @@ pub mod parser {
 
         let preset = match preset.map(|s| s.to_ascii_lower()) {
             None | Some(~"bms") | Some(~"bme") | Some(~"bml") => {
-                let isbme = (present[8] || present[9] || present[36+8] || present[36+9]);
-                let haspedal = (present[7] || present[36+7]);
+                let isbme = present[8] || present[9] || present[36+8] || present[36+9];
+                let haspedal = present[7] || present[36+7];
                 let nkeys = match bms.player {
                     COUPLE_PLAY | DOUBLE_PLAY => if isbme {~"14"} else {~"10"},
                     _                         => if isbme {~"7" } else {~"5" }
@@ -2333,7 +2335,7 @@ pub mod parser {
                 if haspedal {nkeys + "/fp"} else {nkeys}
             },
             Some(~"pms") => {
-                let isbme = (present[6] || present[7] || present[8] || present[9]);
+                let isbme = present[6] || present[7] || present[8] || present[9];
                 if isbme {~"9-bme"} else {~"9"}
             },
             Some(preset) => preset
@@ -3292,8 +3294,9 @@ pub mod gfx {
  * Angolmois is not well refactored. (In fact, the game logic is usually hard to refactor, right?)
  */
 pub mod player {
-    use std::{vec, cmp, num, iter};
+    use std::{vec, cmp, num, iter, hash};
     use std::rc::Rc;
+    use collections;
     use sdl::*;
     use sdl::video::*;
     use sdl::event::*;
@@ -3634,15 +3637,12 @@ pub mod player {
         JoyButtonInput(uint)
     }
 
-    impl IterBytes for Input {
-        fn iter_bytes(&self, lsb0: bool, f: ::std::to_bytes::Cb) -> bool {
+    impl hash::Hash for Input {
+        fn hash(&self, state: &mut hash::sip::SipState) {
             match *self {
-                KeyInput(key) =>
-                    0u8.iter_bytes(lsb0, |b| f(b)) && (key as uint).iter_bytes(lsb0, |b| f(b)),
-                JoyAxisInput(axis) =>
-                    1u8.iter_bytes(lsb0, |b| f(b)) && axis.iter_bytes(lsb0, |b| f(b)),
-                JoyButtonInput(button) =>
-                    2u8.iter_bytes(lsb0, |b| f(b)) && button.iter_bytes(lsb0, |b| f(b)),
+                KeyInput(key) => { 0u8.hash(state); (key as uint).hash(state); }
+                JoyAxisInput(axis) => { 1u8.hash(state); axis.hash(state); }
+                JoyButtonInput(button) => { 2u8.hash(state); button.hash(state); }
             }
         }
     }
@@ -3742,7 +3742,7 @@ pub mod player {
     ];
 
     /// An input mapping, i.e. a mapping from the actual input to the virtual input.
-    pub type KeyMap = ::std::hashmap::HashMap<Input,VirtualInput>;
+    pub type KeyMap = collections::HashMap<Input,VirtualInput>;
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<~str>) -> KeyMap {
@@ -3777,7 +3777,7 @@ pub mod player {
             }
         }
 
-        let mut map = ::std::hashmap::HashMap::new();
+        let mut map = collections::HashMap::new();
         let add_mapping = |map: &mut KeyMap, kind: Option<KeyKind>,
                            input: Input, vinput: VirtualInput| {
             if kind.map_or(true, |kind| vinput.active_in_key_spec(kind, keyspec)) {
@@ -3865,19 +3865,20 @@ pub mod player {
      *    then a list of alternative extensions is applied with the same matching procedure.
      */
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
-        use std::{str, io, hashmap, local_data};
+        use std::{str, io, local_data};
         use std::ascii::StrAsciiExt;
+        use collections::HashMap;
 
         // `std::io::fs::readdir` is different from C's `dirent.h`, as it always reads
         // the whole list of entries (and `std::io::fs::Directories` is no different).
         // This causes a serious slowdown compared to the C version of Angolmois,
         // so we use a thread-local cache for `readdir` to avoid the performance penalty.
-        local_data_key!(key_readdir_cache: hashmap::HashMap<Path,~[Path]>);
+        local_data_key!(key_readdir_cache: HashMap<Path,~[Path]>);
 
         fn readdir_cache(path: Path, cb: |&[Path]|) {
             let mut cache = match local_data::pop(key_readdir_cache) {
                 Some(cache) => cache,
-                None => hashmap::HashMap::new()
+                None => HashMap::new()
             };
             {
                 let ret = cache.find_or_insert_with(path, |path| {
@@ -5885,7 +5886,7 @@ pub fn play(opts: ~player::Options) {
         // read the input mapping (dependent to the SDL initialization)
         keymap = ~player::read_keymap(keyspec, std::os::getenv);
     } else {
-        keymap = ~std::hashmap::HashMap::new();
+        keymap = ~collections::HashMap::new();
     }
 
     // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }` segfaults ldue to
@@ -6033,7 +6034,7 @@ pub fn main() {
         (~"--random", 'r'), (~"--random-ex", 'R'), (~"--preset", 'k'),
         (~"--key-spec", 'K'), (~"--bga", ' '), (~"--no-bga", 'B'),
         (~"--movie", ' '), (~"--no-movie", 'M'), (~"--joystick", 'j'),
-    ]).move_iter().collect::<std::hashmap::HashMap<~str,char>>();
+    ]).move_iter().collect::<collections::HashMap<~str,char>>();
 
     let args = std::os::args();
     let nargs = args.len();
