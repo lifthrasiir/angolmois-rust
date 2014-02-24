@@ -79,6 +79,8 @@ pub fn exename() -> ~str {
 /// Utility functions.
 #[macro_escape]
 pub mod util {
+    use std;
+
     /**
      * String utilities for Rust. Parallels to `std::str`.
      *
@@ -325,6 +327,7 @@ pub mod util {
     pub mod smpeg {
         #[allow(non_camel_case_types)];
 
+        use std;
         use std::libc::{c_int, c_float};
         use std::ptr::null;
         use sdl::video::Surface;
@@ -496,7 +499,7 @@ pub mod util {
             pub fn get_error(&self) -> ~str {
                 unsafe {
                     let cstr = ll::SMPEG_error(self.raw);
-                    ::str::raw::from_c_str(::std::cast::transmute(&cstr))
+                    std::str::raw::from_c_str(std::cast::transmute(&cstr))
                 }
             }
         }
@@ -581,17 +584,17 @@ pub mod util {
     /// Immediately terminates the program with given exit code.
     pub fn exit(exitcode: int) -> ! {
         // Rust: `std::os::set_exit_status` doesn't immediately terminate the program.
-        unsafe { ::std::libc::exit(exitcode as ::std::libc::c_int); }
+        unsafe { std::libc::exit(exitcode as std::libc::c_int); }
     }
 
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(target_os = "win32")]
-    pub fn die(args: &::std::fmt::Arguments) -> ! {
+    pub fn die(args: &std::fmt::Arguments) -> ! {
         use util::str::StrUtil;
-        let s = ::std::fmt::format(args);
+        let s = std::fmt::format(args);
         ::exename().as_utf16_c_str(|caption| {
             s.as_utf16_c_str(|text| {
-                unsafe { win32::ll::MessageBoxW(::std::ptr::mut_null(), text, caption, 0); }
+                unsafe { win32::ll::MessageBoxW(std::ptr::mut_null(), text, caption, 0); }
             })
         });
         exit(1)
@@ -599,19 +602,19 @@ pub mod util {
 
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(not(target_os = "win32"))]
-    pub fn die(args: &::std::fmt::Arguments) -> ! {
-        let mut stderr = ::std::io::stderr();
+    pub fn die(args: &std::fmt::Arguments) -> ! {
+        let mut stderr = std::io::stderr();
         let _ = stderr.write(::exename().as_bytes());
         let _ = stderr.write(bytes!(": "));
-        let _ = ::std::fmt::writeln(&mut stderr, args);
+        let _ = std::fmt::writeln(&mut stderr, args);
         exit(1)
     }
 
     /// Prints an warning message. Internally used in the `warn!` macro below.
-    pub fn warn(args: &::std::fmt::Arguments) {
-        let mut stderr = ::std::io::stderr();
+    pub fn warn(args: &std::fmt::Arguments) {
+        let mut stderr = std::io::stderr();
         let _ = stderr.write(bytes!("*** Warning: "));
-        let _ = ::std::fmt::writeln(&mut stderr, args);
+        let _ = std::fmt::writeln(&mut stderr, args);
     }
 
     // Exits with a formatted error message. (C: `die`)
@@ -643,12 +646,12 @@ pub mod util {
         filter.as_utf16_c_str(|filter| {
             "Choose a file to play".as_utf16_c_str(|title| {
                 let mut buf = [0u16, ..512];
-                let ofnsz = ::std::mem::size_of::<win32::ll::OPENFILENAMEW>();
+                let ofnsz = std::mem::size_of::<win32::ll::OPENFILENAMEW>();
                 let ofn = win32::ll::OPENFILENAMEW {
-                    lStructSize: ofnsz as ::std::libc::DWORD,
+                    lStructSize: ofnsz as std::libc::DWORD,
                     lpstrFilter: filter,
                     lpstrFile: buf.as_mut_ptr(),
-                    nMaxFile: buf.len() as ::std::libc::DWORD,
+                    nMaxFile: buf.len() as std::libc::DWORD,
                     lpstrTitle: title,
                     Flags: win32::ll::OFN_HIDEREADONLY,
 
@@ -661,13 +664,13 @@ pub mod util {
                     lpTemplateName: null(), pvReserved: null(),
                     dwReserved: 0, FlagsEx: 0,
                 };
-                let ret = unsafe {win32::ll::GetOpenFileNameW(::std::cast::transmute(&ofn))};
+                let ret = unsafe {win32::ll::GetOpenFileNameW(std::cast::transmute(&ofn))};
                 if ret != 0 {
                     let path: &[u16] = match buf.position_elem(&0) {
                         Some(idx) => buf.slice(0, idx),
                         None => buf.as_slice()
                     };
-                    Some(::std::str::from_utf16(path))
+                    Some(std::str::from_utf16(path))
                 } else {
                     None
                 }
@@ -2659,6 +2662,7 @@ pub mod parser {
 
 /// Graphic utilities.
 pub mod gfx {
+    use std;
     use std::{vec, num, cmp};
     use sdl::Rect;
     pub use sdl::video::*;
@@ -2951,7 +2955,7 @@ pub mod gfx {
             self.with_lock(|pixels| {
                 let fmt = unsafe {(*self.raw).format};
                 let pitch = unsafe {((*self.raw).pitch / 4) as uint};
-                let pixels = unsafe {::std::cast::transmute(pixels)};
+                let pixels = unsafe {std::cast::transmute(pixels)};
                 let mut proxy = SurfacePixels { fmt: fmt, width: self.get_width() as uint,
                                                 height: self.get_height() as uint,
                                                 pitch: pitch, pixels: pixels };
@@ -3195,7 +3199,7 @@ pub mod gfx {
         /// Creates a zoomed font of scale `zoom`. (C: `fontprocess`)
         pub fn create_zoomed_font(&mut self, zoom: uint) {
             assert!(zoom > 0);
-            assert!(zoom <= (8 * ::std::mem::size_of::<ZoomedFontRow>()) / 8);
+            assert!(zoom <= (8 * std::mem::size_of::<ZoomedFontRow>()) / 8);
             if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() { return; }
 
             let nrows = 16;
@@ -3294,6 +3298,7 @@ pub mod gfx {
  * Angolmois is not well refactored. (In fact, the game logic is usually hard to refactor, right?)
  */
 pub mod player {
+    use std;
     use std::{vec, cmp, num, iter, hash};
     use std::rc::Rc;
     use collections;
@@ -3482,8 +3487,8 @@ pub mod player {
     /// Applies given modifier to the game data. The target lanes of the modifier is determined
     /// from given key specification. This function should be called twice for the Couple Play,
     /// since 1P and 2P should be treated separately. (C: `shuffle_bms`)
-    pub fn apply_modf<R: ::std::rand::Rng>(bms: &mut Bms, modf: Modf, r: &mut R,
-                                           keyspec: &KeySpec, begin: uint, end: uint) {
+    pub fn apply_modf<R: std::rand::Rng>(bms: &mut Bms, modf: Modf, r: &mut R,
+                                         keyspec: &KeySpec, begin: uint, end: uint) {
         let mut lanes = ~[];
         for i in range(begin, end) {
             let lane = keyspec.order[i];
@@ -3522,7 +3527,7 @@ pub mod player {
     /// Writes a line to the console without advancing to the next line. `s` should be short enough
     /// to be replaced (currently up to 72 bytes).
     pub fn update_line(s: &str) {
-        let _ = write!(&mut ::std::io::stderr(), "\r{:72}\r{}", "", s);
+        let _ = write!(&mut std::io::stderr(), "\r{:72}\r{}", "", s);
     }
 
     /// A periodic timer for thresholding the rate of information display.
@@ -3754,9 +3759,9 @@ pub mod player {
             let name = name.to_ascii_lower();
             unsafe {
                 let firstkey = 0u16;
-                let lastkey = ::std::cast::transmute(event::LastKey);
+                let lastkey = std::cast::transmute(event::LastKey);
                 for keyidx in range(firstkey, lastkey) {
-                    let key = ::std::cast::transmute(keyidx);
+                    let key = std::cast::transmute(keyidx);
                     let keyname = event::get_key_name(key).to_ascii_lower();
                     if keyname == name { return Some(key); }
                 }
@@ -4256,7 +4261,7 @@ pub mod player {
     pub fn show_stagefile_noscreen(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec, opts: &Options) {
         if opts.showinfo {
             let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
-            let _ = writeln!(&mut ::std::io::stderr(), "\
+            let _ = writeln!(&mut std::io::stderr(), "\
 ----------------------------------------------------------------------------------------------
 Title:    {title}
 Genre:    {genre}
@@ -4790,7 +4795,7 @@ Artist:   {artist}
         let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
             |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
-        Chunk::new(unsafe { ::std::cast::transmute(samples) }, 128)
+        Chunk::new(unsafe { std::cast::transmute(samples) }, 128)
     }
 
     /// Creates a new player object. The player object owns other related structures, including
@@ -4918,8 +4923,8 @@ Artist:   {artist}
         /// Allocate more SDL_mixer channels without stopping already playing channels.
         /// (C: `allocate_more_channels`)
         pub fn allocate_more_channels(&mut self, howmany: uint) {
-            let howmany = howmany as ::std::libc::c_int;
-            let nchannels = allocate_channels(-1 as ::std::libc::c_int);
+            let howmany = howmany as std::libc::c_int;
+            let nchannels = allocate_channels(-1 as std::libc::c_int);
             let nchannels = allocate_channels(nchannels + howmany) as uint;
             if self.lastchsnd.len() < nchannels {
                 self.lastchsnd.grow(nchannels, &None);
@@ -4932,7 +4937,7 @@ Artist:   {artist}
         pub fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
             let sref = sref.to_uint();
             if self.sndres[sref].chunk().is_none() { return; }
-            let lastch = self.sndlastch[sref].map(|ch| ch as ::std::libc::c_int);
+            let lastch = self.sndlastch[sref].map(|ch| ch as std::libc::c_int);
 
             // try to play on the last channel if it is not occupied by other sounds (in this case
             // the last channel info is removed)
@@ -5845,7 +5850,7 @@ Artist:   {artist}
 /// loop. (C: `play`)
 pub fn play(opts: ~player::Options) {
     // parses the file and sanitizes it
-    let mut r = ::std::rand::rng();
+    let mut r = std::rand::rng();
     let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
         Ok(bms) => ~bms,
         Err(err) => die!("Couldn't load BMS file: {}", err)
