@@ -49,7 +49,7 @@
  * * TODO - other problems unrelated to Rust.
  */
 
-#[crate_id = "https://github.com/lifthrasiir/angolmois-rust#angolmois:2.0.0-alpha2"];
+#[crate_id = "angolmois#2.0.0-alpha2"];
 #[crate_type = "bin"];
 
 #[feature(globs, macro_rules)];
@@ -934,7 +934,7 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use std::{f64, str, vec, cmp, iter, io};
+    use std::{f64, str, vec, cmp, iter, io, fmt};
     use std::rand::*;
     use util::str::StrUtil;
 
@@ -973,13 +973,13 @@ pub mod parser {
         }
     }
 
-    impl ToStr for Key {
+    impl fmt::Show for Key {
         /// Returns a two-letter representation of alphanumeric key. (C: `TO_KEY`)
-        fn to_str(&self) -> ~str {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             let Key(v) = *self;
             assert!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            format!("{}{}", map[v / 36] as char, map[v % 36] as char)
+            write!(f.buf, "{}{}", map[v / 36] as char, map[v % 36] as char)
         }
     }
 
@@ -4357,7 +4357,7 @@ Artist:   {artist}
     /// A pointer to the object. A pointer is used to implement common operations, e.g. iterating
     /// until given position, or finding the closest object with given condition. A pointer can also
     /// be used like an object when it points to the valid object.
-    struct Pointer {
+    pub struct Pointer {
         /// A BMS data holding objects.
         bms: Rc<Bms>,
         /// The current position. Can be the past-the-end value.
