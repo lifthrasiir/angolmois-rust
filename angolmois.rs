@@ -509,6 +509,8 @@ pub mod util {
     #[cfg(target_os = "win32")]
     pub mod win32 {
         pub mod ll {
+            #[allow(non_camel_case_types)];
+
             use std::libc::{c_int, c_uint, c_void};
             use std::libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
 
@@ -670,7 +672,7 @@ pub mod util {
                         Some(idx) => buf.slice(0, idx),
                         None => buf.as_slice()
                     };
-                    Some(std::str::from_utf16(path))
+                    std::str::from_utf16(path)
                 } else {
                     None
                 }
@@ -3111,12 +3113,12 @@ pub mod gfx {
          * The group bits 15 (1+2+4+8) always draw the whole square, so in the zoom factor 1 only
          * pixels with group bits 15 will be drawn.
          */
-        glyphs: ~[u16],
+        priv glyphs: ~[u16],
 
         /// Precalculated zoomed font per zoom factor. It is three-dimensional array which indices
         /// are zoom factor, glyph number and row respectively. Assumes that each element has
         /// at least zoom factor times 8 (columns per row) bits. (C: `zoomfont`)
-        pixels: ~[~[~[ZoomedFontRow]]]
+        priv pixels: ~[~[~[ZoomedFontRow]]]
     }
 
     /// An alignment mode of `Font::print_string`.
@@ -3675,7 +3677,7 @@ pub mod player {
      * versa) temporarily hit the neutral state.
      */
     #[deriving(Eq)]
-    enum InputState {
+    pub enum InputState {
         /// Positive input state. Occurs when the button is pressed or the joystick axis is moved
         /// in the positive direction.
         Positive = 1,
@@ -3957,7 +3959,7 @@ pub mod player {
 
     /// Sound resource associated to `SoundRef`. It contains the actual SDL_mixer chunk that can be
     /// readily played. (C: the type of `sndres`)
-    enum SoundResource {
+    pub enum SoundResource {
         /// No sound resource is associated, or error occurred while loading.
         NoSound,
         /// Sound resource is associated.
@@ -4004,7 +4006,7 @@ pub mod player {
 
     /// Image resource associated to `ImageRef`. It can be either a static image or a movie, and
     /// both contains an SDL surface that can be blitted to the screen. (C: the type of `imgres`)
-    enum ImageResource {
+    pub enum ImageResource {
         /// No image resource is associated, or error occurred while loading.
         NoImage,
         /// A static image is associated. The surface may have a transparency which is already
@@ -4141,11 +4143,11 @@ pub mod player {
 
     /// A list of image references displayed in BGA layers (henceforth the BGA state). Not all image
     /// referenced here is directly rendered, but the references themselves are kept.
-    type BGAState = [Option<ImageRef>, ..NLAYERS];
+    pub type BGAState = [Option<ImageRef>, ..NLAYERS];
 
     /// Returns the initial BGA state. Note that merely setting a particular layer doesn't start
     /// the movie playback; `poorbgafix` in `parser::parse` function handles it.
-    fn initial_bga_state() -> BGAState {
+    pub fn initial_bga_state() -> BGAState {
         [None, None, None, Some(ImageRef(Key(0)))]
     }
 
@@ -4583,7 +4585,7 @@ Artist:   {artist}
     /// Grades. Angolmois performs the time-based grading as long as possible (it can go wrong when
     /// the object is near the discontinuity due to the current implementation strategy).
     #[deriving(Eq)]
-    enum Grade {
+    pub enum Grade {
         /**
          * Issued when the player did not input the object at all, the player was pressing the key
          * while a bomb passes through the corresponding lane, or failed to unpress the key within
@@ -5288,7 +5290,7 @@ Artist:   {artist}
     // graphic display
 
     /// An appearance for each lane. (C: `struct tkeykind` and `tkeyleft`)
-    struct LaneStyle {
+    pub struct LaneStyle {
         /// The left position of the lane in the final screen. (C: `tkeyleft`)
         left: uint,
         /// The left position of the lane in the object sprite. (C: `spriteleft` field)
