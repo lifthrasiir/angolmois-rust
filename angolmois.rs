@@ -57,7 +57,9 @@
 #[comment = "Angolmois"];
 #[license = "GPLv2+"];
 
+extern crate rand;
 extern crate collections;
+
 extern crate sdl;
 extern crate sdl_mixer;
 extern crate sdl_image;
@@ -937,7 +939,7 @@ pub mod util {
  */
 pub mod parser {
     use std::{f64, str, vec, cmp, iter, io, fmt};
-    use std::rand::*;
+    use rand::Rng;
     use util::str::StrUtil;
 
     //----------------------------------------------------------------------------------------------
@@ -3303,6 +3305,7 @@ pub mod player {
     use std;
     use std::{vec, cmp, num, iter, hash};
     use std::rc::Rc;
+    use rand::Rng;
     use collections;
     use sdl::*;
     use sdl::video::*;
@@ -3489,8 +3492,8 @@ pub mod player {
     /// Applies given modifier to the game data. The target lanes of the modifier is determined
     /// from given key specification. This function should be called twice for the Couple Play,
     /// since 1P and 2P should be treated separately. (C: `shuffle_bms`)
-    pub fn apply_modf<R: std::rand::Rng>(bms: &mut Bms, modf: Modf, r: &mut R,
-                                         keyspec: &KeySpec, begin: uint, end: uint) {
+    pub fn apply_modf<R: Rng>(bms: &mut Bms, modf: Modf, r: &mut R,
+                              keyspec: &KeySpec, begin: uint, end: uint) {
         let mut lanes = ~[];
         for i in range(begin, end) {
             let lane = keyspec.order[i];
@@ -5852,7 +5855,7 @@ Artist:   {artist}
 /// loop. (C: `play`)
 pub fn play(opts: ~player::Options) {
     // parses the file and sanitizes it
-    let mut r = std::rand::rng();
+    let mut r = rand::task_rng();
     let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
         Ok(bms) => ~bms,
         Err(err) => die!("Couldn't load BMS file: {}", err)
