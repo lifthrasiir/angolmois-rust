@@ -4377,7 +4377,7 @@ Artist:   {artist}
 
     /// Returns true if two pointers share the common BMS data.
     fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
-        lhs.bms.borrow() as *Bms == rhs.bms.borrow() as *Bms
+        lhs.bms.deref() as *Bms == rhs.bms.deref() as *Bms
     }
 
     impl Eq for Pointer {
@@ -4442,7 +4442,7 @@ Artist:   {artist}
     impl Pointer {
         /// Returns a reference to the list of underlying objects.
         fn objs<'r>(&'r self) -> &'r [Obj] {
-            let objs: &[Obj] = self.bms.borrow().objs;
+            let objs: &[Obj] = self.bms.deref().objs;
             objs
         }
 
@@ -4462,7 +4462,7 @@ Artist:   {artist}
 
         /// Seeks to the first object which time is past the limit, if any.
         pub fn seek_until(&mut self, limit: f64) {
-            let bms = self.bms.borrow();
+            let bms = self.bms.deref();
             let nobjs = bms.objs.len();
             while self.pos < nobjs {
                 if bms.objs[self.pos].time >= limit { break; }
@@ -4474,7 +4474,7 @@ Artist:   {artist}
         /// Tries to advance to the next object which time is within the limit.
         /// Returns false if it's impossible.
         pub fn next_until(&mut self, limit: f64) -> bool {
-            let bms = self.bms.borrow();
+            let bms = self.bms.deref();
             match self.next {
                 Some(next) => { self.pos = next; }
                 None => {}
@@ -4491,7 +4491,7 @@ Artist:   {artist}
         /// Seeks to the object pointed by the other pointer.
         pub fn seek_to(&mut self, limit: &Pointer) {
             assert!(has_same_bms(self, limit));
-            assert!(limit.pos <= self.bms.borrow().objs.len());
+            assert!(limit.pos <= self.bms.deref().objs.len());
             self.pos = limit.pos;
             self.next = None;
         }
@@ -4511,13 +4511,13 @@ Artist:   {artist}
 
         /// Seeks to the end of objects.
         pub fn seek_to_end(&mut self) {
-            self.pos = self.bms.borrow().objs.len();
+            self.pos = self.bms.deref().objs.len();
             self.next = None;
         }
 
         /// Tries to advance to the next object. Returns false if it's the end of objects.
         pub fn next_to_end(&mut self) -> bool {
-            let bms = self.bms.borrow();
+            let bms = self.bms.deref();
             match self.next {
                 Some(next) => { self.pos = next; }
                 None => {}
@@ -4529,7 +4529,7 @@ Artist:   {artist}
 
         /// Finds the next object that satisfies given condition if any, without updating itself.
         pub fn find_next_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let bms = self.bms.borrow();
+            let bms = self.bms.deref();
             let nobjs = bms.objs.len();
             let mut i = self.pos;
             while i < nobjs {
@@ -4544,7 +4544,7 @@ Artist:   {artist}
         /// Finds the previous object that satisfies given condition if any, without updating
         /// itself.
         pub fn find_previous_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let bms = self.bms.borrow();
+            let bms = self.bms.deref();
             let mut i = self.pos;
             while i > 0 {
                 i -= 1;
@@ -5017,16 +5017,16 @@ Artist:   {artist}
 
             // process the measure scale factor change
             let bottommeasure = self.bottom.floor();
-            let curshorten = self.bms.borrow().shorten(bottommeasure as int);
+            let curshorten = self.bms.deref().shorten(bottommeasure as int);
             if bottommeasure >= -1.0 && self.startshorten != curshorten {
                 self.break_continuity(bottommeasure);
                 self.startshorten = curshorten;
             }
 
-            //self.line = self.bms.borrow().adjust_object_time(self.bottom, 0.03 / self.playspeed);
+            //self.line = self.bms.deref().adjust_object_time(self.bottom, 0.03 / self.playspeed);
             self.line = self.bottom;
-            self.top = self.bms.borrow().adjust_object_time(self.bottom, 1.25 / self.playspeed);
-            let lineshorten = self.bms.borrow().shorten(self.line.floor() as int);
+            self.top = self.bms.deref().adjust_object_time(self.bottom, 1.25 / self.playspeed);
+            let lineshorten = self.bms.deref().shorten(self.line.floor() as int);
 
             // apply object-like effects while advancing to new `pcur`
             self.pfront.seek_until(self.bottom);
@@ -5068,7 +5068,7 @@ Artist:   {artist}
                 self.pcheck.reset();
                 while self.pcheck.next_to(&self.pcur) {
                     let dist = self.bpm.measure_to_msec(self.line - self.pcheck.time()) *
-                               self.bms.borrow().shorten(self.pcheck.measure()) * self.gradefactor;
+                               self.bms.deref().shorten(self.pcheck.measure()) * self.gradefactor;
                     if dist < BAD_CUTOFF { break; }
 
                     if !self.nograding[self.pcheck.pos] {
@@ -5267,7 +5267,7 @@ Artist:   {artist}
             }
 
             // determines if we should keep playing
-            if self.bottom > (self.bms.borrow().nmeasures + 1) as f64 {
+            if self.bottom > (self.bms.deref().nmeasures + 1) as f64 {
                 if self.opts.is_autoplay() {
                     num_playing(None) != num_playing(Some(0))
                 } else {
@@ -5581,7 +5581,7 @@ Artist:   {artist}
             let screen = &*self.screen;
             let sprite = &*self.sprite;
             let font = &*self.font;
-            let bms = player.bms.borrow();
+            let bms = player.bms.deref();
 
             // update display states
             let mut poorlimit = self.poorlimit;
