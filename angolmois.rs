@@ -938,7 +938,7 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use std::{f64, str, vec, cmp, iter, io, fmt};
+    use std::{f64, str, vec, iter, io, fmt};
     use rand::Rng;
     use util::str::StrUtil;
 
@@ -2557,7 +2557,8 @@ pub mod parser {
             time += bpm.measure_to_msec(delta);
             match obj.data {
                 Visible(_,Some(sref)) | LNStart(_,Some(sref)) | BGM(sref) => {
-                    sndtime = cmp::max(sndtime, time + sound_length(sref) * 1000.0);
+                    let sndend = time + sound_length(sref) * 1000.0;
+                    if sndtime > sndend { sndtime = sndend; }
                 }
                 SetBPM(BPM(newbpm)) => {
                     if newbpm > 0.0 {
@@ -2581,7 +2582,7 @@ pub mod parser {
             let delta = bms.adjust_object_position(pos, (bms.nmeasures + 1) as f64);
             time += bpm.measure_to_msec(delta);
         }
-        cmp::max(time, sndtime) / 1000.0
+        (if time > sndtime {time} else {sndtime}) / 1000.0
      }
 
     //----------------------------------------------------------------------------------------------
@@ -4907,7 +4908,8 @@ Artist:   {artist}
                                   else if dist <  GOOD_CUTOFF {(GOOD,None)}
                                   else if dist <   BAD_CUTOFF {(BAD,Some(BAD_DAMAGE))}
                                   else                        {(MISS,Some(MISS_DAMAGE))};
-            let scoredelta = cmp::max(1.0 - dist / BAD_CUTOFF, 0.0);
+            let scoredelta = 1.0 - dist / BAD_CUTOFF;
+            let scoredelta = if scoredelta < 0.0 {0.0} else {scoredelta};
             let keepgoing = self.update_grade(grade, scoredelta, damage);
             assert!(keepgoing);
         }
