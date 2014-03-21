@@ -938,7 +938,7 @@ pub mod util {
  * command memo](http://hitkey.nekokan.dyndns.info/cmds.htm).
  */
 pub mod parser {
-    use std::{f64, str, vec, iter, io, fmt};
+    use std::{f64, str, slice, iter, io, fmt};
     use rand::Rng;
     use util::str::StrUtil;
 
@@ -1629,8 +1629,8 @@ pub mod parser {
     pub fn Bms() -> Bms {
         Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
               player: SINGLE_PLAY, playlevel: 0, rank: 2, initbpm: DefaultBPM,
-              sndpath: vec::from_elem(MAXKEY as uint, None),
-              imgpath: vec::from_elem(MAXKEY as uint, None), blitcmd: ~[],
+              sndpath: slice::from_elem(MAXKEY as uint, None),
+              imgpath: slice::from_elem(MAXKEY as uint, None), blitcmd: ~[],
               objs: ~[], shortens: ~[], nmeasures: 0 }
     }
 
@@ -2603,7 +2603,7 @@ pub mod parser {
 
     /// Swaps given lanes in the reverse order. (C: `shuffle_bms` with `MIRROR_MODF`)
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
-        let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
+        let mut map = slice::from_fn(NLANES, |lane| Lane(lane));
         for (&Lane(from), &to) in lanes.iter().zip(lanes.rev_iter()) {
             map[from] = to;
         }
@@ -2617,7 +2617,7 @@ pub mod parser {
     /// `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
     pub fn apply_shuffle_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let shuffled = r.shuffle(lanes.to_owned());
-        let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
+        let mut map = slice::from_fn(NLANES, |lane| Lane(lane));
         for (&Lane(from), &to) in lanes.iter().zip(shuffled.iter()) {
             map[from] = to;
         }
@@ -2633,7 +2633,7 @@ pub mod parser {
     /// lane. (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
     pub fn apply_random_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let mut movable = lanes.to_owned();
-        let mut map = vec::from_fn(NLANES, |lane| Lane(lane));
+        let mut map = slice::from_fn(NLANES, |lane| Lane(lane));
 
         let mut lasttime = f64::NEG_INFINITY;
         for obj in bms.objs.mut_iter() {
@@ -2669,7 +2669,7 @@ pub mod parser {
 /// Graphic utilities.
 pub mod gfx {
     use std;
-    use std::{vec, num, cmp};
+    use std::{slice, num, cmp};
     use sdl::Rect;
     pub use sdl::video::*;
 
@@ -3210,7 +3210,7 @@ pub mod gfx {
 
             let nrows = 16;
             let nglyphs = self.glyphs.len() / nrows / 2;
-            let mut pixels = vec::from_elem(nglyphs, vec::from_elem(zoom*nrows, 0u32));
+            let mut pixels = slice::from_elem(nglyphs, slice::from_elem(zoom*nrows, 0u32));
 
             let put_zoomed_pixel = |pixels: &mut ~[~[ZoomedFontRow]],
                                     glyph: uint, row: uint, col: uint, v: u32| {
@@ -3305,7 +3305,7 @@ pub mod gfx {
  */
 pub mod player {
     use std;
-    use std::{vec, cmp, num, iter, hash};
+    use std::{slice, cmp, num, iter, hash};
     use std::rc::Rc;
     use rand::Rng;
     use collections;
@@ -4799,10 +4799,14 @@ Artist:   {artist}
 
     /// Creates a beep sound played on the play speed change. (C: `create_beep`)
     fn create_beep() -> ~Chunk {
-        let samples = vec::from_fn::<i32>(12000, // approx. 0.14 seconds
+        let samples: ~[i32] = slice::from_fn::<i32>(12000, // approx. 0.14 seconds
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
             |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
-        Chunk::new(unsafe { std::cast::transmute(samples) }, 128)
+        unsafe {
+            slice::raw::buf_as_slice(samples.as_ptr() as *u8, samples.len() * 4, |samples| {
+                sdl_mixer::Chunk::new(Vec::from_slice(samples), 128)
+            })
+        }
     }
 
     /// Creates a new player object. The player object owns other related structures, including
@@ -4828,14 +4832,14 @@ Artist:   {artist}
             opts: opts, bms: bms, infos: infos, duration: duration,
             keyspec: keyspec, keymap: keymap,
 
-            nograding: vec::from_elem(nobjs, false), sndres: sndres, beep: create_beep(),
-            sndlastch: vec::from_elem(nsounds, None), lastchsnd: ~[], bga: initial_bga_state(),
+            nograding: slice::from_elem(nobjs, false), sndres: sndres, beep: create_beep(),
+            sndlastch: slice::from_elem(nsounds, None), lastchsnd: ~[], bga: initial_bga_state(),
 
             playspeed: initplayspeed, targetspeed: None, bpm: initbpm, now: now, origintime: now,
             starttime: now, stoptime: None, startoffset: originoffset, startshorten: startshorten,
 
             bottom: originoffset, line: originoffset, top: originoffset,
-            pfront: pfront, pcur: pcur, pcheck: pcheck, pthru: vec::from_fn(NLANES, |_| None),
+            pfront: pfront, pcur: pcur, pcheck: pcheck, pthru: slice::from_fn(NLANES, |_| None),
 
             gradefactor: gradefactor, lastgrade: None, gradecounts: [0, ..NGRADES],
             lastcombo: 0, bestcombo: 0, score: 0, gauge: initialgauge, survival: survival,
