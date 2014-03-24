@@ -992,7 +992,7 @@ pub mod parser {
 
     /// A game play element mapped to the single input element (for example, button) and the screen
     /// area (henceforth "lane").
-    #[deriving(Eq,Clone)]
+    #[deriving(Eq,TotalEq,Clone)]
     pub struct Lane(uint);
 
     /// The maximum number of lanes. (C: `NNOTECHANS`)
@@ -1030,7 +1030,7 @@ pub mod parser {
      * For PMS, channels #11/17/25 use `Button1`, #12/16/24 use `Button2`, #13/19/23 use `Button3`,
      * #14/18/22 use `Button4`, #15 uses `Button5`.
      */
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     pub enum KeyKind {
         /// White key, which mimics a real white key in the musical keyboard.
         WhiteKey,
@@ -1122,7 +1122,7 @@ pub mod parser {
     // object parameters
 
     /// Sound reference.
-    #[deriving(Eq,Clone)]
+    #[deriving(Eq,TotalEq,Clone)]
     pub struct SoundRef(Key);
 
     impl SoundRef {
@@ -1140,7 +1140,7 @@ pub mod parser {
     }
 
     /// Image reference.
-    #[deriving(Eq,Clone)]
+    #[deriving(Eq,TotalEq,Clone)]
     pub struct ImageRef(Key);
 
     impl ImageRef {
@@ -1158,7 +1158,7 @@ pub mod parser {
     }
 
     /// BGA layers. (C: `enum BGA_type`)
-    #[deriving(Eq,Clone)]
+    #[deriving(Eq,TotalEq,Clone)]
     pub enum BGALayer {
         /// The lowest layer. BMS channel #04. (C: `BGA_LAYER`)
         Layer1 = 0,
@@ -3333,7 +3333,7 @@ pub mod player {
     // options
 
     /// Game play modes. (C: `enum mode`)
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     pub enum Mode {
         /// Normal game play. The graphical display and input is enabled. (C: `PLAY_MODE`)
         PlayMode,
@@ -3346,7 +3346,7 @@ pub mod player {
     }
 
     /// Modifiers that affect the game data. (C: `enum modf`)
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     pub enum Modf {
         /// Swaps all "key" (i.e. `KeyKind::counts_as_key` returns true) lanes in the reverse order.
         /// See `player::apply_mirror_modf` for the detailed algorithm. (C: `MIRROR_MODF`)
@@ -3365,7 +3365,7 @@ pub mod player {
     }
 
     /// Specifies how the BGA is displayed. (C: `enum bga`)
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     pub enum Bga {
         /// Both the BGA image and movie is displayed. (C: `BGA_AND_MOVIE`)
         BgaAndMovie,
@@ -3639,7 +3639,7 @@ pub mod player {
     // virtual input
 
     /// Actual input. Mapped to zero or more virtual inputs by input mapping.
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     enum Input {
         /// Keyboard input.
         KeyInput(event::Key),
@@ -3660,7 +3660,7 @@ pub mod player {
     }
 
     /// Virtual input.
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     enum VirtualInput {
         /// Virtual input mapped to the lane.
         LaneInput(Lane),
@@ -3681,7 +3681,7 @@ pub mod player {
      * state. We solve this problem by making the transition from negative to positive (and vice
      * versa) temporarily hit the neutral state.
      */
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     pub enum InputState {
         /// Positive input state. Occurs when the button is pressed or the joystick axis is moved
         /// in the positive direction.
@@ -4589,7 +4589,7 @@ Artist:   {artist}
 
     /// Grades. Angolmois performs the time-based grading as long as possible (it can go wrong when
     /// the object is near the discontinuity due to the current implementation strategy).
-    #[deriving(Eq)]
+    #[deriving(Eq,TotalEq)]
     pub enum Grade {
         /**
          * Issued when the player did not input the object at all, the player was pressing the key
