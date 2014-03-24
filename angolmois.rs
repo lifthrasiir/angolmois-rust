@@ -5924,8 +5924,8 @@ pub fn play(opts: ~player::Options) {
                 update_status = |path| {
                     let screen: &gfx::Surface = *screen.get_ref();
                     let saved_screen: &gfx::Surface = *saved_screen.get_ref();
-                    player::graphic_update_status(path, screen, saved_screen,
-                                                  font, ticker.borrow_mut().get(), || atexit())
+                    player::graphic_update_status(path, screen, saved_screen, font,
+                                                  ticker.borrow_mut().deref_mut(), || atexit())
                 };
             } else {
                 update_status = |_path| {};
@@ -5933,7 +5933,7 @@ pub fn play(opts: ~player::Options) {
         } else if opts.showinfo {
             player::show_stagefile_noscreen(bms, infos, keyspec, opts);
             update_status = |path| {
-                player::text_update_status(path, ticker.borrow_mut().get(), || atexit())
+                player::text_update_status(path, ticker.borrow_mut().deref_mut(), || atexit())
             };
         } else {
             update_status = |_path| {};
@@ -5944,7 +5944,7 @@ pub fn play(opts: ~player::Options) {
         let (sndres, imgres) =
             player::load_resource(bms, opts, |msg| update_status(msg));
         if opts.showinfo {
-            ticker.borrow_mut().get().reset(); // force update
+            ticker.borrow_mut().deref_mut().reset(); // force update
             update_status(None);
         }
         while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); }
