@@ -49,13 +49,13 @@
  * * TODO - other problems unrelated to Rust.
  */
 
-#[crate_id = "angolmois#2.0.0-alpha2"];
-#[crate_type = "bin"];
+#![crate_id = "angolmois#2.0.0-alpha2"]
+#![crate_type = "bin"]
 
-#[feature(globs, macro_rules)];
+#![feature(globs, macro_rules)]
 
-#[comment = "Angolmois"];
-#[license = "GPLv2+"];
+#![comment = "Angolmois"]
+#![license = "GPLv2+"]
 
 extern crate rand;
 extern crate collections;
@@ -327,7 +327,7 @@ pub mod util {
      * the above copyright notice.
      */
     pub mod smpeg {
-        #[allow(non_camel_case_types)];
+        #![allow(non_camel_case_types)]
 
         use std;
         use std::libc::{c_int, c_float};
@@ -511,7 +511,7 @@ pub mod util {
     #[cfg(target_os = "win32")]
     pub mod win32 {
         pub mod ll {
-            #[allow(non_camel_case_types)];
+            #![allow(non_camel_case_types)]
 
             use std::libc::{c_int, c_uint, c_void};
             use std::libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
