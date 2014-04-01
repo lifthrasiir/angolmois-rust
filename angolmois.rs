@@ -521,6 +521,7 @@ pub mod util {
 
             pub static OFN_HIDEREADONLY: DWORD = 4;
 
+            #[allow(uppercase_variables)]
             pub struct OPENFILENAMEW {
                 pub lStructSize: DWORD,
                 pub hwndOwner: HWND,
@@ -953,26 +954,25 @@ pub mod parser {
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
     pub static MAXKEY: int = 36*36;
 
-    impl Key {
-        /// Returns a bare integer value out of the key.
-        pub fn to_int(&self) -> int {
-            let Key(v) = *self;
+    impl Deref<int> for Key {
+        fn deref<'a>(&'a self) -> &'a int {
+            let Key(ref v) = *self;
             v
         }
+    }
 
+    impl Key {
         /// Returns if the alphanumeric key is in the proper range. Angolmois supports the full
         /// range of 00-ZZ (0-1295) for every case.
         pub fn is_valid(&self) -> bool {
-            let Key(v) = *self;
-            0 <= v && v < MAXKEY
+            0 <= **self && **self < MAXKEY
         }
 
         /// Re-reads the alphanumeric key as a hexadecimal number if possible. This is required
         /// due to handling of channel #03 (BPM is expected to be in hexadecimal).
         pub fn to_hex(&self) -> Option<int> {
-            let Key(v) = *self;
-            let sixteens = v / 36;
-            let ones = v % 36;
+            let sixteens = **self / 36;
+            let ones = **self % 36;
             if sixteens < 16 && ones < 16 {Some(sixteens * 16 + ones)} else {None}
         }
     }
@@ -980,10 +980,9 @@ pub mod parser {
     impl fmt::Show for Key {
         /// Returns a two-letter representation of alphanumeric key. (C: `TO_KEY`)
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-            let Key(v) = *self;
             assert!(self.is_valid());
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            write!(f.buf, "{}{}", map[v / 36] as char, map[v % 36] as char)
+            write!(f.buf, "{}{}", map[**self / 36] as char, map[**self % 36] as char)
         }
     }
 
@@ -998,22 +997,22 @@ pub mod parser {
     /// The maximum number of lanes. (C: `NNOTECHANS`)
     pub static NLANES: uint = 72;
 
-    impl Lane {
-        /// Returns an index to the lane.
-        pub fn to_uint(&self) -> uint {
-            let Lane(v) = *self;
+    impl Deref<uint> for Lane {
+        fn deref<'a>(&'a self) -> &'a uint {
+            let Lane(ref v) = *self;
             v
         }
+    }
 
+    impl Lane {
         /// Converts the channel number to the lane number.
         pub fn from_channel(chan: Key) -> Lane {
-            let Key(v) = chan;
-            let player = match v / 36 {
+            let player = match *chan / 36 {
                 1 | 3 | 5 | 0xD => 0,
                 2 | 4 | 6 | 0xE => 1,
                 _ => fail!(~"non-object channel")
             };
-            Lane(player * 36 + v as uint % 36)
+            Lane(player * 36 + *chan as uint % 36)
         }
     }
 
@@ -1125,17 +1124,10 @@ pub mod parser {
     #[deriving(Eq,TotalEq,Clone)]
     pub struct SoundRef(Key);
 
-    impl SoundRef {
-        /// Returns a `Key` representation of the sound reference.
-        pub fn as_key<'a>(&'a self) -> &'a Key {
+    impl Deref<Key> for SoundRef {
+        fn deref<'a>(&'a self) -> &'a Key {
             let SoundRef(ref key) = *self;
             key
-        }
-
-        /// Returns a numeric index to the sound reference.
-        pub fn to_uint(&self) -> uint {
-            let SoundRef(Key(v)) = *self;
-            v as uint
         }
     }
 
@@ -1143,17 +1135,10 @@ pub mod parser {
     #[deriving(Eq,TotalEq,Clone)]
     pub struct ImageRef(Key);
 
-    impl ImageRef {
-        /// Returns a `Key` representation of the image reference.
-        pub fn as_key<'a>(&'a self) -> &'a Key {
+    impl Deref<Key> for ImageRef {
+        fn deref<'a>(&'a self) -> &'a Key {
             let ImageRef(ref key) = *self;
             key
-        }
-
-        /// Returns a numeric index to the image reference.
-        pub fn to_uint(&self) -> uint {
-            let ImageRef(Key(v)) = *self;
-            v as uint
         }
     }
 
@@ -1180,18 +1165,19 @@ pub mod parser {
     #[deriving(Eq,Clone)]
     pub struct BPM(f64);
 
-    impl BPM {
-        /// Returns a number of beats per minute.
-        pub fn to_f64(&self) -> f64 {
-            let BPM(v) = *self;
+    impl Deref<f64> for BPM {
+        fn deref<'a>(&'a self) -> &'a f64 {
+            let BPM(ref v) = *self;
             v
         }
+    }
 
+    impl BPM {
         /// Converts a measure to a millisecond. (C: `MEASURE_TO_MSEC`)
-        pub fn measure_to_msec(&self, measure: f64) -> f64 { measure * 240000.0 / self.to_f64() }
+        pub fn measure_to_msec(&self, measure: f64) -> f64 { measure * 240000.0 / **self }
 
         /// Converts a millisecond to a measure. (C: `MSEC_TO_MEASURE`)
-        pub fn msec_to_measure(&self, msec: f64) -> f64 { msec * self.to_f64() / 240000.0 }
+        pub fn msec_to_measure(&self, msec: f64) -> f64 { msec * **self / 240000.0 }
     }
 
     /// A duration from the particular point. It may be specified in measures or seconds. Used in
@@ -2064,79 +2050,79 @@ pub mod parser {
             // particular position `t`. The position `t2` next to `t` is used for some cases that
             // an alphanumeric key designates an area rather than a point.
             let handle_key = |bms: &mut Bms, chan: Key, t: f64, t2: f64, v: Key| {
-                match chan {
+                match *chan {
                     // channel #01: BGM
-                    Key(1) => { add(bms, Obj::BGM(t, v)); }
+                    1 => { add(bms, Obj::BGM(t, v)); }
 
                     // channel #03: BPM as an hexadecimal key
-                    Key(3) => {
+                    3 => {
                         for &v in v.to_hex().iter() {
                             add(bms, Obj::SetBPM(t, BPM(v as f64)))
                         }
                     }
 
                     // channel #04: BGA layer 1
-                    Key(4) => { add(bms, Obj::SetBGA(t, Layer1, Some(v))); }
+                    4 => { add(bms, Obj::SetBGA(t, Layer1, Some(v))); }
 
                     // channel #06: POOR BGA
-                    Key(6) => {
+                    6 => {
                         add(bms, Obj::SetBGA(t, PoorBGA, Some(v)));
                         poorbgafix = false; // we don't add artificial BGA
                     }
 
                     // channel #07: BGA layer 2
-                    Key(7) => { add(bms, Obj::SetBGA(t, Layer2, Some(v))); }
+                    7 => { add(bms, Obj::SetBGA(t, Layer2, Some(v))); }
 
                     // channel #08: BPM defined by #BPMxx
                     // TODO bpmtab validity check
-                    Key(8) => { add(bms, Obj::SetBPM(t, bpmtab[v.to_int() as uint])); }
+                    8 => { add(bms, Obj::SetBPM(t, bpmtab[*v as uint])); }
 
                     // channel #09: scroll stopper defined by #STOPxx
                     // TODO stoptab validity check
-                    Key(9) => { add(bms, Obj::Stop(t, stoptab[v.to_int() as uint])); }
+                    9 => { add(bms, Obj::Stop(t, stoptab[*v as uint])); }
 
                     // channel #0A: BGA layer 3
-                    Key(10) => { add(bms, Obj::SetBGA(t, Layer3, Some(v))); }
+                    10 => { add(bms, Obj::SetBGA(t, Layer3, Some(v))); }
 
                     // channels #1x/2x: visible object, possibly LNs when #LNOBJ is in active
-                    Key(36/*1*36*/..107/*3*36-1*/) => {
+                    36/*1*36*/..107/*3*36-1*/ => {
                         let lane = Lane::from_channel(chan);
                         if lnobj.is_some() && lnobj == Some(v) {
                             // change the last inserted visible object to the start of LN if any.
-                            let lastvispos = lastvis[lane.to_uint()];
+                            let lastvispos = lastvis[*lane];
                             for &pos in lastvispos.iter() {
                                 assert!(bms.objs[pos].is_visible());
                                 bms.objs[pos] = bms.objs[pos].to_lnstart();
                                 add(bms, Obj::LNDone(t, lane, Some(v)));
-                                lastvis[lane.to_uint()] = None;
+                                lastvis[*lane] = None;
                             }
                         } else {
-                            lastvis[lane.to_uint()] = mark(bms, Obj::Visible(t, lane, Some(v)));
+                            lastvis[*lane] = mark(bms, Obj::Visible(t, lane, Some(v)));
                         }
                     }
 
                     // channels #3x/4x: invisible object
-                    Key(108/*3*36*/..179/*5*36-1*/) => {
+                    108/*3*36*/..179/*5*36-1*/ => {
                         let lane = Lane::from_channel(chan);
                         add(bms, Obj::Invisible(t, lane, Some(v)));
                     }
 
                     // channels #5x/6x, #LNTYPE 1: LN endpoints
-                    Key(180/*5*36*/..251/*7*36-1*/) if !consecutiveln => {
+                    180/*5*36*/..251/*7*36-1*/ if !consecutiveln => {
                         let lane = Lane::from_channel(chan);
 
                         // a pair of non-00 alphanumeric keys designate one LN. if there are an odd
                         // number of them, the last LN is implicitly closed later.
-                        if lastln[lane.to_uint()].is_some() {
-                            lastln[lane.to_uint()] = None;
+                        if lastln[*lane].is_some() {
+                            lastln[*lane] = None;
                             add(bms, Obj::LNDone(t, lane, Some(v)));
                         } else {
-                            lastln[lane.to_uint()] = mark(bms, Obj::LNStart(t, lane, Some(v)));
+                            lastln[*lane] = mark(bms, Obj::LNStart(t, lane, Some(v)));
                         }
                     }
 
                     // channels #5x/6x, #LNTYPE 2: LN areas
-                    Key(180/*5*36*/..251/*7*36-1*/) if consecutiveln => {
+                    180/*5*36*/..251/*7*36-1*/ if consecutiveln => {
                         let lane = Lane::from_channel(chan);
 
                         // one non-00 alphanumeric key, in the absence of other information,
@@ -2146,21 +2132,21 @@ pub mod parser {
                         // from `t` to `t2`, unless there is already an end of LN at `t`
                         // in which case the end of LN is simply moved from `t` to `t2`
                         // (effectively increasing the length of previous LN).
-                        match lastln[lane.to_uint()] {
+                        match lastln[*lane] {
                             Some(pos) if bms.objs[pos].time == t => {
                                 assert!(bms.objs[pos].is_lndone());
                                 bms.objs[pos].time = t2;
                             }
                             _ => {
                                 add(bms, Obj::LNStart(t, lane, Some(v)));
-                                lastln[lane.to_uint()] = mark(bms, Obj::LNDone(t2, lane, Some(v)));
+                                lastln[*lane] = mark(bms, Obj::LNDone(t2, lane, Some(v)));
                             }
                         }
                     }
 
                     // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5% of the full gauge)
                     // or instant death (ZZ)
-                    Key(468/*0xD*36*/..539/*0xF*36-1*/) => {
+                    468/*0xD*36*/..539/*0xF*36-1*/ => {
                         let lane = Lane::from_channel(chan);
                         let damage = match v {
                             Key(v @ 1..200) => Some(GaugeDamage(v as f64 / 200.0)),
@@ -2578,7 +2564,7 @@ pub mod parser {
             pos = obj.time;
         }
 
-        if bpm.to_f64() > 0.0 { // the chart scrolls backwards to `originoffset` for negative BPM
+        if *bpm > 0.0 { // the chart scrolls backwards to `originoffset` for negative BPM
             let delta = bms.adjust_object_position(pos, (bms.nmeasures + 1) as f64);
             time += bpm.measure_to_msec(delta);
         }
@@ -3459,9 +3445,9 @@ pub mod player {
                 Some(left) => {
                     let mut err = false;
                     for &(lane,kind) in left.iter() {
-                        if keyspec.kinds[lane.to_uint()].is_some() { err = true; break; }
+                        if keyspec.kinds[*lane].is_some() { err = true; break; }
                         keyspec.order.push(lane);
-                        keyspec.kinds[lane.to_uint()] = Some(kind);
+                        keyspec.kinds[*lane] = Some(kind);
                     }
                     if err {None} else {Some(left.len())}
                 }
@@ -3499,7 +3485,7 @@ pub mod player {
         let mut lanes = ~[];
         for i in range(begin, end) {
             let lane = keyspec.order[i];
-            let kind = keyspec.kinds[lane.to_uint()];
+            let kind = keyspec.kinds[*lane];
             if modf == ShuffleExModf || modf == RandomExModf ||
                     kind.map_or(false, |kind| kind.counts_as_key()) {
                 lanes.push(lane);
@@ -3822,8 +3808,8 @@ pub mod player {
         }
 
         for &lane in keyspec.order.iter() {
-            let key = Key(36 + lane.to_uint() as int);
-            let kind = keyspec.kinds[lane.to_uint()].unwrap();
+            let key = Key(36 + *lane as int);
+            let kind = keyspec.kinds[*lane].unwrap();
             let envvar = format!("ANGOLMOIS_{}{}_KEY", key.to_str(), kind.to_char());
             for s in getenv(envvar).iter() {
                 match parse_input(*s) {
@@ -4112,8 +4098,8 @@ pub mod player {
     fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
         use std::mem;
 
-        let src = bc.src.to_uint();
-        let dst = bc.dst.to_uint();
+        let src = **bc.src;
+        let dst = **bc.dst;
         if src == dst { return; }
 
         match imgres[src] {
@@ -4175,10 +4161,10 @@ pub mod player {
                 // does handle it.
                 if self[layer] != current[layer] {
                     for &iref in self[layer].iter() {
-                        imgres[iref.to_uint()].stop_movie();
+                        imgres[**iref].stop_movie();
                     }
                     for &iref in current[layer].iter() {
-                        imgres[iref.to_uint()].start_movie();
+                        imgres[**iref].start_movie();
                     }
                 }
             }
@@ -4190,7 +4176,7 @@ pub mod player {
             screen.fill_area((x,y), (256,256), RGB(0,0,0));
             for &layer in layers.iter() {
                 for &iref in self[layer as uint].iter() {
-                    for &surface in imgres[iref.to_uint()].surface().iter() {
+                    for &surface in imgres[**iref].surface().iter() {
                         screen.blit_area(&**surface, (0,0), (x,y), (256,256));
                     }
                 }
@@ -4205,7 +4191,7 @@ pub mod player {
     fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec) -> (~str, ~str, ~str, ~str) {
         let meta = format!("Level {level} | BPM {bpm:.2}{hasbpmchange} | \
                             {nnotes, plural, =1{# note} other{# notes}} [{nkeys}KEY{haslongnote}]",
-                           level = bms.playlevel, bpm = bms.initbpm.to_f64(),
+                           level = bms.playlevel, bpm = *bms.initbpm,
                            hasbpmchange = if infos.hasbpmchange {"?"} else {""},
                            nnotes = infos.nnotes as uint, nkeys = keyspec.nkeys(),
                            haslongnote = if infos.haslongnote {"-LN"} else {""});
@@ -4856,7 +4842,7 @@ Artist:   {artist}
         /// Returns true if the specified lane is being pressed, either by keyboard, joystick
         /// buttons or axes.
         pub fn key_pressed(&self, lane: Lane) -> bool {
-            self.keymultiplicity[lane.to_uint()] > 0 || self.joystate[lane.to_uint()] != Neutral
+            self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
         }
 
         /// Returns the play speed displayed. Can differ from the actual play speed
@@ -4947,15 +4933,14 @@ Artist:   {artist}
         /// should be played with the lower volume and should in the different channel group from
         /// key sounds. (C: `play_sound`)
         pub fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
-            let sref = sref.to_uint();
-            if self.sndres[sref].chunk().is_none() { return; }
-            let lastch = self.sndlastch[sref].map(|ch| ch as std::libc::c_int);
+            if self.sndres[**sref].chunk().is_none() { return; }
+            let lastch = self.sndlastch[**sref].map(|ch| ch as std::libc::c_int);
 
             // try to play on the last channel if it is not occupied by other sounds (in this case
             // the last channel info is removed)
             let mut ch;
             loop {
-                ch = self.sndres[sref].chunk().unwrap().play(lastch, 0);
+                ch = self.sndres[**sref].chunk().unwrap().play(lastch, 0);
                 if ch >= 0 { break; }
                 self.allocate_more_channels(32);
             }
@@ -4966,14 +4951,14 @@ Artist:   {artist}
 
             let ch = ch as uint;
             for &idx in self.lastchsnd[ch].iter() { self.sndlastch[idx] = None; }
-            self.sndlastch[sref] = Some(ch);
-            self.lastchsnd[ch] = Some(sref as uint);
+            self.sndlastch[**sref] = Some(ch);
+            self.lastchsnd[ch] = Some(**sref as uint);
         }
 
         /// Plays a given sound if `sref` is not zero. This reflects the fact that an alphanumeric
         /// key `00` is normally a placeholder.
         pub fn play_sound_if_nonzero(&mut self, sref: SoundRef, bgm: bool) {
-            if sref.as_key().to_int() > 0 { self.play_sound(sref, bgm); }
+            if **sref > 0 { self.play_sound(sref, bgm); }
         }
 
         /// Plays a beep. The beep is always played in the channel 0, which is excluded from
@@ -5133,14 +5118,14 @@ Artist:   {artist}
                 let is_unpressed = |player: &mut Player, lane: Lane,
                                     continuous: bool, state: InputState| {
                     if state == Neutral || (continuous &&
-                                            player.joystate[lane.to_uint()] != state) {
+                                            player.joystate[*lane] != state) {
                         if continuous {
-                            player.joystate[lane.to_uint()] = state; true
+                            player.joystate[*lane] = state; true
                         } else {
-                            if player.keymultiplicity[lane.to_uint()] > 0 {
-                                player.keymultiplicity[lane.to_uint()] -= 1;
+                            if player.keymultiplicity[*lane] > 0 {
+                                player.keymultiplicity[*lane] -= 1;
                             }
-                            (player.keymultiplicity[lane.to_uint()] == 0)
+                            (player.keymultiplicity[*lane] == 0)
                         }
                     } else {
                         false
@@ -5154,10 +5139,10 @@ Artist:   {artist}
                                   continuous: bool, state: InputState| {
                     if state != Neutral {
                         if continuous {
-                            player.joystate[lane.to_uint()] = state; true
+                            player.joystate[*lane] = state; true
                         } else {
-                            player.keymultiplicity[lane.to_uint()] += 1;
-                            (player.keymultiplicity[lane.to_uint()] == 1)
+                            player.keymultiplicity[*lane] += 1;
+                            (player.keymultiplicity[*lane] == 1)
                         }
                     } else {
                         false
@@ -5168,7 +5153,7 @@ Artist:   {artist}
                     // if LN grading is in progress and it is not within the threshold then
                     // MISS grade is issued
                     let nextlndone =
-                        player.pthru[lane.to_uint()].as_ref().and_then(|thru| {
+                        player.pthru[*lane].as_ref().and_then(|thru| {
                             thru.find_next_of_type(|obj| {
                                 obj.object_lane() == Some(lane) &&
                                 obj.is_lndone()
@@ -5183,7 +5168,7 @@ Artist:   {artist}
                             player.update_grade_to_miss();
                         }
                     }
-                    player.pthru[lane.to_uint()] = None;
+                    player.pthru[*lane] = None;
                 };
 
                 let process_press = |player: &mut Player, lane: Lane| {
@@ -5209,7 +5194,7 @@ Artist:   {artist}
                                        lineshorten * player.gradefactor;
                             if num::abs(dist) < BAD_CUTOFF {
                                 if p.is_lnstart() {
-                                    player.pthru[lane.to_uint()] =
+                                    player.pthru[*lane] =
                                         Some(pointer_with_pos(player.bms.clone(), p.pos));
                                 }
                                 player.nograding[p.pos] = true;
@@ -5257,7 +5242,7 @@ Artist:   {artist}
                     match prevpcur.data() {
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
                             // ongoing long note is not graded twice
-                            self.pthru[lane.to_uint()] = None;
+                            self.pthru[*lane] = None;
                             for &sref in sref.iter() {
                                 self.play_sound(sref, false);
                             }
@@ -5390,7 +5375,7 @@ Artist:   {artist}
         let mut rightmost = SCREENW;
         let mut styles = ~[];
         for &lane in keyspec.left_lanes().iter() {
-            let kind = keyspec.kinds[lane.to_uint()];
+            let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.unwrap();
             let style = LaneStyle::from_kind(kind, leftmost, false);
@@ -5401,7 +5386,7 @@ Artist:   {artist}
             }
         }
         for &lane in keyspec.right_lanes().iter() {
-            let kind = keyspec.kinds[lane.to_uint()];
+            let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.unwrap();
             let style = LaneStyle::from_kind(kind, rightmost, true);
@@ -5733,7 +5718,7 @@ Artist:   {artist}
                 font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
                                   format!("@{:9.4}", player.bottom), black);
                 font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
-                                  format!("BPM {:6.2}", player.bpm.to_f64()), black);
+                                  format!("BPM {:6.2}", *player.bpm), black);
                 let timetick = cmp::min(self.leftmost, (player.now - player.origintime) *
                                                        self.leftmost / durationmsec);
                 font.print_glyph(pixels, 6 + timetick, SCREENH-52, 1,
@@ -5803,7 +5788,7 @@ Artist:   {artist}
                                      BPM {bpm:6.2} | {lastcombo} / {nnotes} notes",
                                     elapsed/600, elapsed/10%60, elapsed%10,
                                     duration/600, duration/10%60, duration%10,
-                                    pos = player.bottom, bpm = player.bpm.to_f64(),
+                                    pos = player.bottom, bpm = *player.bpm,
                                     lastcombo = player.lastcombo, nnotes = player.infos.nnotes));
             });
         }
@@ -5954,7 +5939,7 @@ pub fn play(opts: ~player::Options) {
 
     // create the player and transfer ownership of other resources to it
     let duration = parser::bms_duration(bms, infos.originoffset,
-                                        |sref| sndres[sref.to_uint()].duration());
+                                        |sref| sndres[**sref].duration());
     let mut player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
 
     // create the display and runs the actual game play loop
