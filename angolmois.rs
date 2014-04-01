@@ -339,20 +339,20 @@ pub mod util {
             use std::libc::{c_void, c_int, c_char, c_float, c_double};
             use sdl::video::ll::{SDL_RWops, SDL_Surface};
             use sdl::audio::ll::SDL_AudioSpec;
-            pub struct SMPEG { priv opaque: () }
+            pub struct SMPEG { opaque: () }
             pub struct SMPEG_Info {
-                has_audio: c_int,
-                has_video: c_int,
-                width: c_int,
-                height: c_int,
-                current_frame: c_int,
-                current_fps: c_double,
-                audio_string: [c_char, ..80],
-                audio_current_frame: c_int,
-                current_offset: u32,
-                total_size: u32,
-                current_time: c_double,
-                total_time: c_double
+                pub has_audio: c_int,
+                pub has_video: c_int,
+                pub width: c_int,
+                pub height: c_int,
+                pub current_frame: c_int,
+                pub current_fps: c_double,
+                pub audio_string: [c_char, ..80],
+                pub audio_current_frame: c_int,
+                pub current_offset: u32,
+                pub total_size: u32,
+                pub current_time: c_double,
+                pub total_time: c_double
             }
             #[repr(C)]
             pub enum SMPEGstatus {
@@ -404,7 +404,7 @@ pub mod util {
         }
 
         pub struct MPEG {
-            raw: *ll::SMPEG
+            pub raw: *ll::SMPEG
         }
 
         fn wrap_mpeg(raw: *ll::SMPEG) -> ~MPEG {
@@ -522,46 +522,46 @@ pub mod util {
             pub static OFN_HIDEREADONLY: DWORD = 4;
 
             pub struct OPENFILENAMEW {
-                lStructSize: DWORD,
-                hwndOwner: HWND,
-                hInstance: HINSTANCE,
-                lpstrFilter: LPCWSTR,
-                lpstrCustomFilter: LPWSTR,
-                nMaxCustFilter: DWORD,
-                nFilterIndex: DWORD,
-                lpstrFile: LPWSTR,
-                nMaxFile: DWORD,
-                lpstrFileTitle: LPWSTR,
-                nMaxFileTitle: DWORD,
-                lpstrInitialDir: LPCWSTR,
-                lpstrTitle: LPCWSTR,
-                Flags: DWORD,
-                nFileOffset: WORD,
-                nFileExtension: WORD,
-                lpstrDefExt: LPCWSTR,
-                lCustData: DWORD,
-                lpfnHook: *(), // XXX LPOFNHOOKPROC = fn(HWND,c_uint,WPARAM,LPARAM)->c_uint
-                lpTemplateName: LPCWSTR,
-                pvReserved: *c_void,
-                dwReserved: DWORD,
-                FlagsEx: DWORD,
+                pub lStructSize: DWORD,
+                pub hwndOwner: HWND,
+                pub hInstance: HINSTANCE,
+                pub lpstrFilter: LPCWSTR,
+                pub lpstrCustomFilter: LPWSTR,
+                pub nMaxCustFilter: DWORD,
+                pub nFilterIndex: DWORD,
+                pub lpstrFile: LPWSTR,
+                pub nMaxFile: DWORD,
+                pub lpstrFileTitle: LPWSTR,
+                pub nMaxFileTitle: DWORD,
+                pub lpstrInitialDir: LPCWSTR,
+                pub lpstrTitle: LPCWSTR,
+                pub Flags: DWORD,
+                pub nFileOffset: WORD,
+                pub nFileExtension: WORD,
+                pub lpstrDefExt: LPCWSTR,
+                pub lCustData: DWORD,
+                pub lpfnHook: *(), // XXX LPOFNHOOKPROC = fn(HWND,c_uint,WPARAM,LPARAM)->c_uint
+                pub lpTemplateName: LPCWSTR,
+                pub pvReserved: *c_void,
+                pub dwReserved: DWORD,
+                pub FlagsEx: DWORD,
             }
 
             pub struct FILETIME {
-                dwLowDateTime: DWORD,
-                dwHighDateTime: DWORD,
+                pub dwLowDateTime: DWORD,
+                pub dwHighDateTime: DWORD,
             }
 
             pub struct WIN32_FIND_DATAA {
-                dwFileAttributes: DWORD,
-                ftCreationTime: FILETIME,
-                ftLastAccessTime: FILETIME,
-                ftLastWriteTime: FILETIME,
-                nFileSizeHigh: DWORD,
-                nFileSizeLow: DWORD,
-                dwReserved0: DWORD,
-                dwReserved1: DWORD,
-                cFileName: [CHAR, ..260],
+                pub dwFileAttributes: DWORD,
+                pub ftCreationTime: FILETIME,
+                pub ftLastAccessTime: FILETIME,
+                pub ftLastWriteTime: FILETIME,
+                pub nFileSizeHigh: DWORD,
+                pub nFileSizeLow: DWORD,
+                pub dwReserved0: DWORD,
+                pub dwReserved1: DWORD,
+                pub cFileName: [CHAR, ..260],
             }
 
             #[link(name = "kernel32")]
@@ -1463,9 +1463,9 @@ pub mod parser {
     #[deriving(Eq,Clone)]
     pub struct Obj {
         /// Time position in measures.
-        time: f64,
+        pub time: f64,
         /// Actual data.
-        data: ObjData
+        pub data: ObjData
     }
 
     impl Obj {
@@ -1567,8 +1567,8 @@ pub mod parser {
      * 256 by 256 pixels.
      */
     pub struct BlitCmd {
-        dst: ImageRef, src: ImageRef,
-        x1: int, y1: int, x2: int, y2: int, dx: int, dy: int
+        pub dst: ImageRef, pub src: ImageRef,
+        pub x1: int, pub y1: int, pub x2: int, pub y2: int, pub dx: int, pub dy: int
     }
 
     /// A value of BMS #PLAYER command signifying Single Play (SP), where only channels #1x are used
@@ -1586,43 +1586,43 @@ pub mod parser {
     /// Loaded BMS data. It is not a global state unlike C.
     pub struct Bms {
         /// Title. Maps to BMS #TITLE command. (C: `string[S_TITLE]`)
-        title: Option<~str>,
+        pub title: Option<~str>,
         /// Genre. Maps to BMS #GENRE command. (C: `string[S_GENRE]`)
-        genre: Option<~str>,
+        pub genre: Option<~str>,
         /// Artist. Maps to BMS #ARTIST command. (C: `string[S_ARTIST]`)
-        artist: Option<~str>,
+        pub artist: Option<~str>,
         /// Path to an image for loading screen. Maps to BMS #STAGEFILE command.
         /// (C: `string[S_STAGEFILE]`)
-        stagefile: Option<~str>,
+        pub stagefile: Option<~str>,
         /// A base path used for loading all other resources. Maps to BMS #PATH_WAV command.
         /// (C: `string[S_BASEPATH]`)
-        basepath: Option<~str>,
+        pub basepath: Option<~str>,
 
         /// Game mode. One of `SINGLE_PLAY`(1), `COUPLE_PLAY`(2) or `DOUBLE_PLAY`(3). Maps to BMS
         /// #PLAYER command. (C: `value[V_PLAYER]`)
-        player: int,
+        pub player: int,
         /// Game level. Does not affect the actual game play. Maps to BMS #PLAYLEVEL command.
         /// (C: `value[V_PLAYLEVEL]`)
-        playlevel: int,
+        pub playlevel: int,
         /// Gauge difficulty. Higher is easier. Maps to BMS #RANK command. (C: `value[V_RANK]`)
-        rank: int,
+        pub rank: int,
 
         /// Initial BPM. (C: `initbpm`)
-        initbpm: BPM,
+        pub initbpm: BPM,
         /// Paths to sound file relative to `basepath` or BMS file. (C: `sndpath`)
-        sndpath: ~[Option<~str>],
+        pub sndpath: ~[Option<~str>],
         /// Paths to image/movie file relative to `basepath` or BMS file. (C: `imgpath`)
-        imgpath: ~[Option<~str>],
+        pub imgpath: ~[Option<~str>],
         /// List of blit commands to be executed after `imgpath` is loaded. (C: `blitcmd`)
-        blitcmd: ~[BlitCmd],
+        pub blitcmd: ~[BlitCmd],
 
         /// List of objects sorted by the position. (C: `objs`)
-        objs: ~[Obj],
+        pub objs: ~[Obj],
         /// The scaling factor of measures. Defaults to 1.0. (C: `shortens`)
-        shortens: ~[f64],
+        pub shortens: ~[f64],
         /// The number of measures after the origin, i.e. the length of the BMS file. The play stops
         /// after the last measure. (C: `length`)
-        nmeasures: uint
+        pub nmeasures: uint
     }
 
     /// Creates a default value of BMS data.
@@ -2239,12 +2239,12 @@ pub mod parser {
     pub struct KeySpec {
         /// The number of lanes on the left side. This number is significant only when Couple Play
         /// is used. (C: `nleftkeys`)
-        split: uint,
+        pub split: uint,
         /// The order of significant lanes. The first `nleftkeys` lanes go to the left side and
         /// the remaining lanes (C: `nrightkeys`) go to the right side. (C: `keyorder`)
-        order: ~[Lane],
+        pub order: ~[Lane],
         /// The type of lanes. (C: `keykind`)
-        kinds: ~[Option<KeyKind>]
+        pub kinds: ~[Option<KeyKind>]
     }
 
     impl KeySpec {
@@ -2508,16 +2508,16 @@ pub mod parser {
     pub struct BmsInfo {
         /// The start position of the BMS file. This is either -1.0 or 0.0 depending on the first
         /// measure has any visible objects or not. (C: `originoffset`)
-        originoffset: f64,
+        pub originoffset: f64,
         /// Set to true if the BMS file has a BPM change. (C: `hasbpmchange`)
-        hasbpmchange: bool,
+        pub hasbpmchange: bool,
         /// Set to true if the BMS file has long note objects. (C: `haslongnote`)
-        haslongnote: bool,
+        pub haslongnote: bool,
         /// The number of visible objects in the BMS file. A long note object counts as one object.
         /// (C: `nnotes`)
-        nnotes: int,
+        pub nnotes: int,
         /// The maximum possible score. (C: `maxscore`)
-        maxscore: int
+        pub maxscore: int
     }
 
     /// Analyzes the loaded BMS file. (C: `analyze_and_compact_bms`)
@@ -2887,9 +2887,9 @@ pub mod gfx {
     #[deriving(Eq)]
     pub struct Gradient {
         /// A color at the position 0.0. Normally used as a topmost value.
-        zero: Color,
+        pub zero: Color,
         /// A color at the position 1.0. Normally used as a bottommost value.
-        one: Color
+        pub one: Color
     }
 
     /// Creates a new color gradient (for text printing).
@@ -3117,12 +3117,12 @@ pub mod gfx {
          * The group bits 15 (1+2+4+8) always draw the whole square, so in the zoom factor 1 only
          * pixels with group bits 15 will be drawn.
          */
-        priv glyphs: ~[u16],
+        glyphs: ~[u16],
 
         /// Precalculated zoomed font per zoom factor. It is three-dimensional array which indices
         /// are zoom factor, glyph number and row respectively. Assumes that each element has
         /// at least zoom factor times 8 (columns per row) bits. (C: `zoomfont`)
-        priv pixels: ~[~[~[ZoomedFontRow]]]
+        pixels: ~[~[~[ZoomedFontRow]]]
     }
 
     /// An alignment mode of `Font::print_string`.
@@ -3380,28 +3380,28 @@ pub mod player {
     pub struct Options {
         /// A path to the BMS file. Used for finding the resource when `BMS::basepath` is not set.
         /// (C: `bmspath`)
-        bmspath: ~str,
+        pub bmspath: ~str,
         /// Game play mode. (C: `opt_mode`)
-        mode: Mode,
+        pub mode: Mode,
         /// Modifiers that affect the game data. (C: `opt_modf`)
-        modf: Option<Modf>,
+        pub modf: Option<Modf>,
         /// Specifies how the BGA is displayed. (C: `opt_bga`)
-        bga: Bga,
+        pub bga: Bga,
         /// True if the metadata (either overlaid in the loading screen or printed separately
         /// in the console) is displayed. (C: `opt_showinfo`)
-        showinfo: bool,
+        pub showinfo: bool,
         /// True if the full screen is enabled. (C: `opt_fullscreen`)
-        fullscreen: bool,
+        pub fullscreen: bool,
         /// An index to the joystick device if any. (C: `opt_joystick`)
-        joystick: Option<uint>,
+        pub joystick: Option<uint>,
         /// A key specification preset name if any. (C: `preset`)
-        preset: Option<~str>,
+        pub preset: Option<~str>,
         /// A left-hand-side key specification if any. (C: `leftkeys`)
-        leftkeys: Option<~str>,
+        pub leftkeys: Option<~str>,
         /// A right-hand-side key specification if any. Can be an empty string. (C: `rightkeys`)
-        rightkeys: Option<~str>,
+        pub rightkeys: Option<~str>,
         /// An initial play speed. (C: `playspeed`)
-        playspeed: f64,
+        pub playspeed: f64,
     }
 
     impl Options {
@@ -3540,11 +3540,11 @@ pub mod player {
     /// A periodic timer for thresholding the rate of information display.
     pub struct Ticker {
         /// Minimal required milliseconds after the last display.
-        interval: uint,
+        pub interval: uint,
         /// The timestamp at the last display. It is a return value from `sdl::get_ticks` and
         /// measured in milliseconds. May be a `None` if the ticker is at the initial state or
         /// has been reset by `reset` method. (C: `lastinfo`)
-        lastinfo: Option<uint>
+        pub lastinfo: Option<uint>
     }
 
     /// Returns a new ticker with a default display interval.
@@ -4366,14 +4366,14 @@ Artist:   {artist}
     /// be used like an object when it points to the valid object.
     pub struct Pointer {
         /// A BMS data holding objects.
-        bms: Rc<Bms>,
+        pub bms: Rc<Bms>,
         /// The current position. Can be the past-the-end value.
-        pos: uint,
+        pub pos: uint,
         /// The next position used by `next_*` methods, which are required to delay advancing `pos`
         /// by one step (so that the first iteration sees the current pointer yet to be updated).
         /// Therefore `next` is initially set to `None`, then each `next_*` call sets `next` to
         /// what `pos` needs to be after the next invocation.
-        next: Option<uint>,
+        pub next: Option<uint>,
     }
 
     /// Returns true if two pointers share the common BMS data.
@@ -4652,50 +4652,50 @@ Artist:   {artist}
     /// Game play states independent to the display.
     pub struct Player {
         /// The game play options.
-        opts: ~Options,
+        pub opts: ~Options,
         /// The current BMS data.
-        bms: Rc<Bms>,
+        pub bms: Rc<Bms>,
         /// The derived BMS information.
-        infos: ~BmsInfo,
+        pub infos: ~BmsInfo,
         /// The length of BMS file in seconds as calculated by `bms_duration`. (C: `duration`)
-        duration: f64,
+        pub duration: f64,
         /// The key specification.
-        keyspec: ~KeySpec,
+        pub keyspec: ~KeySpec,
         /// The input mapping.
-        keymap: ~KeyMap,
+        pub keymap: ~KeyMap,
 
         /// Set to true if the corresponding object in `bms.objs` had graded and should not be
         /// graded twice. Its length equals to that of `bms.objs`. (C: `nograding` field in
         /// `struct obj`)
-        nograding: ~[bool],
+        pub nograding: ~[bool],
         /// Sound resources. (C: `res` field in `sndres`)
-        sndres: ~[SoundResource],
+        pub sndres: ~[SoundResource],
         /// A sound chunk used for beeps. It always plays on the channel #0. (C: `beep`)
-        beep: ~Chunk,
+        pub beep: ~Chunk,
         /// Last channels in which the corresponding sound in `sndres` was played.
         /// (C: `lastch` field in `sndres`)
-        sndlastch: ~[Option<uint>],
+        pub sndlastch: ~[Option<uint>],
         /// Indices to last sounds which the channel has played. For every `x`, if `sndlastch[x] ==
         /// Some(y)` then `sndlastchmap[y] == Some(x)` and vice versa. (C: `sndlastchmap`)
-        lastchsnd: ~[Option<uint>],
+        pub lastchsnd: ~[Option<uint>],
         /// Currently active BGA layers. (C: `bga`)
-        bga: BGAState,
+        pub bga: BGAState,
 
         /// The chart expansion rate, or "play speed". One measure has the length of 400 pixels
         /// times the play speed, so higher play speed means that objects will fall much more
         /// quickly (hence the name). (C: `playspeed`)
-        playspeed: f64,
+        pub playspeed: f64,
         /// The play speed targeted for speed change if any. It is also the value displayed while
         /// the play speed is changing. (C: `targetspeed`)
-        targetspeed: Option<f64>,
+        pub targetspeed: Option<f64>,
         /// The current BPM. Can be negative, in that case the chart will scroll backwards.
         /// (C: `bpm`)
-        bpm: BPM,
+        pub bpm: BPM,
         /// The timestamp at the last tick. It is a return value from `sdl::get_ticks` and measured
         /// in milliseconds. (C: `now`)
-        now: uint,
+        pub now: uint,
         /// The timestamp at the first tick. (C: `origintime`)
-        origintime: uint,
+        pub origintime: uint,
         /**
          * The timestamp at the last discontinuity that breaks a linear relationship between
          * the virtual time and actual time. (C: `starttime`) Currently the following are
@@ -4707,63 +4707,63 @@ Artist:   {artist}
          * - A scroll stopper (in this case, `stoptime` is first updated and `starttime` is updated
          *   at the end of stop)
          */
-        starttime: uint,
+        pub starttime: uint,
         /// The timestamp at the end of ongoing scroll stopper, if any. (C: `stoptime`)
-        stoptime: Option<uint>,
+        pub stoptime: Option<uint>,
         /// The virtual time at the last discontinuity. (C: `startoffset`)
-        startoffset: f64,
+        pub startoffset: f64,
         /// The current scaling factor of measure. (C: `startshorten`)
-        startshorten: f64,
+        pub startshorten: f64,
 
         /// The virtual time at the bottom of the visible chart. (C: `bottom`)
-        bottom: f64,
+        pub bottom: f64,
         /// The virtual time at the grading line. Currently same as `bottom`. (C: `line`)
-        line: f64,
+        pub line: f64,
         /// The virtual time at the top of the visible chart. (C: `top`)
-        top: f64,
+        pub top: f64,
         /// A pointer to the first `Obj` after `bottom`. (C: `pfront`)
-        pfront: Pointer,
+        pub pfront: Pointer,
         /// A pointer to the first `Obj` after `line`. (C: `pcur`)
-        pcur: Pointer,
+        pub pcur: Pointer,
         /// A pointer to the first `Obj` that haven't escaped the grading area. It is possible that
         /// this `Obj` haven't reached the grading area either. (C: `pcheck`)
-        pcheck: Pointer,
+        pub pcheck: Pointer,
         /// Pointers to `Obj`s for the start of LN which grading is in progress. (C: `pthru`)
         //
         // Rust: this is intended to be `[Option<Pointer>, ..NLANES]` but a fixed-size vector cannot
         //       be cloned.
-        pthru: ~[Option<Pointer>],
+        pub pthru: ~[Option<Pointer>],
 
         /// The scale factor for grading area. The factor less than 1 causes the grading area
         /// shrink. (C: `gradefactor`)
-        gradefactor: f64,
+        pub gradefactor: f64,
         /// (C: `grademode` and `gradetime`)
-        lastgrade: Option<(Grade,uint)>,
+        pub lastgrade: Option<(Grade,uint)>,
         /// The numbers of each grades. (C: `scocnt`)
-        gradecounts: [uint, ..NGRADES],
+        pub gradecounts: [uint, ..NGRADES],
         /// The last combo number, i.e. the number of objects graded at least GREAT. GOOD doesn't
         /// cause the combo number reset; BAD and MISS do. (C: `scombo`)
-        lastcombo: uint,
+        pub lastcombo: uint,
         /// The best combo number so far. If the player manages to get no BADs and MISSes, then
         /// the combo number should end up with the number of note and LN objects
         /// (`BMSInfo::nnotes`). (C: `smaxcombo`)
-        bestcombo: uint,
+        pub bestcombo: uint,
         /// The current score. (C: `score`)
-        score: uint,
+        pub score: uint,
         /// The current health gauge. Should be no larger than `MAXGAUGE`. This can go negative
         /// (not displayed directly), which will require players much more efforts to survive.
         /// (C: `gauge`)
-        gauge: int,
+        pub gauge: int,
         /// The health gauge required to survive at the end of the song. Note that the gaugex
         /// less than this value (or even zero) doesn't cause the instant game over;
         /// only `InstantDeath` value from `Damage` does. (C: `survival`)
-        survival: int,
+        pub survival: int,
 
         /// The number of keyboard or joystick keys, mapped to each lane and and currently pressed.
         /// (C: `keypressed[0]`)
-        keymultiplicity: [uint, ..NLANES],
+        pub keymultiplicity: [uint, ..NLANES],
         /// The state of joystick axes. (C: `keypressed[1]`)
-        joystate: [InputState, ..NLANES],
+        pub joystate: [InputState, ..NLANES],
     }
 
     /// A list of play speed marks. `SpeedUpInput` and `SpeedDownInput` changes the play speed to
@@ -5302,16 +5302,16 @@ Artist:   {artist}
     /// An appearance for each lane. (C: `struct tkeykind` and `tkeyleft`)
     pub struct LaneStyle {
         /// The left position of the lane in the final screen. (C: `tkeyleft`)
-        left: uint,
+        pub left: uint,
         /// The left position of the lane in the object sprite. (C: `spriteleft` field)
-        spriteleft: uint,
+        pub spriteleft: uint,
         /// The left position of the lane in the bomb sprite. (C: `spritebombleft` field)
-        spritebombleft: uint,
+        pub spritebombleft: uint,
         /// The width of lane. (C: `width` field)
-        width: uint,
+        pub width: uint,
         /// The base color of object. The actual `Gradient` for drawing is derived from this color.
         /// (C: `basecolor` field)
-        basecolor: Color
+        pub basecolor: Color
     }
 
     impl LaneStyle {
@@ -5503,36 +5503,36 @@ Artist:   {artist}
     /// Full-featured graphic display. Used for the normal game play and automatic play mode.
     pub struct GraphicDisplay {
         /// Sprite surface generated by `create_sprite`. (C: `sprite`)
-        sprite: ~Surface,
+        pub sprite: ~Surface,
         /// Display screen. (C: `screen`)
-        screen: ~Surface,
+        pub screen: ~Surface,
         /// Bitmap font.
-        font: ~Font,
+        pub font: ~Font,
         /// Image resources. (C: `imgres`)
-        imgres: ~[ImageResource],
+        pub imgres: ~[ImageResource],
 
         /// The leftmost X coordinate of the area next to the lanes, that is, the total width of
         /// left-hand-side lanes. (C: `tpanel1`)
-        leftmost: uint,
+        pub leftmost: uint,
         /// The rightmost X coordinate of the area next to the lanes, that is, the screen width
         /// minus the total width of right-hand-side lanes if any. `None` indicates the absence of
         /// right-hand-side lanes. (C: `tpanel2`)
-        rightmost: Option<uint>,
+        pub rightmost: Option<uint>,
         /// The order and appearance of lanes. (C: `tkey` and `tkeyleft`)
-        lanestyles: ~[(Lane,LaneStyle)],
+        pub lanestyles: ~[(Lane,LaneStyle)],
         /// The left coordinate of the BGA. (C: `tbgax`)
-        bgax: uint,
+        pub bgax: uint,
         /// The top coordinate of the BGA. (C: `tbgay`)
-        bgay: uint,
+        pub bgay: uint,
 
         /// If not `None`, indicates that the POOR BGA should be displayed until this timestamp.
         /// (C: `poorlimit`)
-        poorlimit: Option<uint>,
+        pub poorlimit: Option<uint>,
         /// If not `None`, indicates that the grading information should be displayed until
         /// this timestamp. (C: `gradetime`)
-        gradelimit: Option<uint>,
+        pub gradelimit: Option<uint>,
         /// Currently known state of BGAs.
-        lastbga: BGAState,
+        pub lastbga: BGAState,
     }
 
     /// Creates a new graphic display from the options, key specification, pre-allocated (usually
@@ -5784,7 +5784,7 @@ Artist:   {artist}
     /// Text-only display. Used for the exclusive mode with BGA disabled.
     pub struct TextDisplay {
         /// Ticker used for printing to the console.
-        ticker: Ticker
+        pub ticker: Ticker
     }
 
     /// Creates a new text-only display.
@@ -5819,13 +5819,13 @@ Artist:   {artist}
     /// BGA-only display. Used for the exclusive mode with BGA enabled.
     pub struct BGAOnlyDisplay {
         /// The underlying text-only display (as the BGA-only display lacks the on-screen display).
-        textdisplay: TextDisplay,
+        pub textdisplay: TextDisplay,
         /// Display screen. (C: `screen`)
-        screen: ~Surface,
+        pub screen: ~Surface,
         /// Image resources. (C: `imgres`)
-        imgres: ~[ImageResource],
+        pub imgres: ~[ImageResource],
         /// Currently known state of BGAs.
-        lastbga: BGAState,
+        pub lastbga: BGAState,
     }
 
     /// Creates a new BGA-only display from the pre-created screen (usually by `init_video`) and
