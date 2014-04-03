@@ -981,8 +981,10 @@ pub mod parser {
         /// Returns a two-letter representation of alphanumeric key. (C: `TO_KEY`)
         fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
             assert!(self.is_valid());
+            let sixteens = **self / 36;
+            let ones = **self % 36;
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            write!(f.buf, "{}{}", map[**self / 36] as char, map[**self % 36] as char)
+            write!(f.buf, "{}{}", map[sixteens as uint] as char, map[ones as uint] as char)
         }
     }
 
@@ -1855,7 +1857,7 @@ pub mod parser {
                     let mut path = "";
                     if lex!(line; Key -> key, ws, str -> path, ws*, !) {
                         let Key(key) = key;
-                        bms.$paths.as_mut_slice()[key] = Some(path.to_owned());
+                        bms.$paths.as_mut_slice()[key as uint] = Some(path.to_owned());
                     }
                 })
             )
@@ -1875,7 +1877,7 @@ pub mod parser {
                     let mut bpm = 0.0;
                     if lex!(line; Key -> key, ws, f64 -> bpm) {
                         let Key(key) = key;
-                        bpmtab.as_mut_slice()[key] = BPM(bpm);
+                        bpmtab.as_mut_slice()[key as uint] = BPM(bpm);
                     } else if lex!(line; ws, f64 -> bpm) {
                         bms.initbpm = BPM(bpm);
                     }
@@ -1924,7 +1926,7 @@ pub mod parser {
                     let mut duration = 0;
                     if lex!(line; Key -> key, ws, int -> duration) {
                         let Key(key) = key;
-                        stoptab.as_mut_slice()[key] = Measures(duration as f64 / 192.0);
+                        stoptab.as_mut_slice()[key as uint] = Measures(duration as f64 / 192.0);
                     }
                 }
 
@@ -2614,7 +2616,7 @@ pub mod parser {
     /// `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
     pub fn apply_shuffle_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let mut shuffled = Vec::from_slice(lanes);
-        r.shuffle_mut(shuffled.as_mut_slice());
+        r.shuffle(shuffled.as_mut_slice());
         let mut map = Vec::from_fn(NLANES, |lane| Lane(lane));
         for (&Lane(from), &to) in lanes.iter().zip(shuffled.iter()) {
             map.as_mut_slice()[from] = to;
@@ -2645,7 +2647,7 @@ pub mod parser {
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
                 let mut shuffled = movable.clone();
-                r.shuffle_mut(shuffled.as_mut_slice());
+                r.shuffle(shuffled.as_mut_slice());
                 for (&Lane(from), &to) in movable.iter().zip(shuffled.iter()) {
                     map.as_mut_slice()[from] = to;
                 }
@@ -3048,10 +3050,10 @@ pub mod gfx {
                           bicubic_kernel( y    * h - j * hh, h),
                           bicubic_kernel((y+1) * h - j * hh, h),
                           bicubic_kernel((y+2) * h - j * hh, h)];
-                for k0 in range(0, 4) {
-                    for k1 in range(0, 4) {
-                        let xx = x + k0 - 1;
-                        let yy = y + k1 - 1;
+                for k0 in range(0u, 4) {
+                    for k1 in range(0u, 4) {
+                        let xx = x + k0 as int - 1;
+                        let yy = y + k1 as int - 1;
                         if 0 <= xx && xx <= ww && 0 <= yy && yy <= hh {
                             let (r2,g2,b2) = to_rgb(src.get_pixel(xx as uint, yy as uint));
                             let d = (a0[k0] * a1[k1]) >> (FP_SHIFT1*2 - FP_SHIFT2);
@@ -4115,8 +4117,8 @@ pub mod player {
     fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
         use std::mem;
 
-        let src = **bc.src;
-        let dst = **bc.dst;
+        let src = **bc.src as uint;
+        let dst = **bc.dst as uint;
         if src == dst { return; }
 
         match imgres[src] {
@@ -4178,10 +4180,10 @@ pub mod player {
                 // does handle it.
                 if self[layer] != current[layer] {
                     for &iref in self[layer].iter() {
-                        imgres[**iref].stop_movie();
+                        imgres[**iref as uint].stop_movie();
                     }
                     for &iref in current[layer].iter() {
-                        imgres[**iref].start_movie();
+                        imgres[**iref as uint].start_movie();
                     }
                 }
             }
@@ -4193,7 +4195,7 @@ pub mod player {
             screen.fill_area((x,y), (256,256), RGB(0,0,0));
             for &layer in layers.iter() {
                 for &iref in self[layer as uint].iter() {
-                    for &surface in imgres[**iref].surface().iter() {
+                    for &surface in imgres[**iref as uint].surface().iter() {
                         screen.blit_area(&**surface, (0,0), (x,y), (256,256));
                     }
                 }
@@ -4951,14 +4953,16 @@ Artist:   {artist}
         /// should be played with the lower volume and should in the different channel group from
         /// key sounds. (C: `play_sound`)
         pub fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
-            if self.sndres.as_slice()[**sref].chunk().is_none() { return; }
-            let lastch = self.sndlastch.as_slice()[**sref].map(|ch| ch as std::libc::c_int);
+            let sref = **sref as uint;
+
+            if self.sndres.as_slice()[sref].chunk().is_none() { return; }
+            let lastch = self.sndlastch.as_slice()[sref].map(|ch| ch as std::libc::c_int);
 
             // try to play on the last channel if it is not occupied by other sounds (in this case
             // the last channel info is removed)
             let mut ch;
             loop {
-                ch = self.sndres.as_slice()[**sref].chunk().unwrap().play(lastch, 0);
+                ch = self.sndres.as_slice()[sref].chunk().unwrap().play(lastch, 0);
                 if ch >= 0 { break; }
                 self.allocate_more_channels(32);
             }
@@ -4971,8 +4975,8 @@ Artist:   {artist}
             for &idx in self.lastchsnd.as_slice()[ch].iter() {
                 self.sndlastch.as_mut_slice()[idx] = None;
             }
-            self.sndlastch.as_mut_slice()[**sref] = Some(ch);
-            self.lastchsnd.as_mut_slice()[ch] = Some(**sref as uint);
+            self.sndlastch.as_mut_slice()[sref] = Some(ch);
+            self.lastchsnd.as_mut_slice()[ch] = Some(sref);
         }
 
         /// Plays a given sound if `sref` is not zero. This reflects the fact that an alphanumeric
@@ -5956,7 +5960,7 @@ pub fn play(opts: ~player::Options) {
 
     // create the player and transfer ownership of other resources to it
     let duration = parser::bms_duration(bms, infos.originoffset,
-                                        |sref| sndres.as_slice()[**sref].duration());
+                                        |sref| sndres.as_slice()[**sref as uint].duration());
     let mut player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
 
     // create the display and runs the actual game play loop
