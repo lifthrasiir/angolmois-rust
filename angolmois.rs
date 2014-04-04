@@ -949,7 +949,7 @@ pub mod parser {
     /// Two-letter alphanumeric identifier used for virtually everything, including resource
     /// management, variable BPM and chart specification.
     #[deriving(Eq,Ord,TotalEq,TotalOrd,Clone)]
-    pub struct Key(int);
+    pub struct Key(pub int);
 
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
     pub static MAXKEY: int = 36*36;
@@ -994,7 +994,7 @@ pub mod parser {
     /// A game play element mapped to the single input element (for example, button) and the screen
     /// area (henceforth "lane").
     #[deriving(Eq,TotalEq,Clone)]
-    pub struct Lane(uint);
+    pub struct Lane(pub uint);
 
     /// The maximum number of lanes. (C: `NNOTECHANS`)
     pub static NLANES: uint = 72;
@@ -1124,7 +1124,7 @@ pub mod parser {
 
     /// Sound reference.
     #[deriving(Eq,TotalEq,Clone)]
-    pub struct SoundRef(Key);
+    pub struct SoundRef(pub Key);
 
     impl Deref<Key> for SoundRef {
         fn deref<'a>(&'a self) -> &'a Key {
@@ -1135,7 +1135,7 @@ pub mod parser {
 
     /// Image reference.
     #[deriving(Eq,TotalEq,Clone)]
-    pub struct ImageRef(Key);
+    pub struct ImageRef(pub Key);
 
     impl Deref<Key> for ImageRef {
         fn deref<'a>(&'a self) -> &'a Key {
@@ -1165,7 +1165,7 @@ pub mod parser {
     /// Beats per minute. Used as a conversion factor between the time position and actual time
     /// in BMS.
     #[deriving(Eq,Clone)]
-    pub struct BPM(f64);
+    pub struct BPM(pub f64);
 
     impl Deref<f64> for BPM {
         fn deref<'a>(&'a self) -> &'a f64 {
