@@ -259,70 +259,6 @@ pub mod util {
     }
 
     /**
-     * SDL_mixer extensions to rust-sdl.
-     *
-     * NOTE: Some of these additions will be eventually sent to rust-sdl and are not subject to
-     * the above copyright notice.
-     */
-    pub mod sdl_mixer {
-        use libc::c_int;
-
-        pub mod ll {
-            use libc::c_int;
-            extern {
-                pub fn Mix_Volume(channel: c_int, volume: c_int) -> c_int;
-                pub fn Mix_ReserveChannels(num: c_int) -> c_int;
-                pub fn Mix_GroupChannel(which: c_int, tag: c_int) -> c_int;
-                pub fn Mix_GroupNewer(tag: c_int) -> c_int;
-            }
-        }
-
-        pub fn num_playing(channel: Option<c_int>) -> c_int {
-            use sdl_mixer;
-            unsafe {
-                match channel {
-                    Some(channel) => sdl_mixer::ll::Mix_Playing(channel),
-                    None => sdl_mixer::ll::Mix_Playing(-1)
-                }
-            }
-        }
-
-        pub fn get_channel_volume(channel: Option<c_int>) -> c_int {
-            unsafe {
-                let ll_channel = channel.unwrap_or(-1);
-                ll::Mix_Volume(ll_channel, -1)
-            }
-        }
-
-        pub fn set_channel_volume(channel: Option<c_int>, volume: c_int) {
-            unsafe {
-                let ll_channel = channel.unwrap_or(-1);
-                ll::Mix_Volume(ll_channel, volume);
-            }
-        }
-
-        pub fn reserve_channels(num: c_int) -> c_int {
-            unsafe { ll::Mix_ReserveChannels(num) }
-        }
-
-        pub fn group_channel(which: Option<c_int>, tag: Option<c_int>) -> bool {
-            unsafe {
-                let ll_which = which.unwrap_or(-1);
-                let ll_tag = tag.unwrap_or(-1);
-                ll::Mix_GroupChannel(ll_which, ll_tag) != 0
-            }
-        }
-
-        pub fn newest_in_group(tag: Option<c_int>) -> Option<c_int> {
-            unsafe {
-                let ll_tag = tag.unwrap_or(-1);
-                let channel = ll::Mix_GroupNewer(ll_tag);
-                if channel == -1 {None} else {Some(channel)}
-            }
-        }
-    }
-
-    /**
      * A minimal but functional binding for SMPEG.
      *
      * NOTE: Some of these additions will be eventually sent to rust-sdl and are not subject to
@@ -3322,7 +3258,6 @@ pub mod player {
     use sdl_image;
     use sdl_mixer;
     use sdl_mixer::*;
-    use util::sdl_mixer::*;
     use util::smpeg::*;
     use parser::*;
     use gfx::*;
@@ -4450,10 +4385,7 @@ Artist:   {artist}
 
     impl Pointer {
         /// Returns a reference to the list of underlying objects.
-        fn objs<'r>(&'r self) -> &'r [Obj] {
-            let objs: &[Obj] = self.bms.deref().objs.as_slice();
-            objs
-        }
+        fn objs<'r>(&'r self) -> &'r [Obj] { self.bms.objs.as_slice() }
 
         /// Returns the time of pointed object.
         pub fn time(&self) -> f64 { self.objs()[self.pos].time }
@@ -4471,10 +4403,10 @@ Artist:   {artist}
 
         /// Seeks to the first object which time is past the limit, if any.
         pub fn seek_until(&mut self, limit: f64) {
-            let bms = self.bms.deref();
-            let nobjs = bms.objs.len();
+            let objs = self.bms.objs.as_slice();
+            let nobjs = objs.len();
             while self.pos < nobjs {
-                if bms.objs.as_slice()[self.pos].time >= limit { break; }
+                if objs[self.pos].time >= limit { break; }
                 self.pos += 1;
             }
             self.next = None;
@@ -4483,12 +4415,12 @@ Artist:   {artist}
         /// Tries to advance to the next object which time is within the limit.
         /// Returns false if it's impossible.
         pub fn next_until(&mut self, limit: f64) -> bool {
-            let bms = self.bms.deref();
+            let objs = self.bms.objs.as_slice();
             match self.next {
                 Some(next) => { self.pos = next; }
                 None => {}
             }
-            if self.pos < bms.objs.len() && bms.objs.as_slice()[self.pos].time < limit {
+            if self.pos < objs.len() && objs.as_slice()[self.pos].time < limit {
                 self.next = Some(self.pos + 1);
                 true
             } else {
@@ -4500,7 +4432,7 @@ Artist:   {artist}
         /// Seeks to the object pointed by the other pointer.
         pub fn seek_to(&mut self, limit: &Pointer) {
             assert!(has_same_bms(self, limit));
-            assert!(limit.pos <= self.bms.deref().objs.len());
+            assert!(limit.pos <= self.bms.objs.len());
             self.pos = limit.pos;
             self.next = None;
         }
@@ -4520,29 +4452,29 @@ Artist:   {artist}
 
         /// Seeks to the end of objects.
         pub fn seek_to_end(&mut self) {
-            self.pos = self.bms.deref().objs.len();
+            self.pos = self.bms.objs.len();
             self.next = None;
         }
 
         /// Tries to advance to the next object. Returns false if it's the end of objects.
         pub fn next_to_end(&mut self) -> bool {
-            let bms = self.bms.deref();
+            let objs = self.bms.objs.as_slice();
             match self.next {
                 Some(next) => { self.pos = next; }
                 None => {}
             }
-            if self.pos >= bms.objs.len() { return false; }
+            if self.pos >= objs.len() { return false; }
             self.next = Some(self.pos + 1);
             true
         }
 
         /// Finds the next object that satisfies given condition if any, without updating itself.
         pub fn find_next_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let bms = self.bms.deref();
-            let nobjs = bms.objs.len();
+            let objs = self.bms.objs.as_slice();
+            let nobjs = objs.len();
             let mut i = self.pos;
             while i < nobjs {
-                if cond(&bms.objs.as_slice()[i]) {
+                if cond(&objs[i]) {
                     return Some(Pointer { bms: self.bms.clone(), pos: i, next: None });
                 }
                 i += 1;
@@ -4553,11 +4485,11 @@ Artist:   {artist}
         /// Finds the previous object that satisfies given condition if any, without updating
         /// itself.
         pub fn find_previous_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let bms = self.bms.deref();
+            let objs = self.bms.objs.as_slice();
             let mut i = self.pos;
             while i > 0 {
                 i -= 1;
-                if cond(&bms.objs.as_slice()[i]) {
+                if cond(&objs[i]) {
                     return Some(Pointer { bms: self.bms.clone(), pos: i, next: None });
                 }
             }
@@ -5035,16 +4967,16 @@ Artist:   {artist}
 
             // process the measure scale factor change
             let bottommeasure = self.bottom.floor();
-            let curshorten = self.bms.deref().shorten(bottommeasure as int);
+            let curshorten = self.bms.shorten(bottommeasure as int);
             if bottommeasure >= -1.0 && self.startshorten != curshorten {
                 self.break_continuity(bottommeasure);
                 self.startshorten = curshorten;
             }
 
-            //self.line = self.bms.deref().adjust_object_time(self.bottom, 0.03 / self.playspeed);
+            //self.line = self.bms.adjust_object_time(self.bottom, 0.03 / self.playspeed);
             self.line = self.bottom;
-            self.top = self.bms.deref().adjust_object_time(self.bottom, 1.25 / self.playspeed);
-            let lineshorten = self.bms.deref().shorten(self.line.floor() as int);
+            self.top = self.bms.adjust_object_time(self.bottom, 1.25 / self.playspeed);
+            let lineshorten = self.bms.shorten(self.line.floor() as int);
 
             // apply object-like effects while advancing to new `pcur`
             self.pfront.seek_until(self.bottom);
@@ -5086,7 +5018,7 @@ Artist:   {artist}
                 self.pcheck.reset();
                 while self.pcheck.next_to(&self.pcur) {
                     let dist = self.bpm.measure_to_msec(self.line - self.pcheck.time()) *
-                               self.bms.deref().shorten(self.pcheck.measure()) * self.gradefactor;
+                               self.bms.shorten(self.pcheck.measure()) * self.gradefactor;
                     if dist < BAD_CUTOFF { break; }
 
                     if !self.nograding.as_slice()[self.pcheck.pos] {
@@ -5285,7 +5217,7 @@ Artist:   {artist}
             }
 
             // determines if we should keep playing
-            if self.bottom > (self.bms.deref().nmeasures + 1) as f64 {
+            if self.bottom > (self.bms.nmeasures + 1) as f64 {
                 if self.opts.is_autoplay() {
                     num_playing(None) != num_playing(Some(0))
                 } else {
@@ -5592,35 +5524,30 @@ Artist:   {artist}
 
     impl Display for GraphicDisplay {
         fn render(&mut self, player: &Player) {
-            let screen = &*self.screen;
-            let sprite = &*self.sprite;
-            let font = &*self.font;
-            let bms = player.bms.deref();
+            let screen: &Surface = self.screen;
+            let sprite: &Surface = self.sprite;
+            let font: &Font = self.font;
 
             // update display states
-            let mut poorlimit = self.poorlimit;
-            let mut gradelimit = self.gradelimit;
             for &(grade,when) in player.lastgrade.iter() {
                 if grade == MISS {
                     // switches to the normal BGA after 600ms
                     let minlimit = when + 600;
-                    poorlimit.mutate_or_set(minlimit, |t| cmp::max(t, minlimit));
+                    self.poorlimit.mutate_or_set(minlimit, |t| cmp::max(t, minlimit));
                 }
                 // grade disappears after 700ms
                 let minlimit = when + 700;
-                gradelimit.mutate_or_set(minlimit, |t| cmp::max(t, minlimit));
+                self.gradelimit.mutate_or_set(minlimit, |t| cmp::max(t, minlimit));
             }
-            if poorlimit < Some(player.now) { poorlimit = None; }
-            if gradelimit < Some(player.now) { gradelimit = None; }
+            if self.poorlimit < Some(player.now) { self.poorlimit = None; }
+            if self.gradelimit < Some(player.now) { self.gradelimit = None; }
             self.lastbga.update(&player.bga, self.imgres.as_slice());
-            *&mut self.poorlimit = poorlimit;
-            *&mut self.gradelimit = gradelimit;
 
             // render BGAs (should render before the lanes since lanes can overlap with BGAs)
             if player.opts.has_bga() {
                 static POOR_LAYERS: [BGALayer, ..1] = [PoorBGA];
                 static NORM_LAYERS: [BGALayer, ..3] = [Layer1, Layer2, Layer3];
-                let layers = if poorlimit.is_some() {POOR_LAYERS.as_slice()}
+                let layers = if self.poorlimit.is_some() {POOR_LAYERS.as_slice()}
                              else {NORM_LAYERS.as_slice()};
                 self.lastbga.render(self.screen, layers, self.imgres.as_slice(),
                                     self.bgax, self.bgay);
@@ -5640,7 +5567,7 @@ Artist:   {artist}
 
             // render objects
             let time_to_y = |time| {
-                let adjusted = bms.adjust_object_position(player.bottom, time);
+                let adjusted = player.bms.adjust_object_position(player.bottom, time);
                 (SCREENH-70) - (400.0 * player.playspeed * adjusted) as uint
             };
             for &(lane,style) in self.lanestyles.iter() {
@@ -5656,11 +5583,11 @@ Artist:   {artist}
                 } else {
                     let mut i = front.pos;
                     let mut nextbottom = None;
-                    let nobjs = bms.objs.len();
+                    let nobjs = player.bms.objs.len();
                     let top = player.top;
-                    while i < nobjs && bms.objs.as_slice()[i].time <= top {
-                        let y = time_to_y(bms.objs.as_slice()[i].time);
-                        match bms.objs.as_slice()[i].data {
+                    while i < nobjs && player.bms.objs.as_slice()[i].time <= top {
+                        let y = time_to_y(player.bms.objs.as_slice()[i].time);
+                        match player.bms.objs.as_slice()[i].data {
                             LNStart(lane0,_) if lane0 == lane => {
                                 assert!(nextbottom.is_none());
                                 nextbottom = Some(y);
@@ -5700,8 +5627,8 @@ Artist:   {artist}
             }
 
             // render grading text
-            if gradelimit.is_some() && player.lastgrade.is_some() {
-                let gradelimit = gradelimit.unwrap();
+            if self.gradelimit.is_some() && player.lastgrade.is_some() {
+                let gradelimit = self.gradelimit.unwrap();
                 let (lastgrade,_) = player.lastgrade.unwrap();
                 let (gradename,gradecolor) = GRADES[lastgrade as uint];
                 let delta = (cmp::max(gradelimit - player.now, 400) - 400) / 15;
@@ -5953,7 +5880,7 @@ pub fn play(opts: ~player::Options) {
         let (sndres, imgres) =
             player::load_resource(bms, opts, |msg| update_status(msg));
         if opts.showinfo {
-            ticker.borrow_mut().deref_mut().reset(); // force update
+            ticker.borrow_mut().reset(); // force update
             update_status(None);
         }
         while ::sdl::get_ticks() < start { player::check_exit(|| atexit()); }
