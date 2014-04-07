@@ -57,6 +57,7 @@
 #![comment = "Angolmois"]
 #![license = "GPLv2+"]
 
+extern crate libc;
 extern crate rand;
 extern crate collections;
 
@@ -82,6 +83,7 @@ pub fn exename() -> ~str {
 #[macro_escape]
 pub mod util {
     use std;
+    use libc;
 
     /**
      * String utilities for Rust. Parallels to `std::str`.
@@ -263,10 +265,10 @@ pub mod util {
      * the above copyright notice.
      */
     pub mod sdl_mixer {
-        use std::libc::c_int;
+        use libc::c_int;
 
         pub mod ll {
-            use std::libc::c_int;
+            use libc::c_int;
             extern {
                 pub fn Mix_Volume(channel: c_int, volume: c_int) -> c_int;
                 pub fn Mix_ReserveChannels(num: c_int) -> c_int;
@@ -330,13 +332,13 @@ pub mod util {
         #![allow(non_camel_case_types)]
 
         use std;
-        use std::libc::{c_int, c_float};
+        use libc::{c_int, c_float};
         use std::ptr::null;
         use sdl::video::Surface;
         use self::ll::SMPEGstatus;
 
         pub mod ll {
-            use std::libc::{c_void, c_int, c_char, c_float, c_double};
+            use libc::{c_void, c_int, c_char, c_float, c_double};
             use sdl::video::ll::{SDL_RWops, SDL_Surface};
             use sdl::audio::ll::SDL_AudioSpec;
             pub struct SMPEG { opaque: () }
@@ -513,8 +515,8 @@ pub mod util {
         pub mod ll {
             #![allow(non_camel_case_types)]
 
-            use std::libc::{c_int, c_uint, c_void};
-            use std::libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
+            use libc::{c_int, c_uint, c_void};
+            use libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
 
             pub type HWND = HANDLE;
             pub type HINSTANCE = HANDLE;
@@ -589,7 +591,7 @@ pub mod util {
     /// Immediately terminates the program with given exit code.
     pub fn exit(exitcode: int) -> ! {
         // Rust: `std::os::set_exit_status` doesn't immediately terminate the program.
-        unsafe { std::libc::exit(exitcode as std::libc::c_int); }
+        unsafe { libc::exit(exitcode as libc::c_int); }
     }
 
     /// Exits with an error message. Internally used in the `die!` macro below.
@@ -653,10 +655,10 @@ pub mod util {
                 let mut buf = [0u16, ..512];
                 let ofnsz = std::mem::size_of::<win32::ll::OPENFILENAMEW>();
                 let ofn = win32::ll::OPENFILENAMEW {
-                    lStructSize: ofnsz as std::libc::DWORD,
+                    lStructSize: ofnsz as libc::DWORD,
                     lpstrFilter: filter,
                     lpstrFile: buf.as_mut_ptr(),
-                    nMaxFile: buf.len() as std::libc::DWORD,
+                    nMaxFile: buf.len() as libc::DWORD,
                     lpstrTitle: title,
                     Flags: win32::ll::OFN_HIDEREADONLY,
 
@@ -722,7 +724,7 @@ pub mod util {
      * - `Measure [-> e2]`: Consumes exactly three digits and optionally saves it to `e2`.
      *   (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed by a call to `atoi`)
      */
-    // Rust: - there is no `std::libc::sscanf` due to the varargs. maybe regex support will make
+    // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex support will make
     //         this obsolete in the future, but not now.
     //       - multiple statements do not expand correctly. (#4375)
     //       - it is desirable to have a matcher only accepts an integer literal or string literal,
@@ -3311,6 +3313,7 @@ pub mod player {
     use std;
     use std::{slice, cmp, num, iter, hash};
     use std::rc::Rc;
+    use libc;
     use rand::Rng;
     use collections;
     use sdl::*;
@@ -4941,8 +4944,8 @@ Artist:   {artist}
         /// Allocate more SDL_mixer channels without stopping already playing channels.
         /// (C: `allocate_more_channels`)
         pub fn allocate_more_channels(&mut self, howmany: uint) {
-            let howmany = howmany as std::libc::c_int;
-            let nchannels = allocate_channels(-1 as std::libc::c_int);
+            let howmany = howmany as libc::c_int;
+            let nchannels = allocate_channels(-1 as libc::c_int);
             let nchannels = allocate_channels(nchannels + howmany) as uint;
             if self.lastchsnd.len() < nchannels {
                 self.lastchsnd.grow(nchannels, &None);
@@ -4956,7 +4959,7 @@ Artist:   {artist}
             let sref = **sref as uint;
 
             if self.sndres.as_slice()[sref].chunk().is_none() { return; }
-            let lastch = self.sndlastch.as_slice()[sref].map(|ch| ch as std::libc::c_int);
+            let lastch = self.sndlastch.as_slice()[sref].map(|ch| ch as libc::c_int);
 
             // try to play on the last channel if it is not occupied by other sounds (in this case
             // the last channel info is removed)
