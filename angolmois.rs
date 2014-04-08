@@ -1757,7 +1757,7 @@ pub mod parser {
         let mut lnobj = None;
 
         let file = try!(f.read_to_end());
-        for line0 in file.split(|&ch| ch == 10u8) {
+        for line0 in file.as_slice().split(|&ch| ch == 10u8) {
             let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
             let line: &str = line0;
 
