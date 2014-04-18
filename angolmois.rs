@@ -3828,7 +3828,7 @@ pub mod player {
         // the whole list of entries (and `std::io::fs::Directories` is no different).
         // This causes a serious slowdown compared to the C version of Angolmois,
         // so we use a thread-local cache for `readdir` to avoid the performance penalty.
-        local_data_key!(key_readdir_cache: HashMap<Path,~[Path]>);
+        local_data_key!(key_readdir_cache: HashMap<Path,Vec<Path>>);
 
         fn readdir_cache(path: Path, cb: |&[Path]|) {
             let mut cache = match local_data::pop(key_readdir_cache) {
@@ -3837,9 +3837,9 @@ pub mod player {
             };
             {
                 let ret = cache.find_or_insert_with(path, |path| {
-                    match io::fs::readdir(path) { Ok(ret) => ret, Err(..) => ~[] }
+                    match io::fs::readdir(path) { Ok(ret) => ret, Err(..) => Vec::new() }
                 });
-                cb(*ret);
+                cb(ret.as_slice());
             }
             local_data::set(key_readdir_cache, cache);
         }
