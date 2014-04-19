@@ -94,42 +94,6 @@ pub mod util {
     pub mod str {
         use std::str::*;
 
-        static tag_cont_u8: u8 = 128u8; // copied from libstd/str.rs
-
-        /// Given a potentially invalid UTF-8 byte sequence, fixes an invalid UTF-8 sequence with
-        /// given error handler.
-        pub fn fix_utf8(v: &[u8], handler: |&[u8]| -> ~[u8]) -> ~[u8] {
-            let mut i = 0u;
-            let total = v.len();
-            let mut result = ~[];
-            while i < total {
-                let chend = i + utf8_char_width(v[i]);
-                let mut j = i + 1u;
-                while j < total && j < chend && v[j] & 192u8 == tag_cont_u8 {
-                    j += 1u;
-                }
-                if j == chend {
-                    assert!(i != chend);
-                    result.push_all(v.slice(i, j));
-                } else {
-                    result.push_all(handler(v.slice(i, j)));
-                }
-                i = j;
-            }
-            result
-        }
-
-        /// Converts a vector of bytes to a UTF-8 string. Any invalid UTF-8 sequences are fixed with
-        /// given error handler.
-        pub fn from_fixed_utf8_bytes(v: &[u8], handler: |&[u8]| -> ~str) -> ~str {
-            let newhandler: |&[u8]| -> ~[u8] = |v: &[u8]| -> ~[u8] {
-                let ret = handler(v);
-                ret.as_bytes().to_owned()
-            };
-            let bytes = fix_utf8(v, newhandler);
-            unsafe { raw::from_utf8_owned(bytes) }
-        }
-
         /// Extensions to `str`.
         pub trait StrUtil<'r> {
             /// Returns a slice of the given string starting from `begin` and up to the byte
@@ -140,10 +104,6 @@ pub mod util {
             /// If `begin` does not point to valid characters or beyond the last character of
             /// the string, or `end` points beyond the last character of the string
             fn slice_upto(&self, begin: uint, end: uint) -> &'r str;
-
-            /// Given a potentially invalid UTF-8 string, fixes an invalid UTF-8 string with given
-            /// error handler.
-            fn fix_utf8(&self, handler: |&[u8]| -> ~str) -> ~str;
 
             /// Counts the number of bytes in the complete UTF-8 sequences up to `limit` bytes
             /// in `s` starting from `start`.
@@ -171,10 +131,6 @@ pub mod util {
         impl<'r> StrUtil<'r> for &'r str {
             fn slice_upto(&self, begin: uint, end: uint) -> &'r str {
                 self.slice(begin, begin + self.count_bytes_upto(begin, end))
-            }
-
-            fn fix_utf8(&self, handler: |&[u8]| -> ~str) -> ~str {
-                from_fixed_utf8_bytes(self.as_bytes(), handler)
             }
 
             fn count_bytes_upto(&self, start: uint, limit: uint) -> uint {
@@ -220,7 +176,7 @@ pub mod util {
             }
 
             fn as_utf16_c_str<T>(&self, f: |*u16| -> T) -> T {
-                let mut s16 = self.to_utf16();
+                let mut s16: Vec<u16> = self.to_utf16().move_iter().collect();
                 s16.push(0u16);
                 f(s16.as_ptr())
             }
@@ -1758,7 +1714,7 @@ pub mod parser {
 
         let file = try!(f.read_to_end());
         for line0 in file.as_slice().split(|&ch| ch == 10u8) {
-            let line0 = ::util::str::from_fixed_utf8_bytes(line0, |_| ~"\ufffd");
+            let line0 = str::from_utf8_lossy(line0).into_owned();
             let line: &str = line0;
 
             // skip non-command lines
