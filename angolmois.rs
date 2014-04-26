@@ -5798,9 +5798,10 @@ pub fn play(opts: ~player::Options) {
         keymap = ~collections::HashMap::new();
     }
 
-    // Rust: `|| { if opts.is_exclusive() { update_line(~""); } }` segfaults ldue to
-    //       the moved `opts`. (#2202)
-    let atexit = if opts.is_exclusive() { || player::update_line("") } else { || {} };
+    // XXX we don't really need the environment here
+    fn update_line() { player::update_line("") }
+    fn noop() {}
+    let atexit = if opts.is_exclusive() {update_line} else {noop};
 
     let (sndres, imgres) = {
         // render the loading screen
