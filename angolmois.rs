@@ -408,7 +408,8 @@ pub mod util {
             #![allow(non_camel_case_types)]
 
             use libc::{c_int, c_uint, c_void};
-            use libc::{BOOL, CHAR, WORD, DWORD, HANDLE, LPCSTR, LPWSTR, LPCWSTR};
+            use libc::types::os::arch::extra::{BOOL, CHAR, WORD, DWORD, HANDLE};
+            use libc::types::os::arch::extra::{LPCSTR, LPWSTR, LPCWSTR};
 
             pub type HWND = HANDLE;
             pub type HINSTANCE = HANDLE;
