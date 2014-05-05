@@ -68,7 +68,7 @@ extern crate sdl_image;
 use std::{char, str};
 
 /// Returns a version string. (C: `VERSION`)
-pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
+pub fn version() -> ~str { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned() }
 
 //==================================================================================================
 // utility declarations
@@ -76,7 +76,7 @@ pub fn version() -> ~str { ~"Angolmois 2.0.0 alpha 2 (rust edition)" }
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> ~str {
     let args = std::os::args();
-    if args.is_empty() {~"angolmois"} else {args[0].clone()}
+    if args.is_empty() {"angolmois".to_owned()} else {args[0].clone()}
 }
 
 /// Utility functions.
@@ -907,7 +907,7 @@ pub mod parser {
             let player = match *chan / 36 {
                 1 | 3 | 5 | 0xD => 0,
                 2 | 4 | 6 | 0xE => 1,
-                _ => fail!(~"non-object channel")
+                _ => fail!("non-object channel")
             };
             Lane(player * 36 + *chan as uint % 36)
         }
@@ -1312,7 +1312,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Visible(lane,snd),
-                _ => fail!(~"to_visible for non-object")
+                _ => fail!("to_visible for non-object")
             }
         }
 
@@ -1320,7 +1320,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Invisible(lane,snd),
-                _ => fail!(~"to_invisible for non-object")
+                _ => fail!("to_invisible for non-object")
             }
         }
 
@@ -1328,7 +1328,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNStart(lane,snd),
-                _ => fail!(~"to_lnstart for non-object")
+                _ => fail!("to_lnstart for non-object")
             }
         }
 
@@ -1336,7 +1336,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNDone(lane,snd),
-                _ => fail!(~"to_lndone for non-object")
+                _ => fail!("to_lndone for non-object")
             }
         }
     }
@@ -2220,14 +2220,15 @@ pub mod parser {
                 let isbme = present[8] || present[9] || present[36+8] || present[36+9];
                 let haspedal = present[7] || present[36+7];
                 let nkeys = match bms.player {
-                    COUPLE_PLAY | DOUBLE_PLAY => if isbme {~"14"} else {~"10"},
-                    _                         => if isbme {~"7" } else {~"5" }
+                    COUPLE_PLAY | DOUBLE_PLAY => if isbme {"14"} else {"10"},
+                    _                         => if isbme {"7" } else {"5" }
                 };
-                if haspedal {nkeys + "/fp"} else {nkeys}
+                if haspedal {nkeys + "/fp"} else {nkeys.to_owned()}
             },
             Some("pms") => {
                 let isbme = present[6] || present[7] || present[8] || present[9];
-                if isbme {~"9-bme"} else {~"9"}
+                let nkeys = if isbme {"9-bme"} else {"9"};
+                nkeys.to_owned()
             },
             Some(_) => preset.unwrap()
         };
@@ -2258,8 +2259,8 @@ pub mod parser {
             if a.time < b.time {Less} else if a.time > b.time {Greater} else {Equal}
         });
 
-        fn sanitize(objs: &mut [Obj], to_type: |&Obj| -> Option<uint>,
-                    merge_types: |uint| -> uint) {
+        fn sanitize(objs: &mut [Obj], to_type: |&Obj| -> Option<int>,
+                    merge_types: |int| -> int) {
             let len = objs.len();
             let mut i = 0;
             while i < len {
@@ -2296,12 +2297,12 @@ pub mod parser {
         for lane in range(0, NLANES) {
             let lane0 = Lane(lane);
 
-            static LNDONE: uint = 0;
-            static LNSTART: uint = 1;
-            static VISIBLE: uint = 2;
-            static INVISIBLE: uint = 3;
-            static BOMB: uint = 4;
-            let to_type = |obj: &Obj| -> Option<uint> {
+            static LNDONE: int = 0;
+            static LNSTART: int = 1;
+            static VISIBLE: int = 2;
+            static INVISIBLE: int = 3;
+            static BOMB: int = 4;
+            let to_type = |obj: &Obj| -> Option<int> {
                 match obj.data {
                     Visible(lane,_) if lane == lane0 => Some(VISIBLE),
                     Invisible(lane,_) if lane == lane0 => Some(INVISIBLE),
@@ -2314,7 +2315,7 @@ pub mod parser {
 
             let mut inside = false;
             sanitize(bms.objs.as_mut_slice(), |obj| to_type(obj), |mut types| {
-                static LNMASK: uint = (1 << LNSTART) | (1 << LNDONE);
+                static LNMASK: int = (1 << LNSTART) | (1 << LNDONE);
 
                 // remove overlapping LN endpoints altogether
                 if (types & LNMASK) == LNMASK { types &= !LNMASK; }
@@ -2498,7 +2499,7 @@ pub mod parser {
     /// Swaps given lanes in the reverse order. (C: `shuffle_bms` with `MIRROR_MODF`)
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = Vec::from_fn(NLANES, |lane| Lane(lane));
-        for (&Lane(from), &to) in lanes.iter().zip(lanes.rev_iter()) {
+        for (&Lane(from), &to) in lanes.iter().zip(lanes.iter().rev()) {
             map.as_mut_slice()[from] = to;
         }
 
@@ -2536,7 +2537,7 @@ pub mod parser {
                 let lane = obj.object_lane().unwrap();
                 match movable.iter().position(|&i| i == lane) {
                     Some(i) => { movable.swap_remove(i); }
-                    None => fail!(~"non-sanitized BMS detected")
+                    None => fail!("non-sanitized BMS detected")
                 }
             }
             if lasttime < obj.time { // reshuffle required
@@ -3045,21 +3046,21 @@ pub mod gfx {
         //   the following byte 33..126 encodes a distance 1..94.
         // (C: `indices`)
         let indices =
-            ~"!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*\
-              T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfe\
-              jcNl!&JTLTLG_&J>]c*&Jm@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ\
-              2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u`>Uc4d\
-              @b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5g\
-              hCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWG\
-              Ok@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi\
-              $d^GWk@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWCgZU:EW.Ok\
-              @>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a\
-              [CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'\
-              O,?4!1n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@\
-              l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2\
-              U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`fVl\
-              Zf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(\
-              M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
+            "!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*\
+             T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfe\
+             jcNl!&JTLTLG_&J>]c*&Jm@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ\
+             2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u`>Uc4d\
+             @b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5g\
+             hCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWG\
+             Ok@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi\
+             $d^GWk@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWCgZU:EW.Ok\
+             @>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a\
+             [CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'\
+             O,?4!1n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@\
+             l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2\
+             U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`fVl\
+             Zf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(\
+             M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
         /// Decompresses a font data from `dwords` and `indices`. (C: `fontdecompress`)
         fn decompress(dwords: &[u16], indices: &str) -> Vec<u16> {
@@ -3087,7 +3088,7 @@ pub mod gfx {
                             glyphs.push(v);
                         }
                     }
-                    _ => fail!(~"unexpected codeword")
+                    _ => fail!("unexpected codeword")
                 }
             }
             glyphs
@@ -3334,7 +3335,7 @@ pub mod player {
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
                     if opts.preset.is_none() && opts.bmspath.to_ascii_lower().ends_with(".pms") {
-                        Some(~"pms")
+                        Some("pms".to_owned())
                     } else {
                         opts.preset.clone()
                     };
@@ -3342,12 +3343,12 @@ pub mod player {
                     Some(leftright) => leftright,
                     None => {
                         return Err(format!("Invalid preset name: {}",
-                                           opts.preset.clone().unwrap_or(~"")));
+                                           opts.preset.as_ref().map_or("", |s| s.as_slice())));
                     }
                 }
             } else {
-                (opts.leftkeys.clone().unwrap_or(~""),
-                 opts.rightkeys.clone().unwrap_or(~""))
+                (opts.leftkeys.as_ref().map_or("", |s| s.as_slice()).to_owned(),
+                 opts.rightkeys.as_ref().map_or("", |s| s.as_slice()).to_owned())
             };
 
         let mut keyspec = ~KeySpec { split: 0, order: Vec::new(),
@@ -3376,7 +3377,7 @@ pub mod player {
                 Some(nkeys) => { keyspec.split += nkeys; }
             }
         } else {
-            return Err(~"No key model is specified using -k or -K");
+            return Err(format!("No key model is specified using -k or -K"));
         }
         if !rightkeys.is_empty() {
             match parse_and_add(keyspec, rightkeys) {
@@ -3613,8 +3614,8 @@ pub mod player {
     /// A list of environment variables that set the mapping for multiple keys, and corresponding
     /// default values and the order of keys. (C: `envvars`)
     static KEYSETS: &'static [KeySet] = &[
-        KeySet { envvar: &"ANGOLMOIS_1P_KEYS",
-                 default: &"left shift%axis 3|z%button 3|s%button 6|x%button 2|d%button 7|\
+        KeySet { envvar: "ANGOLMOIS_1P_KEYS",
+                 default: "left shift%axis 3|z%button 3|s%button 6|x%button 2|d%button 7|\
                             c%button 1|f%button 4|v%axis 2|left alt",
                  mapping: &[(Some(Scratch),   &[LaneInput(Lane(6))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(1))]),
@@ -3625,8 +3626,8 @@ pub mod player {
                             (Some(BlackKey),  &[LaneInput(Lane(8))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(9))]),
                             (Some(FootPedal), &[LaneInput(Lane(7))])] },
-        KeySet { envvar: &"ANGOLMOIS_2P_KEYS",
-                 default: &"right alt|m|k|,|l|.|;|/|right shift",
+        KeySet { envvar: "ANGOLMOIS_2P_KEYS",
+                 default: "right alt|m|k|,|l|.|;|/|right shift",
                  mapping: &[(Some(FootPedal), &[LaneInput(Lane(36+7))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(36+1))]),
                             (Some(BlackKey),  &[LaneInput(Lane(36+2))]),
@@ -3636,8 +3637,8 @@ pub mod player {
                             (Some(BlackKey),  &[LaneInput(Lane(36+8))]),
                             (Some(WhiteKey),  &[LaneInput(Lane(36+9))]),
                             (Some(Scratch),   &[LaneInput(Lane(36+6))])] },
-        KeySet { envvar: &"ANGOLMOIS_PMS_KEYS",
-                 default: &"z|s|x|d|c|f|v|g|b",
+        KeySet { envvar: "ANGOLMOIS_PMS_KEYS",
+                 default: "z|s|x|d|c|f|v|g|b",
                  mapping: &[(Some(Button1), &[LaneInput(Lane(1))]),
                             (Some(Button2), &[LaneInput(Lane(2))]),
                             (Some(Button3), &[LaneInput(Lane(3))]),
@@ -3647,8 +3648,8 @@ pub mod player {
                             (Some(Button3), &[LaneInput(Lane(9)), LaneInput(Lane(36+3))]),
                             (Some(Button2), &[LaneInput(Lane(6)), LaneInput(Lane(36+4))]),
                             (Some(Button1), &[LaneInput(Lane(7)), LaneInput(Lane(36+5))])] },
-        KeySet { envvar: &"ANGOLMOIS_SPEED_KEYS",
-                 default: &"f3|f4",
+        KeySet { envvar: "ANGOLMOIS_SPEED_KEYS",
+                 default: "f3|f4",
                  mapping: &[(None, &[SpeedDownInput]),
                             (None, &[SpeedUpInput])] },
     ];
@@ -3898,7 +3899,7 @@ pub mod player {
     fn load_sound(key: Key, path: &str, basedir: &Path) -> SoundResource {
         let res = match resolve_relative_path(basedir, path, SOUND_EXTS) {
             Some(fullpath) => Chunk::from_wav(&fullpath),
-            None => Err(~"not found")
+            None => Err(format!("not found"))
         };
         match res {
             Ok(res) => Sound(res),
@@ -3980,7 +3981,7 @@ pub mod player {
             if opts.has_movie() {
                 let res = match resolve_relative_path(basedir, path, []) {
                     Some(fullpath) => MPEG::from_path(&fullpath),
-                    None => Err(~"not found")
+                    None => Err(format!("not found"))
                 };
                 match res {
                     Ok(movie) => {
@@ -3998,7 +3999,7 @@ pub mod player {
                 Some(fullpath) => sdl_image::load(&fullpath).and_then(|surface| {
                     to_display_format(surface).and_then(|surface| Ok(Image(surface)))
                 }),
-                None => Err(~"not found")
+                None => Err(format!("not found"))
             };
             match res {
                 Ok(res) => { return res; },
@@ -4109,9 +4110,9 @@ pub mod player {
                            hasbpmchange = if infos.hasbpmchange {"?"} else {""},
                            nnotes = infos.nnotes as uint, nkeys = keyspec.nkeys(),
                            haslongnote = if infos.haslongnote {"-LN"} else {""});
-        let title = bms.title.clone().unwrap_or(~"");
-        let genre = bms.genre.clone().unwrap_or(~"");
-        let artist = bms.artist.clone().unwrap_or(~"");
+        let title = bms.title.as_ref().map_or("", |s| s.as_slice()).to_owned();
+        let genre = bms.genre.as_ref().map_or("", |s| s.as_slice()).to_owned();
+        let artist = bms.artist.as_ref().map_or("", |s| s.as_slice()).to_owned();
         (meta, title, genre, artist)
     }
 
@@ -4228,7 +4229,7 @@ Artist:   {artist}
         let mut path = path;
         ticker.on_tick(get_ticks(), || {
             let path = mem::replace(&mut path, None);
-            let msg = path.unwrap_or(~"loading...");
+            let msg = path.unwrap_or("loading...".to_owned());
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             screen.with_pixels(|pixels| {
                 font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg,
@@ -4250,7 +4251,7 @@ Artist:   {artist}
                 Some(path) => {
                     use util::str::StrUtil;
                     let path = if path.len() < 63 {path} else {path.slice_upto(0, 63).to_owned()};
-                    update_line(~"Loading: " + path);
+                    update_line("Loading: " + path);
                 }
                 None => { update_line("Loading done."); }
             }
@@ -4684,7 +4685,7 @@ Artist:   {artist}
     /// Finds the previous nearest play speed mark if any.
     fn previous_speed_mark(current: f64) -> Option<f64> {
         let mut next = None;
-        for &speed in SPEED_MARKS.rev_iter() {
+        for &speed in SPEED_MARKS.iter().rev() {
             if speed > current + 0.001 {
                 next = Some(speed);
             } else {
@@ -5298,7 +5299,7 @@ Artist:   {artist}
             styles.push((lane, style));
             leftmost += style.width + 1;
             if leftmost > SCREENW - 20 {
-                return Err(~"The screen can't hold that many lanes");
+                return Err(format!("The screen can't hold that many lanes"));
             }
         }
         for &lane in keyspec.right_lanes().iter() {
@@ -5308,7 +5309,7 @@ Artist:   {artist}
             let style = LaneStyle::from_kind(kind, rightmost, true);
             styles.push((lane, style));
             if rightmost < leftmost + 40 {
-                return Err(~"The screen can't hold that many lanes");
+                return Err(format!("The screen can't hold that many lanes"));
             }
             rightmost -= style.width + 1;
         }
@@ -5937,15 +5938,15 @@ pub fn main() {
     use player::*;
 
     let longargs = vec!(
-        (~"--help", 'h'), (~"--version", 'V'), (~"--speed", 'a'),
-        (~"--autoplay", 'v'), (~"--exclusive", 'x'), (~"--sound-only", 'X'),
-        (~"--windowed", 'w'), (~"--no-fullscreen", 'w'),
-        (~"--fullscreen", ' '), (~"--info", ' '), (~"--no-info", 'q'),
-        (~"--mirror", 'm'), (~"--shuffle", 's'), (~"--shuffle-ex", 'S'),
-        (~"--random", 'r'), (~"--random-ex", 'R'), (~"--preset", 'k'),
-        (~"--key-spec", 'K'), (~"--bga", ' '), (~"--no-bga", 'B'),
-        (~"--movie", ' '), (~"--no-movie", 'M'), (~"--joystick", 'j')
-    ).move_iter().collect::<collections::HashMap<~str,char>>();
+        ("--help", 'h'), ("--version", 'V'), ("--speed", 'a'),
+        ("--autoplay", 'v'), ("--exclusive", 'x'), ("--sound-only", 'X'),
+        ("--windowed", 'w'), ("--no-fullscreen", 'w'),
+        ("--fullscreen", ' '), ("--info", ' '), ("--no-info", 'q'),
+        ("--mirror", 'm'), ("--shuffle", 's'), ("--shuffle-ex", 'S'),
+        ("--random", 'r'), ("--random-ex", 'R'), ("--preset", 'k'),
+        ("--key-spec", 'K'), ("--bga", ' '), ("--no-bga", 'B'),
+        ("--movie", ' '), ("--no-movie", 'M'), ("--joystick", 'j')
+    ).move_iter().collect::<collections::HashMap<&str,char>>();
 
     let args = std::os::args();
     let nargs = args.len();
@@ -5968,7 +5969,7 @@ pub fn main() {
             if bmspath.is_none() {
                 bmspath = Some(args[i].clone());
             }
-        } else if args[i] == ~"--" {
+        } else if args[i].as_slice() == "--" {
             i += 1;
             if bmspath.is_none() && i < nargs {
                 bmspath = Some(args[i].clone());
@@ -5977,7 +5978,7 @@ pub fn main() {
         } else {
             let shortargs =
                 if args[i].starts_with("--") {
-                    match longargs.find(&args[i]) {
+                    match longargs.find(&args[i].as_slice()) {
                         Some(&c) => str::from_char(c),
                         None => die!("Invalid option: {}", args[i])
                     }
