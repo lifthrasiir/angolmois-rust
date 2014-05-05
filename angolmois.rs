@@ -517,14 +517,12 @@ pub mod util {
         let _ = std::fmt::writeln(&mut stderr, args);
     }
 
-    // Exits with a formatted error message. (C: `die`)
-    //
-    // Rust: this comment cannot be a doc comment (yet).
+    /// Exits with a formatted error message. (C: `die`)
     macro_rules! die(
         ($($e:expr),+) => (format_args!(::util::die, $($e),+))
     )
 
-    // Prints a formatted warning message. (C: `warn`)
+    /// Prints a formatted warning message. (C: `warn`)
     macro_rules! warn(
         ($($e:expr),+) => (format_args!(::util::warn, $($e),+))
     )
@@ -585,7 +583,7 @@ pub mod util {
         None
     }
 
-    /*
+    /**
      * A lexer barely powerful enough to parse BMS format. Comparable to C's `sscanf`.
      *
      * `lex!(e; fmt1, fmt2, ..., fmtN)` returns an expression that evaluates to true if and only if
@@ -673,7 +671,7 @@ pub mod util {
         ($e:expr; str -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                $dst = _line.slice_from(0); // Rust: why we need to reborrow `_line` here?!
+                $dst = _line.as_slice();
                 lex!(""; $($tail)*) // optimization!
             } else {
                 false
@@ -686,7 +684,7 @@ pub mod util {
         });
         ($e:expr; str* -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            $dst = _line.slice_from(0); // Rust: why we need to reborrow `_line` here?!
+            $dst = _line.slice_from(0); // Rust: somehow, this can't be `as_slice`.
             lex!(""; $($tail)*) // optimization!
         });
         ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
@@ -1617,6 +1615,7 @@ pub mod parser {
         let mut bms = Bms();
 
         /// The state of the block, for determining which lines should be processed.
+        #[deriving(Eq)]
         enum BlockState {
             /// Not contained in the #IF block. (C: `state == -1`)
             Outside,
@@ -1646,6 +1645,7 @@ pub mod parser {
          * a state within #RANDOM, so it follows that #RANDOM/#SETRANDOM blocks can nest but #IF
          * can't nest unless its direct parent is #RANDOM/#SETRANDOM.
          */
+        #[deriving(Eq)]
         struct Block {
             /// A generated value if any. It can be `None` if this block is the topmost one (which
             /// is actually not a block but rather a sentinel) or the last `#RANDOM` or `#SETRANDOM`
@@ -1664,37 +1664,12 @@ pub mod parser {
             fn inactive(&self) -> bool { self.skip || self.state.inactive() }
         }
 
-        // Rust: #[deriving(Eq)] does not work inside the function. (#4913)
-        impl Eq for BlockState {
-            fn eq(&self, other: &BlockState) -> bool {
-                match (*self, *other) {
-                    (Outside, Outside) | (Process, Process) |
-                    (Ignore, Ignore) | (NoFurther, NoFurther) => true,
-                    (_, _) => false
-                }
-            }
-            fn ne(&self, other: &BlockState) -> bool { !self.eq(other) }
-        }
-        impl Eq for Block {
-            fn eq(&self, other: &Block) -> bool {
-                // Rust: this is for using `ImmutableEqVector<T>::rposition`, which should have been
-                //       in `ImmutableVector<T>`.
-                self.val == other.val && self.state == other.state && self.skip == other.skip
-            }
-            fn ne(&self, other: &Block) -> bool { !self.eq(other) }
-        }
-
         // A list of nested blocks. (C: `rnd`)
         let mut blk = vec!(Block { val: None, state: Outside, skip: false });
 
         /// An unprocessed data line of BMS file.
+        #[deriving(Clone)]
         struct BmsLine { measure: uint, chan: Key, data: ~str }
-
-        impl Clone for BmsLine {
-            fn clone(&self) -> BmsLine {
-                BmsLine { measure: self.measure, chan: self.chan, data: self.data.clone() }
-            }
-        }
 
         // A list of unprocessed data lines. They have to be sorted with a stable algorithm and
         // processed in the order of measure number. (C: `bmsline`)
@@ -2382,18 +2357,7 @@ pub mod parser {
             }
         }
 
-        // Rust: there is no Vec::retain yet. ugh!
-        let mut deleted = 0;
-        for i in range(0, bms.objs.len()) {
-            let objs = bms.objs.as_mut_slice();
-            if objs[i].data == Deleted {
-                deleted += 1;
-            } else {
-                objs.swap(i - deleted, i);
-            }
-        }
-        let newlen = bms.objs.len() - deleted;
-        bms.objs.truncate(newlen);
+        bms.objs.retain(|obj| obj.data != Deleted);
     }
 
     //----------------------------------------------------------------------------------------------
@@ -5883,7 +5847,6 @@ pub fn play(opts: ~player::Options) {
 
 /// Prints the usage. (C: `usage`)
 pub fn usage() {
-    // Rust: this is actually a good use case of `include_str!`...
     let _ = write!(&mut std::io::stderr(), "\
 {} -- the simple BMS player
 http://mearie.org/projects/angolmois/
