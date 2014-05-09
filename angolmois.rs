@@ -301,8 +301,8 @@ pub mod util {
             pub raw: *ll::SMPEG
         }
 
-        fn wrap_mpeg(raw: *ll::SMPEG) -> ~MPEG {
-            ~MPEG { raw: raw }
+        fn wrap_mpeg(raw: *ll::SMPEG) -> MPEG {
+            MPEG { raw: raw }
         }
 
         impl Drop for MPEG {
@@ -312,7 +312,7 @@ pub mod util {
         }
 
         impl MPEG {
-            pub fn from_path(path: &Path) -> Result<~MPEG, ~str> {
+            pub fn from_path(path: &Path) -> Result<MPEG, ~str> {
                 let raw = unsafe {
                     path.to_c_str().with_ref(|buf| {
                         ll::SMPEG_new(buf, null(), 0)
@@ -2793,7 +2793,7 @@ pub mod gfx {
 
     /// Creates a new RAM-backed surface. By design, Angolmois does not use a VRAM-backed surface
     /// except for the screen. (C: `newsurface`)
-    pub fn new_surface(w: uint, h: uint) -> ~Surface {
+    pub fn new_surface(w: uint, h: uint) -> Surface {
         match Surface::new([SWSurface], w as int, h as int, 32, 0xff0000, 0xff00, 0xff, 0) {
             Ok(surface) => surface,
             Err(err) => die!("new_surface failed: {}", err)
@@ -3292,7 +3292,7 @@ pub mod player {
     // bms utilities
 
     /// Parses a key specification from the options.
-    pub fn key_spec(bms: &Bms, opts: &Options) -> Result<~KeySpec,~str> {
+    pub fn key_spec(bms: &Bms, opts: &Options) -> Result<KeySpec,~str> {
         use std::ascii::StrAsciiExt;
 
         let (leftkeys, rightkeys) =
@@ -3315,8 +3315,8 @@ pub mod player {
                  opts.rightkeys.as_ref().map_or("", |s| s.as_slice()).to_owned())
             };
 
-        let mut keyspec = ~KeySpec { split: 0, order: Vec::new(),
-                                     kinds: Vec::from_fn(NLANES, |_| None) };
+        let mut keyspec = KeySpec { split: 0, order: Vec::new(),
+                                    kinds: Vec::from_fn(NLANES, |_| None) };
         let parse_and_add = |keyspec: &mut KeySpec, keys: &str| -> Option<uint> {
             match parse_key_spec(keys) {
                 None => None,
@@ -3334,7 +3334,7 @@ pub mod player {
         };
 
         if !leftkeys.is_empty() {
-            match parse_and_add(keyspec, leftkeys) {
+            match parse_and_add(&mut keyspec, leftkeys) {
                 None => {
                     return Err(format!("Invalid key spec for left hand side: {}", leftkeys));
                 }
@@ -3344,7 +3344,7 @@ pub mod player {
             return Err(format!("No key model is specified using -k or -K"));
         }
         if !rightkeys.is_empty() {
-            match parse_and_add(keyspec, rightkeys) {
+            match parse_and_add(&mut keyspec, rightkeys) {
                 None => {
                     return Err(format!("Invalid key spec for right hand side: {}", rightkeys));
                 }
@@ -3449,7 +3449,7 @@ pub mod player {
     /// Creates a small screen for BGAs (`BGAW` by `BGAH` pixels) if `exclusive` is set,
     /// or a full-sized screen (`SCREENW` by `SCREENH` pixels) otherwise. `fullscreen` is ignored
     /// when `exclusive` is set. (C: `init_ui` and `init_video`)
-    pub fn init_video(exclusive: bool, fullscreen: bool) -> ~Surface {
+    pub fn init_video(exclusive: bool, fullscreen: bool) -> Surface {
         if !init([InitVideo]) {
             die!("SDL Initialization Failure: {}", get_error());
         }
@@ -3487,7 +3487,7 @@ pub mod player {
     }
 
     /// Initializes a joystick with given index.
-    pub fn init_joystick(joyidx: uint) -> ~joy::Joystick {
+    pub fn init_joystick(joyidx: uint) -> joy::Joystick {
         if !init([InitJoystick]) {
             die!("SDL Initialization Failure: {}", get_error());
         }
@@ -3742,7 +3742,7 @@ pub mod player {
      *    then a list of alternative extensions is applied with the same matching procedure.
      */
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
-        use std::{str, io, local_data};
+        use std::{str, io};
         use std::ascii::StrAsciiExt;
         use collections::HashMap;
 
@@ -3753,7 +3753,7 @@ pub mod player {
         local_data_key!(key_readdir_cache: HashMap<Path,Vec<Path>>);
 
         fn readdir_cache(path: Path, cb: |&[Path]|) {
-            let mut cache = match local_data::pop(key_readdir_cache) {
+            let mut cache = match key_readdir_cache.replace(None) {
                 Some(cache) => cache,
                 None => HashMap::new()
             };
@@ -3763,7 +3763,7 @@ pub mod player {
                 });
                 cb(ret.as_slice());
             }
-            local_data::set(key_readdir_cache, cache);
+            key_readdir_cache.replace(Some(cache));
         }
 
         let mut parts = Vec::new();
@@ -3833,12 +3833,12 @@ pub mod player {
         /// No sound resource is associated, or error occurred while loading.
         NoSound,
         /// Sound resource is associated.
-        Sound(~Chunk)
+        Sound(Chunk)
     }
 
     impl SoundResource {
         /// Returns the associated chunk if any.
-        pub fn chunk<'r>(&'r self) -> Option<&'r ~Chunk> {
+        pub fn chunk<'r>(&'r self) -> Option<&'r Chunk> {
             match *self {
                 NoSound => None,
                 Sound(ref chunk) => Some(chunk)
@@ -3881,16 +3881,16 @@ pub mod player {
         NoImage,
         /// A static image is associated. The surface may have a transparency which is already
         /// handled by `load_image`.
-        Image(~Surface),
+        Image(Surface),
         /// A movie is associated. A playback starts when `start_movie` method is called, and stops
         /// when `stop_movie` is called. An associated surface is updated from the separate thread
         /// during the playback.
-        Movie(~Surface, ~MPEG)
+        Movie(Surface, MPEG)
     }
 
     impl ImageResource {
         /// Returns an associated surface if any.
-        pub fn surface<'r>(&'r self) -> Option<&'r ~Surface> {
+        pub fn surface<'r>(&'r self) -> Option<&'r Surface> {
             match *self {
                 NoImage => None,
                 Image(ref surface) | Movie(ref surface,_) => Some(surface)
@@ -3921,7 +3921,7 @@ pub mod player {
 
         /// Converts a surface to the native display format, while preserving a transparency or
         /// setting a color key if required.
-        fn to_display_format(surface: ~Surface) -> Result<~Surface,~str> {
+        fn to_display_format(surface: Surface) -> Result<Surface,~str> {
             if unsafe {(*(*surface.raw).format).Amask} != 0 {
                 let res = surface.display_format_alpha();
                 match res {
@@ -3952,7 +3952,7 @@ pub mod player {
                         let surface = new_surface(BGAW, BGAH);
                         movie.enable_video(true);
                         movie.set_loop(true);
-                        movie.set_display(surface);
+                        movie.set_display(&surface);
                         return Movie(surface, movie);
                     }
                     Err(_) => { warn!("failed to load image \\#BMP{} ({})", key.to_str(), path); }
@@ -4006,7 +4006,7 @@ pub mod player {
             let y1 = cmp::max(bc.y1, 0);
             let x2 = cmp::min(bc.x2, bc.x1 + BGAW as int);
             let y2 = cmp::min(bc.y2, bc.y1 + BGAH as int);
-            target.blit_area(*origin, (x1,y1), (bc.dx,bc.dy), (x2-x1,y2-y1));
+            target.blit_area(origin, (x1,y1), (bc.dx,bc.dy), (x2-x1,y2-y1));
         }
         imgres[src] = savedorigin;
     }
@@ -4056,7 +4056,7 @@ pub mod player {
             for &layer in layers.iter() {
                 for &iref in self[layer as uint].iter() {
                     for &surface in imgres[**iref as uint].surface().iter() {
-                        screen.blit_area(&**surface, (0,0), (x,y), (256,256));
+                        screen.blit_area(surface, (0,0), (x,y), (256,256));
                     }
                 }
             }
@@ -4178,7 +4178,7 @@ Artist:   {artist}
     }
 
     /// Saves a portion of the screen for the use in `graphic_update_status`.
-    pub fn save_screen_for_loading(screen: &Surface) -> ~Surface {
+    pub fn save_screen_for_loading(screen: &Surface) -> Surface {
         let saved_screen = new_surface(SCREENW, 20);
         saved_screen.blit_area(screen, (0,SCREENH-20), (0,0), (SCREENW,20));
         saved_screen
@@ -4514,17 +4514,17 @@ Artist:   {artist}
     /// Game play states independent to the display.
     pub struct Player {
         /// The game play options.
-        pub opts: ~Options,
+        pub opts: Options,
         /// The current BMS data.
         pub bms: Rc<Bms>,
         /// The derived BMS information.
-        pub infos: ~BmsInfo,
+        pub infos: BmsInfo,
         /// The length of BMS file in seconds as calculated by `bms_duration`. (C: `duration`)
         pub duration: f64,
         /// The key specification.
-        pub keyspec: ~KeySpec,
+        pub keyspec: KeySpec,
         /// The input mapping.
-        pub keymap: ~KeyMap,
+        pub keymap: KeyMap,
 
         /// Set to true if the corresponding object in `bms.objs` had graded and should not be
         /// graded twice. Its length equals to that of `bms.objs`. (C: `nograding` field in
@@ -4533,7 +4533,7 @@ Artist:   {artist}
         /// Sound resources. (C: `res` field in `sndres`)
         pub sndres: Vec<SoundResource>,
         /// A sound chunk used for beeps. It always plays on the channel #0. (C: `beep`)
-        pub beep: ~Chunk,
+        pub beep: Chunk,
         /// Last channels in which the corresponding sound in `sndres` was played.
         /// (C: `lastch` field in `sndres`)
         pub sndlastch: Vec<Option<uint>>,
@@ -4660,7 +4660,7 @@ Artist:   {artist}
     }
 
     /// Creates a beep sound played on the play speed change. (C: `create_beep`)
-    fn create_beep() -> ~Chunk {
+    fn create_beep() -> Chunk {
         let samples: Vec<i32> = Vec::from_fn(12000, // approx. 0.14 seconds
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
             |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
@@ -4673,8 +4673,8 @@ Artist:   {artist}
 
     /// Creates a new player object. The player object owns other related structures, including
     /// the options, BMS file, key specification, input mapping and sound resources.
-    pub fn Player(opts: ~Options, bms: ~Bms, infos: ~BmsInfo, duration: f64, keyspec: ~KeySpec,
-                  keymap: ~KeyMap, sndres: Vec<SoundResource>) -> Player {
+    pub fn Player(opts: Options, bms: Bms, infos: BmsInfo, duration: f64, keyspec: KeySpec,
+                  keymap: KeyMap, sndres: Vec<SoundResource>) -> Player {
         let now = get_ticks();
         let initplayspeed = opts.playspeed;
         let originoffset = infos.originoffset;
@@ -4686,7 +4686,7 @@ Artist:   {artist}
         let nobjs = bms.objs.len();
         let nsounds = sndres.len();
 
-        let bms = Rc::new(*bms);
+        let bms = Rc::new(bms);
         let pfront = Pointer(bms.clone());
         let pcur = Pointer(bms.clone());
         let pcheck = Pointer(bms.clone());
@@ -5301,14 +5301,14 @@ Artist:   {artist}
 
     /// Creates a sprite. (C: sprite construction portion of `play_prepare`)
     fn create_sprite(opts: &Options, leftmost: uint, rightmost: Option<uint>,
-                     styles: &[(Lane,LaneStyle)]) -> ~Surface {
+                     styles: &[(Lane,LaneStyle)]) -> Surface {
         let sprite = new_surface(SCREENW + 400, SCREENH);
         let black = RGB(0,0,0);
         let gray = RGB(0x40,0x40,0x40); // gray used for separators
 
         // render notes and lane backgrounds
         for &(_lane,style) in styles.iter() {
-            style.render_to_sprite(sprite);
+            style.render_to_sprite(&sprite);
         }
 
         // render panels
@@ -5365,11 +5365,11 @@ Artist:   {artist}
     /// Full-featured graphic display. Used for the normal game play and automatic play mode.
     pub struct GraphicDisplay {
         /// Sprite surface generated by `create_sprite`. (C: `sprite`)
-        pub sprite: ~Surface,
+        pub sprite: Surface,
         /// Display screen. (C: `screen`)
-        pub screen: ~Surface,
+        pub screen: Surface,
         /// Bitmap font.
-        pub font: ~Font,
+        pub font: Font,
         /// Image resources. (C: `imgres`)
         pub imgres: Vec<ImageResource>,
 
@@ -5400,7 +5400,7 @@ Artist:   {artist}
     /// Creates a new graphic display from the options, key specification, pre-allocated (usually
     /// by `init_video`) screen, pre-created bitmap fonts and pre-loaded image resources. The last
     /// three are owned by the display, others are not (in fact, should be owned by `Player`).
-    pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: ~Surface, font: ~Font,
+    pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: Surface, font: Font,
                           imgres: Vec<ImageResource>) -> Result<GraphicDisplay,~str> {
         let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
             Ok(styles) => styles,
@@ -5437,8 +5437,8 @@ Artist:   {artist}
     impl GraphicDisplay {
         /// Restores the panels by blitting upper and bottom panels to the screen.
         fn restore_panel(&self) {
-            let screen: &Surface = self.screen;
-            let sprite: &Surface = self.sprite;
+            let screen = &self.screen;
+            let sprite = &self.sprite;
             screen.blit_area(sprite, (0,0), (0,0), (SCREENW,30));
             screen.blit_area(sprite, (0,SCREENH-80), (0,SCREENH-80), (SCREENW,80));
         }
@@ -5446,9 +5446,9 @@ Artist:   {artist}
 
     impl Display for GraphicDisplay {
         fn render(&mut self, player: &Player) {
-            let screen: &Surface = self.screen;
-            let sprite: &Surface = self.sprite;
-            let font: &Font = self.font;
+            let screen = &self.screen;
+            let sprite = &self.sprite;
+            let font = &self.font;
 
             // update display states
             for &(grade,when) in player.lastgrade.iter() {
@@ -5471,7 +5471,7 @@ Artist:   {artist}
                 static NORM_LAYERS: [BGALayer, ..3] = [Layer1, Layer2, Layer3];
                 let layers = if self.poorlimit.is_some() {POOR_LAYERS.as_slice()}
                              else {NORM_LAYERS.as_slice()};
-                self.lastbga.render(self.screen, layers, self.imgres.as_slice(),
+                self.lastbga.render(&self.screen, layers, self.imgres.as_slice(),
                                     self.bgax, self.bgay);
             }
 
@@ -5679,7 +5679,7 @@ Artist:   {artist}
         /// The underlying text-only display (as the BGA-only display lacks the on-screen display).
         pub textdisplay: TextDisplay,
         /// Display screen. (C: `screen`)
-        pub screen: ~Surface,
+        pub screen: Surface,
         /// Image resources. (C: `imgres`)
         pub imgres: Vec<ImageResource>,
         /// Currently known state of BGAs.
@@ -5688,7 +5688,7 @@ Artist:   {artist}
 
     /// Creates a new BGA-only display from the pre-created screen (usually by `init_video`) and
     /// pre-loaded image resources.
-    pub fn BGAOnlyDisplay(screen: ~Surface, imgres: Vec<ImageResource>) -> BGAOnlyDisplay {
+    pub fn BGAOnlyDisplay(screen: Surface, imgres: Vec<ImageResource>) -> BGAOnlyDisplay {
         BGAOnlyDisplay { textdisplay: TextDisplay(), screen: screen,
                          imgres: imgres, lastbga: initial_bga_state() }
     }
@@ -5698,7 +5698,7 @@ Artist:   {artist}
             self.lastbga.update(&player.bga, self.imgres.as_slice());
 
             let layers = &[Layer1, Layer2, Layer3];
-            self.lastbga.render(self.screen, layers, self.imgres.as_slice(), 0, 0);
+            self.lastbga.render(&self.screen, layers, self.imgres.as_slice(), 0, 0);
             self.screen.flip();
 
             self.textdisplay.render(player);
@@ -5718,28 +5718,29 @@ Artist:   {artist}
 
 /// Parses the BMS file, initializes the display, shows the loading screen and runs the game play
 /// loop. (C: `play`)
-pub fn play(opts: ~player::Options) {
+pub fn play(opts: player::Options) {
     // parses the file and sanitizes it
     let mut r = rand::task_rng();
     let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
-        Ok(bms) => ~bms,
+        Ok(bms) => bms,
         Err(err) => die!("Couldn't load BMS file: {}", err)
     };
-    parser::sanitize_bms(bms);
+    parser::sanitize_bms(&mut bms);
 
     // parses the key specification and further sanitizes `bms` with it
-    let keyspec = match player::key_spec(bms, opts) {
+    let keyspec = match player::key_spec(&bms, &opts) {
         Ok(keyspec) => keyspec,
         Err(err) => die!("{}", err)
     };
-    parser::compact_bms(bms, keyspec);
-    let infos = ~parser::analyze_bms(bms);
+    parser::compact_bms(&mut bms, &keyspec);
+    let infos = parser::analyze_bms(&bms);
 
     // applies the modifier if any
     for &modf in opts.modf.iter() {
-        player::apply_modf(bms, modf, &mut r, keyspec, 0, keyspec.split);
+        player::apply_modf(&mut bms, modf, &mut r, &keyspec, 0, keyspec.split);
         if keyspec.split < keyspec.order.len() {
-            player::apply_modf(bms, modf, &mut r, keyspec, keyspec.split, keyspec.order.len());
+            player::apply_modf(&mut bms, modf, &mut r, &keyspec,
+                               keyspec.split, keyspec.order.len());
         }
     }
 
@@ -5748,7 +5749,7 @@ pub fn play(opts: ~player::Options) {
     for &joyidx in opts.joystick.iter() { player::init_joystick(joyidx); }
 
     // uncompress and populate the bitmap font.
-    let mut font = ~gfx::Font();
+    let mut font = gfx::Font();
     font.create_zoomed_font(1);
     font.create_zoomed_font(2);
     let font = font;
@@ -5759,9 +5760,9 @@ pub fn play(opts: ~player::Options) {
     if opts.has_screen() {
         screen = Some(player::init_video(opts.is_exclusive(), opts.fullscreen));
         // read the input mapping (dependent to the SDL initialization)
-        keymap = ~player::read_keymap(keyspec, std::os::getenv);
+        keymap = player::read_keymap(&keyspec, std::os::getenv);
     } else {
-        keymap = ~collections::HashMap::new();
+        keymap = collections::HashMap::new();
     }
 
     // XXX we don't really need the environment here
@@ -5776,21 +5777,21 @@ pub fn play(opts: ~player::Options) {
         let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
         let update_status;
         if !opts.is_exclusive() {
-            let screen_: &gfx::Surface = *screen.get_ref();
-            player::show_stagefile_screen(bms, infos, keyspec, opts, screen_, font);
+            let screen_: &gfx::Surface = screen.get_ref();
+            player::show_stagefile_screen(&bms, &infos, &keyspec, &opts, screen_, &font);
             if opts.showinfo {
                 saved_screen = Some(player::save_screen_for_loading(screen_));
                 update_status = |path| {
-                    let screen: &gfx::Surface = *screen.get_ref();
-                    let saved_screen: &gfx::Surface = *saved_screen.get_ref();
-                    player::graphic_update_status(path, screen, saved_screen, font,
+                    let screen: &gfx::Surface = screen.get_ref();
+                    let saved_screen: &gfx::Surface = saved_screen.get_ref();
+                    player::graphic_update_status(path, screen, saved_screen, &font,
                                                   ticker.borrow_mut().deref_mut(), || atexit())
                 };
             } else {
                 update_status = |_path| {};
             }
         } else if opts.showinfo {
-            player::show_stagefile_noscreen(bms, infos, keyspec, opts);
+            player::show_stagefile_noscreen(&bms, &infos, &keyspec, &opts);
             update_status = |path| {
                 player::text_update_status(path, ticker.borrow_mut().deref_mut(), || atexit())
             };
@@ -5801,7 +5802,7 @@ pub fn play(opts: ~player::Options) {
         // wait for resources
         let start = ::sdl::get_ticks() + 3000;
         let (sndres, imgres) =
-            player::load_resource(bms, opts, |msg| update_status(msg));
+            player::load_resource(&bms, &opts, |msg| update_status(msg));
         if opts.showinfo {
             ticker.borrow_mut().reset(); // force update
             update_status(None);
@@ -5812,7 +5813,7 @@ pub fn play(opts: ~player::Options) {
     };
 
     // create the player and transfer ownership of other resources to it
-    let duration = parser::bms_duration(bms, infos.originoffset,
+    let duration = parser::bms_duration(&bms, infos.originoffset,
                                         |sref| sndres.as_slice()[**sref as uint].duration());
     let mut player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
 
@@ -5820,17 +5821,17 @@ pub fn play(opts: ~player::Options) {
     let mut display = match screen {
         Some(screen) => {
             if player.opts.is_exclusive() {
-                ~player::BGAOnlyDisplay(screen, imgres) as ~player::Display
+                box player::BGAOnlyDisplay(screen, imgres) as Box<player::Display>
             } else {
-                let display_ = player::GraphicDisplay(player.opts, player.keyspec,
+                let display_ = player::GraphicDisplay(&player.opts, &player.keyspec,
                                                       screen, font, imgres);
                 match display_ {
-                    Ok(display) => ~display as ~player::Display,
+                    Ok(display) => box display as Box<player::Display>,
                     Err(err) => die!("{}", err)
                 }
             }
         },
-        None => ~player::TextDisplay() as ~player::Display
+        None => box player::TextDisplay() as Box<player::Display>
     };
     while player.tick() {
         display.render(&player);
@@ -6025,10 +6026,10 @@ pub fn main() {
     match bmspath {
         None => { usage(); }
         Some(bmspath) => {
-            let opts = ~Options { bmspath: bmspath, mode: mode, modf: modf, bga: bga,
-                                  showinfo: showinfo, fullscreen: fullscreen, joystick: joystick,
-                                  preset: preset, leftkeys: leftkeys, rightkeys: rightkeys,
-                                  playspeed: playspeed };
+            let opts = Options { bmspath: bmspath, mode: mode, modf: modf, bga: bga,
+                                 showinfo: showinfo, fullscreen: fullscreen, joystick: joystick,
+                                 preset: preset, leftkeys: leftkeys, rightkeys: rightkeys,
+                                 playspeed: playspeed };
             play(opts);
         }
     }
