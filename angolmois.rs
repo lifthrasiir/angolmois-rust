@@ -76,7 +76,7 @@ pub fn version() -> ~str { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned() }
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> ~str {
     let args = std::os::args();
-    if args.is_empty() {"angolmois".to_owned()} else {args[0].clone()}
+    if args.is_empty() {"angolmois".to_owned()} else {args.as_slice()[0].clone()}
 }
 
 /// Utility functions.
@@ -5913,6 +5913,7 @@ pub fn main() {
     ).move_iter().collect::<collections::HashMap<&str,char>>();
 
     let args = std::os::args();
+    let args = args.as_slice();
     let nargs = args.len();
 
     let mut bmspath = None;
