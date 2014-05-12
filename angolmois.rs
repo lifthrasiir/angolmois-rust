@@ -395,7 +395,7 @@ pub mod util {
             pub fn get_error(&self) -> ~str {
                 unsafe {
                     let cstr = ll::SMPEG_error(self.raw);
-                    std::str::raw::from_c_str(std::cast::transmute(&cstr))
+                    std::str::raw::from_c_str(std::mem::transmute(&cstr))
                 }
             }
         }
@@ -562,7 +562,7 @@ pub mod util {
                     lpTemplateName: null(), pvReserved: null(),
                     dwReserved: 0, FlagsEx: 0,
                 };
-                let ret = unsafe {win32::ll::GetOpenFileNameW(std::cast::transmute(&ofn))};
+                let ret = unsafe {win32::ll::GetOpenFileNameW(std::mem::transmute(&ofn))};
                 if ret != 0 {
                     let path: &[u16] = match buf.position_elem(&0) {
                         Some(idx) => buf.slice(0, idx),
@@ -2822,7 +2822,7 @@ pub mod gfx {
             self.with_lock(|pixels| {
                 let fmt = unsafe {(*self.raw).format};
                 let pitch = unsafe {((*self.raw).pitch / 4) as uint};
-                let pixels = unsafe {std::cast::transmute(pixels)};
+                let pixels = unsafe {std::mem::transmute(pixels)};
                 let mut proxy = SurfacePixels { fmt: fmt, width: self.get_width() as uint,
                                                 height: self.get_height() as uint,
                                                 pitch: pitch, pixels: pixels };
@@ -3631,9 +3631,9 @@ pub mod player {
             let name = name.to_ascii_lower();
             unsafe {
                 let firstkey = 0u16;
-                let lastkey = std::cast::transmute(event::LastKey);
+                let lastkey = std::mem::transmute(event::LastKey);
                 for keyidx in range(firstkey, lastkey) {
-                    let key = std::cast::transmute(keyidx);
+                    let key = std::mem::transmute(keyidx);
                     let keyname = event::get_key_name(key).to_ascii_lower();
                     if keyname == name { return Some(key); }
                 }
