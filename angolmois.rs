@@ -489,9 +489,8 @@ pub mod util {
 
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(target_os = "win32")]
-    pub fn die(args: &std::fmt::Arguments) -> ! {
+    pub fn die(s: ~str) -> ! {
         use util::str::StrUtil;
-        let s = std::fmt::format(args);
         ::exename().as_utf16_c_str(|caption| {
             s.as_utf16_c_str(|text| {
                 unsafe { win32::ll::MessageBoxW(std::ptr::mut_null(), text, caption, 0); }
@@ -502,29 +501,26 @@ pub mod util {
 
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(not(target_os = "win32"))]
-    pub fn die(args: &std::fmt::Arguments) -> ! {
+    pub fn die(s: ~str) -> ! {
         let mut stderr = std::io::stderr();
-        let _ = stderr.write(::exename().as_bytes());
-        let _ = stderr.write(bytes!(": "));
-        let _ = std::fmt::writeln(&mut stderr, args);
+        let _ = writeln!(&mut stderr, "{}: {}", ::exename(), s);
         exit(1)
     }
 
     /// Prints an warning message. Internally used in the `warn!` macro below.
-    pub fn warn(args: &std::fmt::Arguments) {
+    pub fn warn(s: ~str) {
         let mut stderr = std::io::stderr();
-        let _ = stderr.write(bytes!("*** Warning: "));
-        let _ = std::fmt::writeln(&mut stderr, args);
+        let _ = writeln!(&mut stderr, "*** Warning: {}", s);
     }
 
     /// Exits with a formatted error message. (C: `die`)
     macro_rules! die(
-        ($($e:expr),+) => (format_args!(::util::die, $($e),+))
+        ($($e:expr),+) => (::util::die(format!($($e),+)))
     )
 
     /// Prints a formatted warning message. (C: `warn`)
     macro_rules! warn(
-        ($($e:expr),+) => (format_args!(::util::warn, $($e),+))
+        ($($e:expr),+) => (::util::warn(format!($($e),+)))
     )
 
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
@@ -877,7 +873,7 @@ pub mod parser {
             let sixteens = **self / 36;
             let ones = **self % 36;
             let map = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-            write!(f.buf, "{}{}", map[sixteens as uint] as char, map[ones as uint] as char)
+            write!(f, "{}{}", map[sixteens as uint] as char, map[ones as uint] as char)
         }
     }
 
