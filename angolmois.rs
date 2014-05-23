@@ -491,8 +491,8 @@ pub mod util {
     #[cfg(target_os = "win32")]
     pub fn die(s: &str) -> ! {
         use util::str::StrUtil;
-        ::exename().as_utf16_c_str(|caption| {
-            s.as_utf16_c_str(|text| {
+        ::exename().as_slice().as_utf16_c_str(|caption| {
+            s.as_slice().as_utf16_c_str(|text| {
                 unsafe { win32::ll::MessageBoxW(std::ptr::mut_null(), text, caption, 0); }
             })
         });
