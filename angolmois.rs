@@ -68,13 +68,13 @@ extern crate sdl_image;
 use std::{char, str};
 
 /// Returns a version string. (C: `VERSION`)
-pub fn version() -> ~str { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned() }
+pub fn version() -> StrBuf { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned() }
 
 //==================================================================================================
 // utility declarations
 
 /// Returns an executable name used in the command line if any. (C: `argv0`)
-pub fn exename() -> ~str {
+pub fn exename() -> StrBuf {
     let args = std::os::args();
     if args.is_empty() {"angolmois".to_owned()} else {args.as_slice()[0].clone()}
 }
@@ -312,7 +312,7 @@ pub mod util {
         }
 
         impl MPEG {
-            pub fn from_path(path: &Path) -> Result<MPEG, ~str> {
+            pub fn from_path(path: &Path) -> Result<MPEG, StrBuf> {
                 let raw = unsafe {
                     path.to_c_str().with_ref(|buf| {
                         ll::SMPEG_new(buf, null(), 0)
@@ -392,7 +392,7 @@ pub mod util {
                 unsafe { ll::SMPEG_skip(self.raw, seconds as c_float); }
             }
 
-            pub fn get_error(&self) -> ~str {
+            pub fn get_error(&self) -> StrBuf {
                 unsafe {
                     let cstr = ll::SMPEG_error(self.raw);
                     std::str::raw::from_c_str(std::mem::transmute(&cstr))
@@ -489,7 +489,7 @@ pub mod util {
 
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(target_os = "win32")]
-    pub fn die(s: ~str) -> ! {
+    pub fn die(s: &str) -> ! {
         use util::str::StrUtil;
         ::exename().as_utf16_c_str(|caption| {
             s.as_utf16_c_str(|text| {
@@ -501,32 +501,32 @@ pub mod util {
 
     /// Exits with an error message. Internally used in the `die!` macro below.
     #[cfg(not(target_os = "win32"))]
-    pub fn die(s: ~str) -> ! {
+    pub fn die(s: &str) -> ! {
         let mut stderr = std::io::stderr();
         let _ = writeln!(&mut stderr, "{}: {}", ::exename(), s);
         exit(1)
     }
 
     /// Prints an warning message. Internally used in the `warn!` macro below.
-    pub fn warn(s: ~str) {
+    pub fn warn(s: &str) {
         let mut stderr = std::io::stderr();
         let _ = writeln!(&mut stderr, "*** Warning: {}", s);
     }
 
     /// Exits with a formatted error message. (C: `die`)
     macro_rules! die(
-        ($($e:expr),+) => (::util::die(format!($($e),+)))
+        ($($e:expr),+) => (::util::die(format!($($e),+).as_slice()))
     )
 
     /// Prints a formatted warning message. (C: `warn`)
     macro_rules! warn(
-        ($($e:expr),+) => (::util::warn(format!($($e),+)))
+        ($($e:expr),+) => (::util::warn(format!($($e),+).as_slice()))
     )
 
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(target_os = "win32")]
-    pub fn get_path_from_dialog() -> Option<~str> {
+    pub fn get_path_from_dialog() -> Option<StrBuf> {
         use std::ptr::{null, mut_null};
         use util::str::StrUtil;
 
@@ -575,7 +575,7 @@ pub mod util {
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(not(target_os = "win32"))]
-    pub fn get_path_from_dialog() -> Option<~str> {
+    pub fn get_path_from_dialog() -> Option<StrBuf> {
         None
     }
 
@@ -667,7 +667,7 @@ pub mod util {
         ($e:expr; str -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
-                $dst = _line.as_slice();
+                $dst = _line;
                 lex!(""; $($tail)*) // optimization!
             } else {
                 false
@@ -680,7 +680,7 @@ pub mod util {
         });
         ($e:expr; str* -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            $dst = _line.slice_from(0); // Rust: somehow, this can't be `as_slice`.
+            $dst = _line;
             lex!(""; $($tail)*) // optimization!
         });
         ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
@@ -1463,17 +1463,17 @@ pub mod parser {
     /// Loaded BMS data. It is not a global state unlike C.
     pub struct Bms {
         /// Title. Maps to BMS #TITLE command. (C: `string[S_TITLE]`)
-        pub title: Option<~str>,
+        pub title: Option<StrBuf>,
         /// Genre. Maps to BMS #GENRE command. (C: `string[S_GENRE]`)
-        pub genre: Option<~str>,
+        pub genre: Option<StrBuf>,
         /// Artist. Maps to BMS #ARTIST command. (C: `string[S_ARTIST]`)
-        pub artist: Option<~str>,
+        pub artist: Option<StrBuf>,
         /// Path to an image for loading screen. Maps to BMS #STAGEFILE command.
         /// (C: `string[S_STAGEFILE]`)
-        pub stagefile: Option<~str>,
+        pub stagefile: Option<StrBuf>,
         /// A base path used for loading all other resources. Maps to BMS #PATH_WAV command.
         /// (C: `string[S_BASEPATH]`)
-        pub basepath: Option<~str>,
+        pub basepath: Option<StrBuf>,
 
         /// Game mode. One of `SINGLE_PLAY`(1), `COUPLE_PLAY`(2) or `DOUBLE_PLAY`(3). Maps to BMS
         /// #PLAYER command. (C: `value[V_PLAYER]`)
@@ -1487,9 +1487,9 @@ pub mod parser {
         /// Initial BPM. (C: `initbpm`)
         pub initbpm: BPM,
         /// Paths to sound file relative to `basepath` or BMS file. (C: `sndpath`)
-        pub sndpath: Vec<Option<~str>>,
+        pub sndpath: Vec<Option<StrBuf>>,
         /// Paths to image/movie file relative to `basepath` or BMS file. (C: `imgpath`)
-        pub imgpath: Vec<Option<~str>>,
+        pub imgpath: Vec<Option<StrBuf>>,
         /// List of blit commands to be executed after `imgpath` is loaded. (C: `blitcmd`)
         pub blitcmd: Vec<BlitCmd>,
 
@@ -1665,7 +1665,7 @@ pub mod parser {
 
         /// An unprocessed data line of BMS file.
         #[deriving(Clone)]
-        struct BmsLine { measure: uint, chan: Key, data: ~str }
+        struct BmsLine { measure: uint, chan: Key, data: StrBuf }
 
         // A list of unprocessed data lines. They have to be sorted with a stable algorithm and
         // processed in the order of measure number. (C: `bmsline`)
@@ -1687,7 +1687,7 @@ pub mod parser {
         let file = try!(f.read_to_end());
         for line0 in file.as_slice().split(|&ch| ch == 10u8) {
             let line0 = str::from_utf8_lossy(line0).into_owned();
-            let line: &str = line0;
+            let line = line0.as_slice();
 
             // skip non-command lines
             let line = line.trim_left();
@@ -2038,14 +2038,14 @@ pub mod parser {
             for line in bmsline.iter() {
                 if line.chan == Key(2) {
                     let mut shorten = 0.0;
-                    if lex!(line.data; ws*, f64 -> shorten) {
+                    if lex!(line.data.as_slice(); ws*, f64 -> shorten) {
                         if shorten > 0.001 {
                             bms.shortens.grow_set(line.measure, &1.0, shorten);
                         }
                     }
                 } else {
                     let measure = line.measure as f64;
-                    let data: Vec<char> = line.data.chars().collect();
+                    let data: Vec<char> = line.data.as_slice().chars().collect();
                     let max = data.len() / 2 * 2;
                     let count = max as f64;
                     for i in iter::range_step(0, max, 2) {
@@ -2175,8 +2175,8 @@ pub mod parser {
      * - `bms`, `bme`, `bml` or no preset: Selects one of eight presets `{5,7,10,14}[/fp]`.
      * - `pms`: Selects one of two presets `9` and `9-bme`.
      */
-    pub fn preset_to_key_spec(bms: &Bms, preset: Option<~str>) -> Option<(~str, ~str)> {
-        use std::ascii::StrAsciiExt;
+    pub fn preset_to_key_spec(bms: &Bms, preset: Option<StrBuf>) -> Option<(StrBuf, StrBuf)> {
+        use std::ascii::OwnedStrAsciiExt;
 
         let mut present = [false, ..NLANES];
         for &obj in bms.objs.iter() {
@@ -2185,7 +2185,7 @@ pub mod parser {
             }
         }
 
-        let preset = preset.map(|s| s.to_ascii_lower());
+        let preset = preset.map(|s| s.into_ascii_lower());
         let preset = match preset.as_ref().map(|s| s.as_slice()) {
             None | Some("bms") | Some("bme") | Some("bml") => {
                 let isbme = present[8] || present[9] || present[36+8] || present[36+9];
@@ -2194,7 +2194,7 @@ pub mod parser {
                     COUPLE_PLAY | DOUBLE_PLAY => if isbme {"14"} else {"10"},
                     _                         => if isbme {"7" } else {"5" }
                 };
-                if haspedal {nkeys + "/fp"} else {nkeys.to_owned()}
+                if haspedal {nkeys.to_owned().append("/fp")} else {nkeys.to_owned()}
             },
             Some("pms") => {
                 let isbme = present[6] || present[7] || present[8] || present[9];
@@ -2205,7 +2205,7 @@ pub mod parser {
         };
 
         for &(name, leftkeys, rightkeys) in PRESETS.iter() {
-            if name == preset {
+            if name == preset.as_slice() {
                 return Some((leftkeys.to_owned(), rightkeys.to_owned()));
             }
         }
@@ -3240,7 +3240,7 @@ pub mod player {
     pub struct Options {
         /// A path to the BMS file. Used for finding the resource when `BMS::basepath` is not set.
         /// (C: `bmspath`)
-        pub bmspath: ~str,
+        pub bmspath: StrBuf,
         /// Game play mode. (C: `opt_mode`)
         pub mode: Mode,
         /// Modifiers that affect the game data. (C: `opt_modf`)
@@ -3255,11 +3255,11 @@ pub mod player {
         /// An index to the joystick device if any. (C: `opt_joystick`)
         pub joystick: Option<uint>,
         /// A key specification preset name if any. (C: `preset`)
-        pub preset: Option<~str>,
+        pub preset: Option<StrBuf>,
         /// A left-hand-side key specification if any. (C: `leftkeys`)
-        pub leftkeys: Option<~str>,
+        pub leftkeys: Option<StrBuf>,
         /// A right-hand-side key specification if any. Can be an empty string. (C: `rightkeys`)
-        pub rightkeys: Option<~str>,
+        pub rightkeys: Option<StrBuf>,
         /// An initial play speed. (C: `playspeed`)
         pub playspeed: f64,
     }
@@ -3288,13 +3288,14 @@ pub mod player {
     // bms utilities
 
     /// Parses a key specification from the options.
-    pub fn key_spec(bms: &Bms, opts: &Options) -> Result<KeySpec,~str> {
+    pub fn key_spec(bms: &Bms, opts: &Options) -> Result<KeySpec,StrBuf> {
         use std::ascii::StrAsciiExt;
 
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
-                    if opts.preset.is_none() && opts.bmspath.to_ascii_lower().ends_with(".pms") {
+                    if opts.preset.is_none() &&
+                       opts.bmspath.as_slice().to_ascii_lower().as_slice().ends_with(".pms") {
                         Some("pms".to_owned())
                     } else {
                         opts.preset.clone()
@@ -3330,7 +3331,7 @@ pub mod player {
         };
 
         if !leftkeys.is_empty() {
-            match parse_and_add(&mut keyspec, leftkeys) {
+            match parse_and_add(&mut keyspec, leftkeys.as_slice()) {
                 None => {
                     return Err(format!("Invalid key spec for left hand side: {}", leftkeys));
                 }
@@ -3340,7 +3341,7 @@ pub mod player {
             return Err(format!("No key model is specified using -k or -K"));
         }
         if !rightkeys.is_empty() {
-            match parse_and_add(&mut keyspec, rightkeys) {
+            match parse_and_add(&mut keyspec, rightkeys.as_slice()) {
                 None => {
                     return Err(format!("Invalid key spec for right hand side: {}", rightkeys));
                 }
@@ -3467,7 +3468,7 @@ pub mod player {
         if !exclusive {
             mouse::set_cursor_visible(false);
         }
-        wm::set_caption(::version(), "");
+        wm::set_caption(::version().as_slice(), "");
         screen
     }
 
@@ -3618,9 +3619,9 @@ pub mod player {
     pub type KeyMap = collections::HashMap<Input,VirtualInput>;
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
-    pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<~str>) -> KeyMap {
+    pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<StrBuf>) -> KeyMap {
         use util::str::StrUtil;
-        use std::ascii::StrAsciiExt;
+        use std::ascii::{StrAsciiExt, OwnedStrAsciiExt};
 
         /// Finds an SDL virtual key with the given name. Matching is done case-insensitively.
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
@@ -3630,7 +3631,7 @@ pub mod player {
                 let lastkey = std::mem::transmute(event::LastKey);
                 for keyidx in range(firstkey, lastkey) {
                     let key = std::mem::transmute(keyidx);
-                    let keyname = event::get_key_name(key).to_ascii_lower();
+                    let keyname = event::get_key_name(key).into_ascii_lower();
                     if keyname == name { return Some(key); }
                 }
             }
@@ -3663,7 +3664,7 @@ pub mod player {
             let spec = spec.unwrap_or(keyset.default.to_owned());
 
             let mut i = 0;
-            for part in spec.split('|') {
+            for part in spec.as_slice().split('|') {
                 let (kind, vinputs) = keyset.mapping[i];
                 for s in part.split('%') {
                     match parse_input(s) {
@@ -3686,8 +3687,8 @@ pub mod player {
             let key = Key(36 + *lane as int);
             let kind = keyspec.kinds.as_slice()[*lane].unwrap();
             let envvar = format!("ANGOLMOIS_{}{}_KEY", key.to_str(), kind.to_char());
-            for s in getenv(envvar).iter() {
-                match parse_input(*s) {
+            for s in getenv(envvar.as_slice()).iter() {
+                match parse_input(s.as_slice()) {
                     Some(input) => { add_mapping(&mut map, Some(kind), input, LaneInput(lane)); }
                     None => {
                         die!("Unknown key name in the environment variable {}: {}", envvar, *s);
@@ -3712,11 +3713,10 @@ pub mod player {
         // TODO this logic assumes that #PATH_WAV is always interpreted as a native path, which
         // the C version doesn't assume. this difference barely makes the practical issue though.
         match bms.basepath {
-            Some(ref basepath) => { let basepath: &str = *basepath; Path::new(basepath) }
+            Some(ref basepath) => { Path::new(basepath.as_slice()) }
             None => {
                 // Rust: it turns out that `Path("")` is always invalid. huh?
-                let bmspath: &str = opts.bmspath;
-                let path = Path::new(bmspath).dir_path();
+                let path = Path::new(opts.bmspath.as_slice()).dir_path();
                 if path.components().len() == 0 {Path::new(".")} else {path}
             }
         }
@@ -3800,11 +3800,11 @@ pub mod player {
                 let mut found = name.as_ref().map_or(false, |name| *name == lastpart);
                 if !found && name.is_some() {
                     let name = name.unwrap();
-                    match name.rfind('.') {
+                    match name.as_slice().rfind('.') {
                         Some(idx) => {
-                            let namenoext = name.slice_to(idx).to_owned();
+                            let namenoext = name.as_slice().slice_to(idx);
                             for ext in exts.iter() {
-                                if namenoext + ext.to_owned() == lastpart {
+                                if namenoext.to_owned().append(*ext) == lastpart {
                                     found = true;
                                     break;
                                 }
@@ -3917,7 +3917,7 @@ pub mod player {
 
         /// Converts a surface to the native display format, while preserving a transparency or
         /// setting a color key if required.
-        fn to_display_format(surface: Surface) -> Result<Surface,~str> {
+        fn to_display_format(surface: Surface) -> Result<Surface,StrBuf> {
             if unsafe {(*(*surface.raw).format).Amask} != 0 {
                 let res = surface.display_format_alpha();
                 match res {
@@ -3937,7 +3937,7 @@ pub mod player {
             }
         }
 
-        if path.to_ascii_lower().ends_with(".mpg") {
+        if path.to_ascii_lower().as_slice().ends_with(".mpg") {
             if opts.has_movie() {
                 let res = match resolve_relative_path(basedir, path, []) {
                     Some(fullpath) => MPEG::from_path(&fullpath),
@@ -4063,7 +4063,8 @@ pub mod player {
     // loading
 
     /// Returns the interface string common to the graphical and textual loading screen.
-    fn displayed_info(bms: &Bms, infos: &BmsInfo, keyspec: &KeySpec) -> (~str, ~str, ~str, ~str) {
+    fn displayed_info(bms: &Bms, infos: &BmsInfo,
+                      keyspec: &KeySpec) -> (StrBuf, StrBuf, StrBuf, StrBuf) {
         let meta = format!("Level {level} | BPM {bpm:.2}{hasbpmchange} | \
                             {nnotes, plural, =1{# note} other{# notes}} [{nkeys}KEY{haslongnote}]",
                            level = bms.playlevel, bpm = *bms.initbpm,
@@ -4091,7 +4092,7 @@ pub mod player {
         screen.with_pixels(|pixels| {
             for path in bms.stagefile.iter() {
                 let basedir = get_basedir(bms, opts);
-                for path in resolve_relative_path(&basedir, *path, IMAGE_EXTS).iter() {
+                for path in resolve_relative_path(&basedir, path.as_slice(), IMAGE_EXTS).iter() {
                     match sdl_image::load(path).and_then(|s| s.display_format()) {
                         Ok(surface) => {
                             surface.with_pixels(|srcpixels| {
@@ -4114,10 +4115,10 @@ pub mod player {
                         pixels.put_blended_pixel(i, j, bg);
                     }
                 }
-                font.print_string(pixels, 6, 4, 2, LeftAligned, title, fg);
-                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre, fg);
-                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist, fg);
-                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta, fg);
+                font.print_string(pixels, 6, 4, 2, LeftAligned, title.as_slice(), fg);
+                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre.as_slice(), fg);
+                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist.as_slice(), fg);
+                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta.as_slice(), fg);
             }
         });
 
@@ -4143,15 +4144,15 @@ Artist:   {artist}
     /// Loads the image and sound resources and calls a callback whenever a new resource has been
     /// loaded. (C: `load_resource`)
     pub fn load_resource(bms: &Bms, opts: &Options,
-                         callback: |Option<~str>|) -> (Vec<SoundResource>, Vec<ImageResource>) {
+                         callback: |Option<StrBuf>|) -> (Vec<SoundResource>, Vec<ImageResource>) {
         let basedir = get_basedir(bms, opts);
 
         let sndres: Vec<_> =
             bms.sndpath.iter().enumerate().map(|(i, path)| {
                 match *path {
                     Some(ref path) => {
-                        callback(Some(path.clone()));
-                        load_sound(Key(i as int), path.clone(), &basedir)
+                        callback(Some(path.to_owned()));
+                        load_sound(Key(i as int), path.as_slice(), &basedir)
                     },
                     None => NoSound
                 }
@@ -4160,8 +4161,8 @@ Artist:   {artist}
             bms.imgpath.iter().enumerate().map(|(i, path)| {
                 match *path {
                     Some(ref path) => {
-                        callback(Some(path.clone()));
-                        load_image(Key(i as int), path.clone(), opts, &basedir)
+                        callback(Some(path.to_owned()));
+                        load_image(Key(i as int), path.as_slice(), opts, &basedir)
                     },
                     None => NoImage
                 }
@@ -4182,7 +4183,7 @@ Artist:   {artist}
 
     /// A callback template for `load_resource` with the graphical loading screen.
     /// (C: `resource_loaded`)
-    pub fn graphic_update_status(path: Option<~str>, screen: &Surface, saved_screen: &Surface,
+    pub fn graphic_update_status(path: Option<StrBuf>, screen: &Surface, saved_screen: &Surface,
                                  font: &Font, ticker: &mut Ticker, atexit: ||) {
         use std::mem;
 
@@ -4192,7 +4193,7 @@ Artist:   {artist}
             let msg = path.unwrap_or("loading...".to_owned());
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             screen.with_pixels(|pixels| {
-                font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg,
+                font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg.as_slice(),
                                   Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
             });
             screen.flip();
@@ -4202,7 +4203,7 @@ Artist:   {artist}
 
     /// A callback template for `load_resource` with the textual loading screen.
     /// (C: `resource_loaded`)
-    pub fn text_update_status(path: Option<~str>, ticker: &mut Ticker, atexit: ||) {
+    pub fn text_update_status(path: Option<StrBuf>, ticker: &mut Ticker, atexit: ||) {
         use std::mem;
 
         let mut path = path;
@@ -4210,8 +4211,9 @@ Artist:   {artist}
             match mem::replace(&mut path, None) {
                 Some(path) => {
                     use util::str::StrUtil;
-                    let path = if path.len() < 63 {path} else {path.slice_upto(0, 63).to_owned()};
-                    update_line("Loading: " + path);
+                    let path = if path.len() < 63 {path}
+                               else {path.as_slice().slice_upto(0, 63).to_owned()};
+                    update_line(format!("Loading: {}", path.as_slice()).as_slice());
                 }
                 None => { update_line("Loading done."); }
             }
@@ -5247,7 +5249,7 @@ Artist:   {artist}
 
     /// Builds a list of `LaneStyle`s from the key specification.
     fn build_lane_styles(keyspec: &KeySpec) ->
-                                    Result<(uint, Option<uint>, Vec<(Lane,LaneStyle)>), ~str> {
+                                    Result<(uint, Option<uint>, Vec<(Lane,LaneStyle)>), StrBuf> {
         let mut leftmost = 0;
         let mut rightmost = SCREENW;
         let mut styles = Vec::new();
@@ -5397,7 +5399,7 @@ Artist:   {artist}
     /// by `init_video`) screen, pre-created bitmap fonts and pre-loaded image resources. The last
     /// three are owned by the display, others are not (in fact, should be owned by `Player`).
     pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: Surface, font: Font,
-                          imgres: Vec<ImageResource>) -> Result<GraphicDisplay,~str> {
+                          imgres: Vec<ImageResource>) -> Result<GraphicDisplay,StrBuf> {
         let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
             Ok(styles) => styles,
             Err(err) => { return Err(err); }
@@ -5555,7 +5557,8 @@ Artist:   {artist}
                                       Centered, gradename, gradecolor);
                     if player.lastcombo > 1 {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
-                                          Centered, format!("{} COMBO", player.lastcombo),
+                                          Centered, format!("{} COMBO",
+                                                            player.lastcombo).as_slice(),
                                           Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
@@ -5577,17 +5580,18 @@ Artist:   {artist}
             screen.with_pixels(|pixels| {
                 let black = RGB(0,0,0);
                 font.print_string(pixels, 10, 8, 1, LeftAligned,
-                                  format!("SCORE {:07}", player.score), black);
+                                  format!("SCORE {:07}", player.score).as_slice(), black);
                 let nominalplayspeed = player.nominal_playspeed();
                 font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
-                                  format!("{:4.1}x", nominalplayspeed), black);
+                                  format!("{:4.1}x", nominalplayspeed).as_slice(), black);
                 font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, LeftAligned,
                                   format!("{:02}:{:02} / {:02}:{:02}",
-                                          elapsed/60, elapsed%60, duration/60, duration%60), black);
+                                          elapsed/60, elapsed%60,
+                                          duration/60, duration%60).as_slice(), black);
                 font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
-                                  format!("@{:9.4}", player.bottom), black);
+                                  format!("@{:9.4}", player.bottom).as_slice(), black);
                 font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
-                                  format!("BPM {:6.2}", *player.bpm), black);
+                                  format!("BPM {:6.2}", *player.bpm).as_slice(), black);
                 let timetick = cmp::min(self.leftmost, (player.now - player.origintime) *
                                                        self.leftmost / durationmsec);
                 font.print_glyph(pixels, 6 + timetick, SCREENH-52, 1,
@@ -5658,7 +5662,8 @@ Artist:   {artist}
                                     elapsed/600, elapsed/10%60, elapsed%10,
                                     duration/600, duration/10%60, duration%10,
                                     pos = player.bottom, bpm = *player.bpm,
-                                    lastcombo = player.lastcombo, nnotes = player.infos.nnotes));
+                                    lastcombo = player.lastcombo,
+                                    nnotes = player.infos.nnotes).as_slice());
             });
         }
 
@@ -5717,7 +5722,7 @@ Artist:   {artist}
 pub fn play(opts: player::Options) {
     // parses the file and sanitizes it
     let mut r = rand::task_rng();
-    let mut bms = match parser::parse_bms(opts.bmspath, &mut r) {
+    let mut bms = match parser::parse_bms(opts.bmspath.as_slice(), &mut r) {
         Ok(bms) => bms,
         Err(err) => die!("Couldn't load BMS file: {}", err)
     };
@@ -5926,43 +5931,43 @@ pub fn main() {
 
     let mut i = 1;
     while i < nargs {
-        if !args[i].starts_with("-") {
+        let arg = args[i].as_slice();
+        if !arg.starts_with("-") {
             if bmspath.is_none() {
-                bmspath = Some(args[i].clone());
+                bmspath = Some(arg.to_owned());
             }
-        } else if args[i].as_slice() == "--" {
+        } else if arg == "--" {
             i += 1;
             if bmspath.is_none() && i < nargs {
-                bmspath = Some(args[i].clone());
+                bmspath = Some(arg.to_owned());
             }
             break;
         } else {
             let shortargs =
-                if args[i].starts_with("--") {
-                    match longargs.find(&args[i].as_slice()) {
+                if arg.starts_with("--") {
+                    match longargs.find(&arg) {
                         Some(&c) => str::from_char(c),
-                        None => die!("Invalid option: {}", args[i])
+                        None => die!("Invalid option: {}", arg)
                     }
                 } else {
-                    args[i].slice_from(1).to_owned()
+                    arg.slice_from(1).to_owned()
                 };
             let nshortargs = shortargs.len();
 
             let mut inside = true;
-            for (j, c) in shortargs.chars().enumerate() {
+            for (j, c) in shortargs.as_slice().chars().enumerate() {
                 // Reads the argument of the option. Option string should be consumed first.
                 let fetch_arg = |opt| {
                     let off = if inside {j+1} else {j};
                     let nextarg =
                         if inside && off < nshortargs {
                             // remaining portion of `args[i]` is an argument
-                            shortargs.slice_from(off)
+                            shortargs.as_slice().slice_from(off)
                         } else {
                             // `args[i+1]` is an argument as a whole
                             i += 1;
                             if i < nargs {
-                                let arg: &str = args[i];
-                                arg
+                                args[i].as_slice()
                             } else {
                                 die!("No argument to the option -{}", opt);
                             }
