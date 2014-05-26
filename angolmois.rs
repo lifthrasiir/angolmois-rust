@@ -68,13 +68,13 @@ extern crate sdl_image;
 use std::{char, str};
 
 /// Returns a version string. (C: `VERSION`)
-pub fn version() -> StrBuf { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned() }
+pub fn version() -> String { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned() }
 
 //==================================================================================================
 // utility declarations
 
 /// Returns an executable name used in the command line if any. (C: `argv0`)
-pub fn exename() -> StrBuf {
+pub fn exename() -> String {
     let args = std::os::args();
     if args.is_empty() {"angolmois".to_owned()} else {args.as_slice()[0].clone()}
 }
@@ -312,7 +312,7 @@ pub mod util {
         }
 
         impl MPEG {
-            pub fn from_path(path: &Path) -> Result<MPEG, StrBuf> {
+            pub fn from_path(path: &Path) -> Result<MPEG, String> {
                 let raw = unsafe {
                     path.to_c_str().with_ref(|buf| {
                         ll::SMPEG_new(buf, null(), 0)
@@ -392,7 +392,7 @@ pub mod util {
                 unsafe { ll::SMPEG_skip(self.raw, seconds as c_float); }
             }
 
-            pub fn get_error(&self) -> StrBuf {
+            pub fn get_error(&self) -> String {
                 unsafe {
                     let cstr = ll::SMPEG_error(self.raw);
                     std::str::raw::from_c_str(std::mem::transmute(&cstr))
@@ -526,7 +526,7 @@ pub mod util {
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(target_os = "win32")]
-    pub fn get_path_from_dialog() -> Option<StrBuf> {
+    pub fn get_path_from_dialog() -> Option<String> {
         use std::ptr::{null, mut_null};
         use util::str::StrUtil;
 
@@ -575,7 +575,7 @@ pub mod util {
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(not(target_os = "win32"))]
-    pub fn get_path_from_dialog() -> Option<StrBuf> {
+    pub fn get_path_from_dialog() -> Option<String> {
         None
     }
 
@@ -1463,17 +1463,17 @@ pub mod parser {
     /// Loaded BMS data. It is not a global state unlike C.
     pub struct Bms {
         /// Title. Maps to BMS #TITLE command. (C: `string[S_TITLE]`)
-        pub title: Option<StrBuf>,
+        pub title: Option<String>,
         /// Genre. Maps to BMS #GENRE command. (C: `string[S_GENRE]`)
-        pub genre: Option<StrBuf>,
+        pub genre: Option<String>,
         /// Artist. Maps to BMS #ARTIST command. (C: `string[S_ARTIST]`)
-        pub artist: Option<StrBuf>,
+        pub artist: Option<String>,
         /// Path to an image for loading screen. Maps to BMS #STAGEFILE command.
         /// (C: `string[S_STAGEFILE]`)
-        pub stagefile: Option<StrBuf>,
+        pub stagefile: Option<String>,
         /// A base path used for loading all other resources. Maps to BMS #PATH_WAV command.
         /// (C: `string[S_BASEPATH]`)
-        pub basepath: Option<StrBuf>,
+        pub basepath: Option<String>,
 
         /// Game mode. One of `SINGLE_PLAY`(1), `COUPLE_PLAY`(2) or `DOUBLE_PLAY`(3). Maps to BMS
         /// #PLAYER command. (C: `value[V_PLAYER]`)
@@ -1487,9 +1487,9 @@ pub mod parser {
         /// Initial BPM. (C: `initbpm`)
         pub initbpm: BPM,
         /// Paths to sound file relative to `basepath` or BMS file. (C: `sndpath`)
-        pub sndpath: Vec<Option<StrBuf>>,
+        pub sndpath: Vec<Option<String>>,
         /// Paths to image/movie file relative to `basepath` or BMS file. (C: `imgpath`)
-        pub imgpath: Vec<Option<StrBuf>>,
+        pub imgpath: Vec<Option<String>>,
         /// List of blit commands to be executed after `imgpath` is loaded. (C: `blitcmd`)
         pub blitcmd: Vec<BlitCmd>,
 
@@ -1665,7 +1665,7 @@ pub mod parser {
 
         /// An unprocessed data line of BMS file.
         #[deriving(Clone)]
-        struct BmsLine { measure: uint, chan: Key, data: StrBuf }
+        struct BmsLine { measure: uint, chan: Key, data: String }
 
         // A list of unprocessed data lines. They have to be sorted with a stable algorithm and
         // processed in the order of measure number. (C: `bmsline`)
@@ -2175,7 +2175,7 @@ pub mod parser {
      * - `bms`, `bme`, `bml` or no preset: Selects one of eight presets `{5,7,10,14}[/fp]`.
      * - `pms`: Selects one of two presets `9` and `9-bme`.
      */
-    pub fn preset_to_key_spec(bms: &Bms, preset: Option<StrBuf>) -> Option<(StrBuf, StrBuf)> {
+    pub fn preset_to_key_spec(bms: &Bms, preset: Option<String>) -> Option<(String, String)> {
         use std::ascii::OwnedStrAsciiExt;
 
         let mut present = [false, ..NLANES];
@@ -3240,7 +3240,7 @@ pub mod player {
     pub struct Options {
         /// A path to the BMS file. Used for finding the resource when `BMS::basepath` is not set.
         /// (C: `bmspath`)
-        pub bmspath: StrBuf,
+        pub bmspath: String,
         /// Game play mode. (C: `opt_mode`)
         pub mode: Mode,
         /// Modifiers that affect the game data. (C: `opt_modf`)
@@ -3255,11 +3255,11 @@ pub mod player {
         /// An index to the joystick device if any. (C: `opt_joystick`)
         pub joystick: Option<uint>,
         /// A key specification preset name if any. (C: `preset`)
-        pub preset: Option<StrBuf>,
+        pub preset: Option<String>,
         /// A left-hand-side key specification if any. (C: `leftkeys`)
-        pub leftkeys: Option<StrBuf>,
+        pub leftkeys: Option<String>,
         /// A right-hand-side key specification if any. Can be an empty string. (C: `rightkeys`)
-        pub rightkeys: Option<StrBuf>,
+        pub rightkeys: Option<String>,
         /// An initial play speed. (C: `playspeed`)
         pub playspeed: f64,
     }
@@ -3288,7 +3288,7 @@ pub mod player {
     // bms utilities
 
     /// Parses a key specification from the options.
-    pub fn key_spec(bms: &Bms, opts: &Options) -> Result<KeySpec,StrBuf> {
+    pub fn key_spec(bms: &Bms, opts: &Options) -> Result<KeySpec,String> {
         use std::ascii::StrAsciiExt;
 
         let (leftkeys, rightkeys) =
@@ -3619,7 +3619,7 @@ pub mod player {
     pub type KeyMap = collections::HashMap<Input,VirtualInput>;
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
-    pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<StrBuf>) -> KeyMap {
+    pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<String>) -> KeyMap {
         use util::str::StrUtil;
         use std::ascii::{StrAsciiExt, OwnedStrAsciiExt};
 
@@ -3917,7 +3917,7 @@ pub mod player {
 
         /// Converts a surface to the native display format, while preserving a transparency or
         /// setting a color key if required.
-        fn to_display_format(surface: Surface) -> Result<Surface,StrBuf> {
+        fn to_display_format(surface: Surface) -> Result<Surface,String> {
             if unsafe {(*(*surface.raw).format).Amask} != 0 {
                 let res = surface.display_format_alpha();
                 match res {
@@ -4064,7 +4064,7 @@ pub mod player {
 
     /// Returns the interface string common to the graphical and textual loading screen.
     fn displayed_info(bms: &Bms, infos: &BmsInfo,
-                      keyspec: &KeySpec) -> (StrBuf, StrBuf, StrBuf, StrBuf) {
+                      keyspec: &KeySpec) -> (String, String, String, String) {
         let meta = format!("Level {level} | BPM {bpm:.2}{hasbpmchange} | \
                             {nnotes, plural, =1{# note} other{# notes}} [{nkeys}KEY{haslongnote}]",
                            level = bms.playlevel, bpm = *bms.initbpm,
@@ -4144,7 +4144,7 @@ Artist:   {artist}
     /// Loads the image and sound resources and calls a callback whenever a new resource has been
     /// loaded. (C: `load_resource`)
     pub fn load_resource(bms: &Bms, opts: &Options,
-                         callback: |Option<StrBuf>|) -> (Vec<SoundResource>, Vec<ImageResource>) {
+                         callback: |Option<String>|) -> (Vec<SoundResource>, Vec<ImageResource>) {
         let basedir = get_basedir(bms, opts);
 
         let sndres: Vec<_> =
@@ -4183,7 +4183,7 @@ Artist:   {artist}
 
     /// A callback template for `load_resource` with the graphical loading screen.
     /// (C: `resource_loaded`)
-    pub fn graphic_update_status(path: Option<StrBuf>, screen: &Surface, saved_screen: &Surface,
+    pub fn graphic_update_status(path: Option<String>, screen: &Surface, saved_screen: &Surface,
                                  font: &Font, ticker: &mut Ticker, atexit: ||) {
         use std::mem;
 
@@ -4203,7 +4203,7 @@ Artist:   {artist}
 
     /// A callback template for `load_resource` with the textual loading screen.
     /// (C: `resource_loaded`)
-    pub fn text_update_status(path: Option<StrBuf>, ticker: &mut Ticker, atexit: ||) {
+    pub fn text_update_status(path: Option<String>, ticker: &mut Ticker, atexit: ||) {
         use std::mem;
 
         let mut path = path;
@@ -5249,7 +5249,7 @@ Artist:   {artist}
 
     /// Builds a list of `LaneStyle`s from the key specification.
     fn build_lane_styles(keyspec: &KeySpec) ->
-                                    Result<(uint, Option<uint>, Vec<(Lane,LaneStyle)>), StrBuf> {
+                                    Result<(uint, Option<uint>, Vec<(Lane,LaneStyle)>), String> {
         let mut leftmost = 0;
         let mut rightmost = SCREENW;
         let mut styles = Vec::new();
@@ -5399,7 +5399,7 @@ Artist:   {artist}
     /// by `init_video`) screen, pre-created bitmap fonts and pre-loaded image resources. The last
     /// three are owned by the display, others are not (in fact, should be owned by `Player`).
     pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: Surface, font: Font,
-                          imgres: Vec<ImageResource>) -> Result<GraphicDisplay,StrBuf> {
+                          imgres: Vec<ImageResource>) -> Result<GraphicDisplay,String> {
         let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
             Ok(styles) => styles,
             Err(err) => { return Err(err); }
