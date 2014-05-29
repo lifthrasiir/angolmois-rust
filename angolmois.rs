@@ -68,7 +68,7 @@ extern crate sdl_image;
 use std::{char, str};
 
 /// Returns a version string. (C: `VERSION`)
-pub fn version() -> String { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned() }
+pub fn version() -> String { "Angolmois 2.0.0 alpha 2 (rust edition)".to_string() }
 
 //==================================================================================================
 // utility declarations
@@ -76,7 +76,7 @@ pub fn version() -> String { "Angolmois 2.0.0 alpha 2 (rust edition)".to_owned()
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> String {
     let args = std::os::args();
-    if args.is_empty() {"angolmois".to_owned()} else {args.as_slice()[0].clone()}
+    if args.is_empty() {"angolmois".to_string()} else {args.as_slice()[0].clone()}
 }
 
 /// Utility functions.
@@ -1700,7 +1700,7 @@ pub mod parser {
             for &header in bmsheader.iter() {
                 use std::ascii::StrAsciiExt;
                 if line.len() >= header.len() &&
-                   line.slice_to(header.len()).to_ascii_upper() == header.to_owned() {
+                   line.slice_to(header.len()).to_ascii_upper() == header.to_string() {
                     prefix = header;
                     break;
                 }
@@ -1712,7 +1712,7 @@ pub mod parser {
                 (string $string:ident) => ({
                     let mut text = "";
                     if lex!(line; ws, str* -> text, ws*, !) {
-                        bms.$string = Some(text.to_owned());
+                        bms.$string = Some(text.to_string());
                     }
                 });
                 (value $value:ident) => ({
@@ -1723,7 +1723,7 @@ pub mod parser {
                     let mut path = "";
                     if lex!(line; Key -> key, ws, str -> path, ws*, !) {
                         let Key(key) = key;
-                        bms.$paths.as_mut_slice()[key as uint] = Some(path.to_owned());
+                        bms.$paths.as_mut_slice()[key as uint] = Some(path.to_string());
                     }
                 })
             )
@@ -1876,7 +1876,7 @@ pub mod parser {
                     let mut data = "";
                     if lex!(line; Measure -> measure, Key -> chan, ':', ws*, str -> data, ws*, !) {
                         bmsline.push(BmsLine { measure: measure, chan: chan,
-                                               data: data.to_owned() })
+                                               data: data.to_string() })
                     }
                 }
 
@@ -2194,19 +2194,19 @@ pub mod parser {
                     COUPLE_PLAY | DOUBLE_PLAY => if isbme {"14"} else {"10"},
                     _                         => if isbme {"7" } else {"5" }
                 };
-                if haspedal {nkeys.to_owned().append("/fp")} else {nkeys.to_owned()}
+                if haspedal {nkeys.to_string().append("/fp")} else {nkeys.to_string()}
             },
             Some("pms") => {
                 let isbme = present[6] || present[7] || present[8] || present[9];
                 let nkeys = if isbme {"9-bme"} else {"9"};
-                nkeys.to_owned()
+                nkeys.to_string()
             },
             Some(_) => preset.unwrap()
         };
 
         for &(name, leftkeys, rightkeys) in PRESETS.iter() {
             if name == preset.as_slice() {
-                return Some((leftkeys.to_owned(), rightkeys.to_owned()));
+                return Some((leftkeys.to_string(), rightkeys.to_string()));
             }
         }
         None
@@ -3296,7 +3296,7 @@ pub mod player {
                 let preset =
                     if opts.preset.is_none() &&
                        opts.bmspath.as_slice().to_ascii_lower().as_slice().ends_with(".pms") {
-                        Some("pms".to_owned())
+                        Some("pms".to_string())
                     } else {
                         opts.preset.clone()
                     };
@@ -3308,8 +3308,8 @@ pub mod player {
                     }
                 }
             } else {
-                (opts.leftkeys.as_ref().map_or("", |s| s.as_slice()).to_owned(),
-                 opts.rightkeys.as_ref().map_or("", |s| s.as_slice()).to_owned())
+                (opts.leftkeys.as_ref().map_or("", |s| s.as_slice()).to_string(),
+                 opts.rightkeys.as_ref().map_or("", |s| s.as_slice()).to_string())
             };
 
         let mut keyspec = KeySpec { split: 0, order: Vec::new(),
@@ -3661,7 +3661,7 @@ pub mod player {
 
         for &keyset in KEYSETS.iter() {
             let spec = getenv(keyset.envvar);
-            let spec = spec.unwrap_or(keyset.default.to_owned());
+            let spec = spec.unwrap_or(keyset.default.to_string());
 
             let mut i = 0;
             for part in spec.as_slice().split('|') {
@@ -3804,7 +3804,7 @@ pub mod player {
                         Some(idx) => {
                             let namenoext = name.as_slice().slice_to(idx);
                             for ext in exts.iter() {
-                                if namenoext.to_owned().append(*ext) == lastpart {
+                                if namenoext.to_string().append(*ext) == lastpart {
                                     found = true;
                                     break;
                                 }
@@ -4071,9 +4071,9 @@ pub mod player {
                            hasbpmchange = if infos.hasbpmchange {"?"} else {""},
                            nnotes = infos.nnotes as uint, nkeys = keyspec.nkeys(),
                            haslongnote = if infos.haslongnote {"-LN"} else {""});
-        let title = bms.title.as_ref().map_or("", |s| s.as_slice()).to_owned();
-        let genre = bms.genre.as_ref().map_or("", |s| s.as_slice()).to_owned();
-        let artist = bms.artist.as_ref().map_or("", |s| s.as_slice()).to_owned();
+        let title = bms.title.as_ref().map_or("", |s| s.as_slice()).to_string();
+        let genre = bms.genre.as_ref().map_or("", |s| s.as_slice()).to_string();
+        let artist = bms.artist.as_ref().map_or("", |s| s.as_slice()).to_string();
         (meta, title, genre, artist)
     }
 
@@ -4151,7 +4151,7 @@ Artist:   {artist}
             bms.sndpath.iter().enumerate().map(|(i, path)| {
                 match *path {
                     Some(ref path) => {
-                        callback(Some(path.to_owned()));
+                        callback(Some(path.to_string()));
                         load_sound(Key(i as int), path.as_slice(), &basedir)
                     },
                     None => NoSound
@@ -4161,7 +4161,7 @@ Artist:   {artist}
             bms.imgpath.iter().enumerate().map(|(i, path)| {
                 match *path {
                     Some(ref path) => {
-                        callback(Some(path.to_owned()));
+                        callback(Some(path.to_string()));
                         load_image(Key(i as int), path.as_slice(), opts, &basedir)
                     },
                     None => NoImage
@@ -4190,7 +4190,7 @@ Artist:   {artist}
         let mut path = path;
         ticker.on_tick(get_ticks(), || {
             let path = mem::replace(&mut path, None);
-            let msg = path.unwrap_or("loading...".to_owned());
+            let msg = path.unwrap_or("loading...".to_string());
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             screen.with_pixels(|pixels| {
                 font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg.as_slice(),
@@ -4212,7 +4212,7 @@ Artist:   {artist}
                 Some(path) => {
                     use util::str::StrUtil;
                     let path = if path.len() < 63 {path}
-                               else {path.as_slice().slice_upto(0, 63).to_owned()};
+                               else {path.as_slice().slice_upto(0, 63).to_string()};
                     update_line(format!("Loading: {}", path.as_slice()).as_slice());
                 }
                 None => { update_line("Loading done."); }
@@ -5934,12 +5934,12 @@ pub fn main() {
         let arg = args[i].as_slice();
         if !arg.starts_with("-") {
             if bmspath.is_none() {
-                bmspath = Some(arg.to_owned());
+                bmspath = Some(arg.to_string());
             }
         } else if arg == "--" {
             i += 1;
             if bmspath.is_none() && i < nargs {
-                bmspath = Some(arg.to_owned());
+                bmspath = Some(arg.to_string());
             }
             break;
         } else {
@@ -5950,7 +5950,7 @@ pub fn main() {
                         None => die!("Invalid option: {}", arg)
                     }
                 } else {
-                    arg.slice_from(1).to_owned()
+                    arg.slice_from(1).to_string()
                 };
             let nshortargs = shortargs.len();
 
@@ -5989,9 +5989,9 @@ pub fn main() {
                     'S' => { modf = Some(ShuffleExModf); }
                     'r' => { modf = Some(RandomModf); }
                     'R' => { modf = Some(RandomExModf); }
-                    'k' => { preset = Some(fetch_arg('k').to_owned()); }
-                    'K' => { leftkeys = Some(fetch_arg('K').to_owned());
-                             rightkeys = Some(fetch_arg('K').to_owned()); }
+                    'k' => { preset = Some(fetch_arg('k').to_string()); }
+                    'K' => { leftkeys = Some(fetch_arg('K').to_string());
+                             rightkeys = Some(fetch_arg('K').to_string()); }
                     'a' => {
                         match from_str::<f64>(fetch_arg('a')) {
                             Some(speed) if speed > 0.0 => {
