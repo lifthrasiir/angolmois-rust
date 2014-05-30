@@ -58,7 +58,6 @@
 #![license = "GPLv2+"]
 
 extern crate libc;
-extern crate rand;
 extern crate collections;
 
 extern crate sdl;
@@ -829,7 +828,7 @@ pub mod util {
  */
 pub mod parser {
     use std::{f64, str, iter, io, fmt};
-    use rand::Rng;
+    use std::rand::Rng;
     use util::str::StrUtil;
 
     //----------------------------------------------------------------------------------------------
@@ -1686,7 +1685,7 @@ pub mod parser {
 
         let file = try!(f.read_to_end());
         for line0 in file.as_slice().split(|&ch| ch == 10u8) {
-            let line0 = str::from_utf8_lossy(line0).into_owned();
+            let line0 = str::from_utf8_lossy(line0).into_string();
             let line = line0.as_slice();
 
             // skip non-command lines
@@ -3167,8 +3166,8 @@ pub mod player {
     use std;
     use std::{slice, cmp, num, iter, hash};
     use std::rc::Rc;
+    use std::rand::Rng;
     use libc;
-    use rand::Rng;
     use collections;
     use sdl::*;
     use sdl::video::*;
@@ -5721,7 +5720,7 @@ Artist:   {artist}
 /// loop. (C: `play`)
 pub fn play(opts: player::Options) {
     // parses the file and sanitizes it
-    let mut r = rand::task_rng();
+    let mut r = std::rand::task_rng();
     let mut bms = match parser::parse_bms(opts.bmspath.as_slice(), &mut r) {
         Ok(bms) => bms,
         Err(err) => die!("Couldn't load BMS file: {}", err)
