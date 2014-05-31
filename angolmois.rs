@@ -836,7 +836,7 @@ pub mod parser {
 
     /// Two-letter alphanumeric identifier used for virtually everything, including resource
     /// management, variable BPM and chart specification.
-    #[deriving(Eq,Ord,TotalEq,TotalOrd,Clone)]
+    #[deriving(PartialEq,PartialOrd,Eq,Ord,Clone)]
     pub struct Key(pub int);
 
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
@@ -881,7 +881,7 @@ pub mod parser {
 
     /// A game play element mapped to the single input element (for example, button) and the screen
     /// area (henceforth "lane").
-    #[deriving(Eq,TotalEq,Clone)]
+    #[deriving(PartialEq,Eq,Clone)]
     pub struct Lane(pub uint);
 
     /// The maximum number of lanes. (C: `NNOTECHANS`)
@@ -919,7 +919,7 @@ pub mod parser {
      * For PMS, channels #11/17/25 use `Button1`, #12/16/24 use `Button2`, #13/19/23 use `Button3`,
      * #14/18/22 use `Button4`, #15 uses `Button5`.
      */
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     pub enum KeyKind {
         /// White key, which mimics a real white key in the musical keyboard.
         WhiteKey,
@@ -1011,7 +1011,7 @@ pub mod parser {
     // object parameters
 
     /// Sound reference.
-    #[deriving(Eq,TotalEq,Clone)]
+    #[deriving(PartialEq,Eq,Clone)]
     pub struct SoundRef(pub Key);
 
     impl Deref<Key> for SoundRef {
@@ -1022,7 +1022,7 @@ pub mod parser {
     }
 
     /// Image reference.
-    #[deriving(Eq,TotalEq,Clone)]
+    #[deriving(PartialEq,Eq,Clone)]
     pub struct ImageRef(pub Key);
 
     impl Deref<Key> for ImageRef {
@@ -1033,7 +1033,7 @@ pub mod parser {
     }
 
     /// BGA layers. (C: `enum BGA_type`)
-    #[deriving(Eq,TotalEq,Clone)]
+    #[deriving(PartialEq,Eq,Clone)]
     pub enum BGALayer {
         /// The lowest layer. BMS channel #04. (C: `BGA_LAYER`)
         Layer1 = 0,
@@ -1052,7 +1052,7 @@ pub mod parser {
 
     /// Beats per minute. Used as a conversion factor between the time position and actual time
     /// in BMS.
-    #[deriving(Eq,Clone)]
+    #[deriving(PartialEq,Clone)]
     pub struct BPM(pub f64);
 
     impl Deref<f64> for BPM {
@@ -1072,7 +1072,7 @@ pub mod parser {
 
     /// A duration from the particular point. It may be specified in measures or seconds. Used in
     /// the `Stop` object.
-    #[deriving(Eq,Clone)]
+    #[deriving(PartialEq,Clone)]
     pub enum Duration { Seconds(f64), Measures(f64) }
 
     impl Duration {
@@ -1088,14 +1088,14 @@ pub mod parser {
     /// A damage value upon the MISS grade. Normally it is specified in percents of the full gauge
     /// (as in `MAXGAUGE`), but sometimes it may cause an instant death. Used in the `Bomb` object
     /// (normal note objects have a fixed value).
-    #[deriving(Eq,Clone)]
+    #[deriving(PartialEq,Clone)]
     pub enum Damage { GaugeDamage(f64), InstantDeath }
 
     //----------------------------------------------------------------------------------------------
     // object
 
     /// A data for objects (or object-like effects). Does not include the time information.
-    #[deriving(Eq,Clone)]
+    #[deriving(PartialEq,Clone)]
     pub enum ObjData {
         /// Deleted object. Only used during various processing.
         Deleted,
@@ -1336,7 +1336,7 @@ pub mod parser {
 
     /// Game play data associated to the time axis. It contains both objects (which are also
     /// associated to lanes) and object-like effects.
-    #[deriving(Eq,Clone)]
+    #[deriving(PartialEq,Clone)]
     pub struct Obj {
         /// Time position in measures.
         pub time: f64,
@@ -1344,6 +1344,7 @@ pub mod parser {
         pub data: ObjData
     }
 
+    #[allow(non_snake_case_functions)]
     impl Obj {
         /// Creates a `Visible` object.
         pub fn Visible(time: f64, lane: Lane, sref: Option<Key>) -> Obj {
@@ -1501,16 +1502,16 @@ pub mod parser {
         pub nmeasures: uint
     }
 
-    /// Creates a default value of BMS data.
-    pub fn Bms() -> Bms {
-        Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
-              player: SINGLE_PLAY, playlevel: 0, rank: 2, initbpm: DefaultBPM,
-              sndpath: Vec::from_elem(MAXKEY as uint, None),
-              imgpath: Vec::from_elem(MAXKEY as uint, None), blitcmd: Vec::new(),
-              objs: Vec::new(), shortens: Vec::new(), nmeasures: 0 }
-    }
-
     impl Bms {
+        /// Creates a default value of BMS data.
+        pub fn new() -> Bms {
+            Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
+                  player: SINGLE_PLAY, playlevel: 0, rank: 2, initbpm: DefaultBPM,
+                  sndpath: Vec::from_elem(MAXKEY as uint, None),
+                  imgpath: Vec::from_elem(MAXKEY as uint, None), blitcmd: Vec::new(),
+                  objs: Vec::new(), shortens: Vec::new(), nmeasures: 0 }
+        }
+
         /// Returns a scaling factor of given measure number. The default scaling factor is 1.0, and
         /// that value applies to any out-of-bound measures. (C: `shorten`)
         pub fn shorten(&self, measure: int) -> f64 {
@@ -1607,10 +1608,10 @@ pub mod parser {
             "BGA", "STOP", "STP", "RANDOM", "SETRANDOM", "ENDRANDOM", "IF",
             "ELSEIF", "ELSE", "ENDSW", "END"];
 
-        let mut bms = Bms();
+        let mut bms = Bms::new();
 
         /// The state of the block, for determining which lines should be processed.
-        #[deriving(Eq)]
+        #[deriving(PartialEq)]
         enum BlockState {
             /// Not contained in the #IF block. (C: `state == -1`)
             Outside,
@@ -1640,7 +1641,7 @@ pub mod parser {
          * a state within #RANDOM, so it follows that #RANDOM/#SETRANDOM blocks can nest but #IF
          * can't nest unless its direct parent is #RANDOM/#SETRANDOM.
          */
-        #[deriving(Eq)]
+        #[deriving(PartialEq)]
         struct Block {
             /// A generated value if any. It can be `None` if this block is the topmost one (which
             /// is actually not a block but rather a sentinel) or the last `#RANDOM` or `#SETRANDOM`
@@ -2740,7 +2741,7 @@ pub mod gfx {
     }
 
     /// Linear color gradient.
-    #[deriving(Eq)]
+    #[deriving(PartialEq)]
     pub struct Gradient {
         /// A color at the position 0.0. Normally used as a topmost value.
         pub zero: Color,
@@ -2748,9 +2749,11 @@ pub mod gfx {
         pub one: Color
     }
 
-    /// Creates a new color gradient (for text printing).
-    pub fn Gradient(top: Color, bottom: Color) -> Gradient {
-        Gradient { zero: top, one: bottom }
+    impl Gradient {
+        /// Creates a new color gradient (for text printing).
+        pub fn new(top: Color, bottom: Color) -> Gradient {
+            Gradient { zero: top, one: bottom }
+        }
     }
 
     /// A trait for color or color gradient. The color at the particular position can be calculated
@@ -2991,74 +2994,76 @@ pub mod gfx {
         RightAligned
     }
 
-    /// Decompresses a bitmap font data. `Font::create_zoomed_font` is required for the actual use.
-    pub fn Font() -> Font {
-        // Delta-coded code words. (C: `words`)
-        let dwords = [0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15, 1521, 15, 1537,
-            16, 48, 176, 1, 3, 1, 3, 7, 1, 4080, 4096, 3, 1, 8, 3, 4097, 4080,
-            16, 16128, 240, 1, 2, 9, 3, 8177, 15, 16385, 240, 15, 1, 47, 721,
-            143, 2673, 2, 6, 7, 1, 31, 17, 16, 63, 64, 33, 0, 1, 2, 1, 8, 3];
+    // Delta-coded code words. (C: `words`)
+    static FONT_DWORDS: &'static [u16] = &[
+        0, 2, 6, 2, 5, 32, 96, 97, 15, 497, 15, 1521, 15, 1537,
+        16, 48, 176, 1, 3, 1, 3, 7, 1, 4080, 4096, 3, 1, 8, 3, 4097, 4080,
+        16, 16128, 240, 1, 2, 9, 3, 8177, 15, 16385, 240, 15, 1, 47, 721,
+        143, 2673, 2, 6, 7, 1, 31, 17, 16, 63, 64, 33, 0, 1, 2, 1, 8, 3];
 
-        // LZ77-compressed indices to code words:
-        // - Byte 33..97 encodes a literal code word 0..64;
-        // - Byte 98..126 encodes an LZ77 length distance pair with length 3..31;
-        //   the following byte 33..126 encodes a distance 1..94.
-        // (C: `indices`)
-        let indices =
-            "!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*\
-             T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfe\
-             jcNl!&JTLTLG_&J>]c*&Jm@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ\
-             2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u`>Uc4d\
-             @b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5g\
-             hCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWG\
-             Ok@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi\
-             $d^GWk@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWCgZU:EW.Ok\
-             @>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a\
-             [CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'\
-             O,?4!1n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@\
-             l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2\
-             U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`fVl\
-             Zf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(\
-             M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
-
-        /// Decompresses a font data from `dwords` and `indices`. (C: `fontdecompress`)
-        fn decompress(dwords: &[u16], indices: &str) -> Vec<u16> {
-            let mut words = vec!(0);
-            for &delta in dwords.iter() {
-                let last = *words.last().unwrap();
-                words.push(last + delta);
-            }
-
-            let nindices = indices.len();
-            let mut i = 0;
-            let mut glyphs = Vec::new();
-            while i < nindices {
-                let code = indices[i] as uint;
-                i += 1;
-                match code {
-                    33..97 => { glyphs.push(words.as_slice()[code - 33]); }
-                    98..126 => {
-                        let length = code - 95; // code=98 -> length=3
-                        let distance = indices[i] as uint - 32;
-                        i += 1;
-                        let start = glyphs.len() - distance;
-                        for i in range(start, start + length) {
-                            let v = glyphs.as_slice()[i];
-                            glyphs.push(v);
-                        }
-                    }
-                    _ => fail!("unexpected codeword")
-                }
-            }
-            glyphs
-        }
-
-        let glyphs = decompress(dwords, indices);
-        assert!(glyphs.len() == 3072);
-        Font { glyphs: glyphs, pixels: Vec::new() }
-    }
+    // LZ77-compressed indices to code words:
+    // - Byte 33..97 encodes a literal code word 0..64;
+    // - Byte 98..126 encodes an LZ77 length distance pair with length 3..31;
+    //   the following byte 33..126 encodes a distance 1..94.
+    // (C: `indices`)
+    static FONT_INDICES: &'static str =
+        "!!7a/&/&s$7a!f!'M*Q*Qc$(O&J!!&J&Jc(e!2Q2Qc$-Bg2m!2bB[Q7Q2[e&2Q!Qi>&!&!>UT2T2&2>WT!c*\
+         T2GWc8icM2U2D!.8(M$UQCQ-jab!'U*2*2*2TXbZ252>9ZWk@*!*!*8(J$JlWi@cxQ!Q!d$#Q'O*?k@e2dfe\
+         jcNl!&JTLTLG_&J>]c*&Jm@cB&J&J7[e(o>pJM$Qs<7[{Zj`Jm40!3!.8(M$U!C!-oR>UQ2U2]2a9Y[S[QCQ\
+         2GWk@*M*Q*B*!*!g$aQs`G8.M(U$[!Ca[o@Q2Q!IJQ!Q!c,GWk@787M6U2C2d!a[2!2k?!bnc32>[u`>Uc4d\
+         @b(q@abXU!D!.8(J&J&d$q`Q2IXu`g@Q2aWQ!q@!!ktk,x@M$Qk@3!.8(M$U!H#W'O,?4m_f!7[i&n!:eX5g\
+         hCk=>UQ2Q2U2Dc>J!!&J&b&k@J)LKg!GK!)7Wk@'8,M=UWCcfa[c&Q2l`f4If(Q2G[l@MSUQC!2!2c$Q:RWG\
+         Ok@,[<2WfZQ2U2D2.l`a[eZ7f(!2b2|@b$j!>MSUQCc6[2W2Q:RWGOk@Q2Q2c$a[g*Ql`7[&J&Jk$7[l`!Qi\
+         $d^GWk@U2D2.9([$[#['[,@<2W2k@!2!2m$a[l`:^[a[a[T2Td~c$k@d2:R[V[a@_b|o@,M=UWCgZU:EW.Ok\
+         @>[g<G[!2!2d$k@Ug@Q2V2a2IW_!Wt`Ih*q`!2>WQ!Q!c,Gk_!7[&J&Jm$k@gti$m`k:U:EW.O(?s@T2Tb$a\
+         [CW2Qk@M+U:^[GbX,M>U`[WCO-l@'U,D<.W(O&J&Je$k@a[Q!U!]!G8.M(U$[!Ca[k@*Q!Q!l$b2m!+!:#W'\
+         O,?4!1n;c`*!*!l$h`'8,M=UWCO-pWz!a[i,#Q'O,?4~R>QQ!Q!aUQ2Q2Q2aWl=2!2!2>[e<c$G[p`dZcHd@\
+         l`czi|c$al@i`b:[!2Un`>8TJTJ&J7[&b&e$o`i~aWQ!c(hd2!2!2>[g@e$k]epi|e0i!bph(d$dbGWhA2!2\
+         U2D2.9(['[,@<2W2k`*J*?*!*!k$o!;[a[T2T2c$c~o@>[c6i$p@Uk>GW}`G[!2!2b$h!al`aWQ!Q!Qp`fVl\
+         Zf@UWb6>eX:GWk<&J&J7[c&&JTJTb$G?o`c~i$m`k@U:EW.O(v`T2Tb$a[Fp`M+eZ,M=UWCO-u`Q:RWGO.A(\
+         M$U!Ck@a[]!G8.M(U$[!Ca[i:78&J&Jc$%[g*7?e<g0w$cD#iVAg*$[g~dB]NaaPGft~!f!7[.W(O";
 
     impl Font {
+        /// Decompresses a bitmap font data.
+        /// `Font::create_zoomed_font` is required for the actual use.
+        pub fn new() -> Font {
+            /// Decompresses a font data from `dwords` and `indices`. (C: `fontdecompress`)
+            fn decompress(dwords: &[u16], indices: &str) -> Vec<u16> {
+                let mut words = vec!(0);
+                for &delta in dwords.iter() {
+                    let last = *words.last().unwrap();
+                    words.push(last + delta);
+                }
+
+                let nindices = indices.len();
+                let mut i = 0;
+                let mut glyphs = Vec::new();
+                while i < nindices {
+                    let code = indices[i] as uint;
+                    i += 1;
+                    match code {
+                        33..97 => { glyphs.push(words.as_slice()[code - 33]); }
+                        98..126 => {
+                            let length = code - 95; // code=98 -> length=3
+                            let distance = indices[i] as uint - 32;
+                            i += 1;
+                            let start = glyphs.len() - distance;
+                            for i in range(start, start + length) {
+                                let v = glyphs.as_slice()[i];
+                                glyphs.push(v);
+                            }
+                        }
+                        _ => fail!("unexpected codeword")
+                    }
+                }
+                glyphs
+            }
+
+            let glyphs = decompress(FONT_DWORDS, FONT_INDICES);
+            assert!(glyphs.len() == 3072);
+            Font { glyphs: glyphs, pixels: Vec::new() }
+        }
+
         /// Creates a zoomed font of scale `zoom`. (C: `fontprocess`)
         pub fn create_zoomed_font(&mut self, zoom: uint) {
             assert!(zoom > 0);
@@ -3192,7 +3197,7 @@ pub mod player {
     // options
 
     /// Game play modes. (C: `enum mode`)
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     pub enum Mode {
         /// Normal game play. The graphical display and input is enabled. (C: `PLAY_MODE`)
         PlayMode,
@@ -3205,7 +3210,7 @@ pub mod player {
     }
 
     /// Modifiers that affect the game data. (C: `enum modf`)
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     pub enum Modf {
         /// Swaps all "key" (i.e. `KeyKind::counts_as_key` returns true) lanes in the reverse order.
         /// See `player::apply_mirror_modf` for the detailed algorithm. (C: `MIRROR_MODF`)
@@ -3224,7 +3229,7 @@ pub mod player {
     }
 
     /// Specifies how the BGA is displayed. (C: `enum bga`)
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     pub enum Bga {
         /// Both the BGA image and movie is displayed. (C: `BGA_AND_MOVIE`)
         BgaAndMovie,
@@ -3408,15 +3413,15 @@ pub mod player {
         pub lastinfo: Option<uint>
     }
 
-    /// Returns a new ticker with a default display interval.
-    pub fn Ticker() -> Ticker {
-        /// A reasonable interval for the console and graphic display. Currently set to about 21fps.
-        /// (C: `INFO_INTERVAL`)
-        static INFO_INTERVAL: uint = 47;
-        Ticker { interval: INFO_INTERVAL, lastinfo: None }
-    }
-
     impl Ticker {
+        /// Returns a new ticker with a default display interval.
+        pub fn new() -> Ticker {
+            /// A reasonable interval for the console and graphic display.
+            /// Currently set to about 21fps. (C: `INFO_INTERVAL`)
+            static INFO_INTERVAL: uint = 47;
+            Ticker { interval: INFO_INTERVAL, lastinfo: None }
+        }
+
         /// Calls `f` only when required milliseconds have passed after the last display.
         /// `now` should be a return value from `sdl::get_ticks`.
         pub fn on_tick(&mut self, now: uint, f: ||) {
@@ -3500,7 +3505,7 @@ pub mod player {
     // virtual input
 
     /// Actual input. Mapped to zero or more virtual inputs by input mapping.
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     enum Input {
         /// Keyboard input.
         KeyInput(event::Key),
@@ -3521,7 +3526,7 @@ pub mod player {
     }
 
     /// Virtual input.
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     enum VirtualInput {
         /// Virtual input mapped to the lane.
         LaneInput(Lane),
@@ -3542,7 +3547,7 @@ pub mod player {
      * state. We solve this problem by making the transition from negative to positive (and vice
      * versa) temporarily hit the neutral state.
      */
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     pub enum InputState {
         /// Positive input state. Occurs when the button is pressed or the joystick axis is moved
         /// in the positive direction.
@@ -4084,7 +4089,7 @@ pub mod player {
 
         screen.with_pixels(|pixels| {
             font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2, Centered, "loading bms file...",
-                              Gradient(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
+                              Gradient::new(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
         });
         screen.flip();
 
@@ -4105,7 +4110,7 @@ pub mod player {
 
             if opts.showinfo {
                 let bg = RGBA(0x10,0x10,0x10,0x40);
-                let fg = Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
+                let fg = Gradient::new(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80));
                 for i in range(0, SCREENW) {
                     for j in range(0, 42u) {
                         pixels.put_blended_pixel(i, j, bg);
@@ -4193,7 +4198,7 @@ Artist:   {artist}
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             screen.with_pixels(|pixels| {
                 font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg.as_slice(),
-                                  Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
+                                  Gradient::new(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
             });
             screen.flip();
         });
@@ -4243,7 +4248,7 @@ Artist:   {artist}
         lhs.bms.deref() as *Bms == rhs.bms.deref() as *Bms
     }
 
-    impl Eq for Pointer {
+    impl PartialEq for Pointer {
         fn eq(&self, other: &Pointer) -> bool {
             has_same_bms(self, other) && self.pos == other.pos
         }
@@ -4252,7 +4257,7 @@ Artist:   {artist}
         }
     }
 
-    impl Ord for Pointer {
+    impl PartialOrd for Pointer {
         fn lt(&self, other: &Pointer) -> bool {
             assert!(has_same_bms(self, other));
             self.pos < other.pos
@@ -4303,6 +4308,16 @@ Artist:   {artist}
     }
 
     impl Pointer {
+        /// Returns a pointer pointing the first object in `bms`.
+        pub fn new(bms: Rc<Bms>) -> Pointer {
+            Pointer { bms: bms, pos: 0, next: None }
+        }
+
+        /// Returns a pointer pointing given object in `bms`.
+        pub fn new_with_pos(bms: Rc<Bms>, pos: uint) -> Pointer {
+            Pointer { bms: bms, pos: pos, next: None }
+        }
+
         /// Returns a reference to the list of underlying objects.
         fn objs<'r>(&'r self) -> &'r [Obj] { self.bms.objs.as_slice() }
 
@@ -4433,22 +4448,12 @@ Artist:   {artist}
         }
     }
 
-    /// Returns a pointer pointing the first object in `bms`.
-    fn Pointer(bms: Rc<Bms>) -> Pointer {
-        Pointer { bms: bms, pos: 0, next: None }
-    }
-
-    /// Returns a pointer pointing given object in `bms`.
-    fn pointer_with_pos(bms: Rc<Bms>, pos: uint) -> Pointer {
-        Pointer { bms: bms, pos: pos, next: None }
-    }
-
     //----------------------------------------------------------------------------------------------
     // game play logics
 
     /// Grades. Angolmois performs the time-based grading as long as possible (it can go wrong when
     /// the object is near the discontinuity due to the current implementation strategy).
-    #[deriving(Eq,TotalEq)]
+    #[deriving(PartialEq,Eq)]
     pub enum Grade {
         /**
          * Issued when the player did not input the object at all, the player was pressing the key
@@ -4668,51 +4673,52 @@ Artist:   {artist}
         }
     }
 
-    /// Creates a new player object. The player object owns other related structures, including
-    /// the options, BMS file, key specification, input mapping and sound resources.
-    pub fn Player(opts: Options, bms: Bms, infos: BmsInfo, duration: f64, keyspec: KeySpec,
-                  keymap: KeyMap, sndres: Vec<SoundResource>) -> Player {
-        let now = get_ticks();
-        let initplayspeed = opts.playspeed;
-        let originoffset = infos.originoffset;
-        let startshorten = bms.shorten(originoffset as int);
-        let gradefactor = 1.5 - cmp::min(bms.rank, 5) as f64 * 0.25;
-        let initialgauge = MAXGAUGE * 500 / 1000;
-        let survival = MAXGAUGE * 293 / 1000;
-        let initbpm = bms.initbpm;
-        let nobjs = bms.objs.len();
-        let nsounds = sndres.len();
-
-        let bms = Rc::new(bms);
-        let pfront = Pointer(bms.clone());
-        let pcur = Pointer(bms.clone());
-        let pcheck = Pointer(bms.clone());
-        let mut player = Player {
-            opts: opts, bms: bms, infos: infos, duration: duration,
-            keyspec: keyspec, keymap: keymap,
-
-            nograding: Vec::from_elem(nobjs, false), sndres: sndres, beep: create_beep(),
-            sndlastch: Vec::from_elem(nsounds, None), lastchsnd: Vec::new(),
-            bga: initial_bga_state(),
-
-            playspeed: initplayspeed, targetspeed: None, bpm: initbpm, now: now, origintime: now,
-            starttime: now, stoptime: None, startoffset: originoffset, startshorten: startshorten,
-
-            bottom: originoffset, line: originoffset, top: originoffset,
-            pfront: pfront, pcur: pcur, pcheck: pcheck, pthru: Vec::from_fn(NLANES, |_| None),
-
-            gradefactor: gradefactor, lastgrade: None, gradecounts: [0, ..NGRADES],
-            lastcombo: 0, bestcombo: 0, score: 0, gauge: initialgauge, survival: survival,
-
-            keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
-        };
-
-        player.allocate_more_channels(64);
-        reserve_channels(1); // so that the beep won't be affected
-        player
-    }
-
     impl Player {
+        /// Creates a new player object. The player object owns other related structures, including
+        /// the options, BMS file, key specification, input mapping and sound resources.
+        pub fn new(opts: Options, bms: Bms, infos: BmsInfo, duration: f64, keyspec: KeySpec,
+                   keymap: KeyMap, sndres: Vec<SoundResource>) -> Player {
+            let now = get_ticks();
+            let initplayspeed = opts.playspeed;
+            let originoffset = infos.originoffset;
+            let startshorten = bms.shorten(originoffset as int);
+            let gradefactor = 1.5 - cmp::min(bms.rank, 5) as f64 * 0.25;
+            let initialgauge = MAXGAUGE * 500 / 1000;
+            let survival = MAXGAUGE * 293 / 1000;
+            let initbpm = bms.initbpm;
+            let nobjs = bms.objs.len();
+            let nsounds = sndres.len();
+
+            let bms = Rc::new(bms);
+            let pfront = Pointer::new(bms.clone());
+            let pcur = Pointer::new(bms.clone());
+            let pcheck = Pointer::new(bms.clone());
+            let mut player = Player {
+                opts: opts, bms: bms, infos: infos, duration: duration,
+                keyspec: keyspec, keymap: keymap,
+
+                nograding: Vec::from_elem(nobjs, false), sndres: sndres, beep: create_beep(),
+                sndlastch: Vec::from_elem(nsounds, None), lastchsnd: Vec::new(),
+                bga: initial_bga_state(),
+
+                playspeed: initplayspeed, targetspeed: None, bpm: initbpm, now: now,
+                origintime: now, starttime: now, stoptime: None, startoffset: originoffset,
+                startshorten: startshorten,
+
+                bottom: originoffset, line: originoffset, top: originoffset,
+                pfront: pfront, pcur: pcur, pcheck: pcheck, pthru: Vec::from_fn(NLANES, |_| None),
+
+                gradefactor: gradefactor, lastgrade: None, gradecounts: [0, ..NGRADES],
+                lastcombo: 0, bestcombo: 0, score: 0, gauge: initialgauge, survival: survival,
+
+                keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
+            };
+
+            player.allocate_more_channels(64);
+            reserve_channels(1); // so that the beep won't be affected
+            player
+        }
+
         /// Returns true if the specified lane is being pressed, either by keyboard, joystick
         /// buttons or axes.
         pub fn key_pressed(&self, lane: Lane) -> bool {
@@ -4899,7 +4905,7 @@ Artist:   {artist}
 
             // apply object-like effects while advancing to new `pcur`
             self.pfront.seek_until(self.bottom);
-            let mut prevpcur = pointer_with_pos(self.bms.clone(), self.pcur.pos);
+            let mut prevpcur = Pointer::new_with_pos(self.bms.clone(), self.pcur.pos);
             self.pcur.reset();
             while self.pcur.next_until(self.line) {
                 let time = self.pcur.time();
@@ -5073,7 +5079,7 @@ Artist:   {artist}
                             if num::abs(dist) < BAD_CUTOFF {
                                 if p.is_lnstart() {
                                     player.pthru.as_mut_slice()[*lane] =
-                                        Some(pointer_with_pos(player.bms.clone(), p.pos));
+                                        Some(Pointer::new_with_pos(player.bms.clone(), p.pos));
                                 }
                                 player.nograding.as_mut_slice()[p.pos] = true;
                                 player.update_grade_from_distance(dist);
@@ -5394,36 +5400,8 @@ Artist:   {artist}
         pub lastbga: BGAState,
     }
 
-    /// Creates a new graphic display from the options, key specification, pre-allocated (usually
-    /// by `init_video`) screen, pre-created bitmap fonts and pre-loaded image resources. The last
-    /// three are owned by the display, others are not (in fact, should be owned by `Player`).
-    pub fn GraphicDisplay(opts: &Options, keyspec: &KeySpec, screen: Surface, font: Font,
-                          imgres: Vec<ImageResource>) -> Result<GraphicDisplay,String> {
-        let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
-            Ok(styles) => styles,
-            Err(err) => { return Err(err); }
-        };
-        let centerwidth = rightmost.unwrap_or(SCREENW) - leftmost;
-        let bgax = leftmost + (centerwidth - BGAW) / 2;
-        let bgay = (SCREENH - BGAH) / 2;
-        let sprite = create_sprite(opts, leftmost, rightmost, styles.as_slice());
-
-        let display = GraphicDisplay {
-            sprite: sprite, screen: screen, font: font, imgres: imgres,
-            leftmost: leftmost, rightmost: rightmost, lanestyles: styles, bgax: bgax, bgay: bgay,
-            poorlimit: None, gradelimit: None, lastbga: initial_bga_state(),
-        };
-
-        display.screen.fill(RGB(0,0,0));
-        display.restore_panel();
-        display.screen.flip();
-
-        Ok(display)
-    }
-
     /// The list of grade names and corresponding color scheme. (C: `tgradestr` and `tgradecolor`)
     static GRADES: &'static [(&'static str,Gradient)] = &[
-        // Rust: can we just use `Gradient()`???
         ("MISS",  Gradient { zero: RGB(0xff,0xc0,0xc0), one: RGB(0xff,0x40,0x40) }),
         ("BAD",   Gradient { zero: RGB(0xff,0xc0,0xff), one: RGB(0xff,0x40,0xff) }),
         ("GOOD",  Gradient { zero: RGB(0xff,0xff,0xc0), one: RGB(0xff,0xff,0x40) }),
@@ -5432,6 +5410,35 @@ Artist:   {artist}
     ];
 
     impl GraphicDisplay {
+        /// Creates a new graphic display from the options, key specification, pre-allocated
+        /// (usually by `init_video`) screen, pre-created bitmap fonts and pre-loaded
+        /// image resources. The last three are owned by the display, others are not
+        /// (in fact, should be owned by `Player`).
+        pub fn new(opts: &Options, keyspec: &KeySpec, screen: Surface, font: Font,
+                   imgres: Vec<ImageResource>) -> Result<GraphicDisplay,String> {
+            let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
+                Ok(styles) => styles,
+                Err(err) => { return Err(err); }
+            };
+            let centerwidth = rightmost.unwrap_or(SCREENW) - leftmost;
+            let bgax = leftmost + (centerwidth - BGAW) / 2;
+            let bgay = (SCREENH - BGAH) / 2;
+            let sprite = create_sprite(opts, leftmost, rightmost, styles.as_slice());
+
+            let display = GraphicDisplay {
+                sprite: sprite, screen: screen, font: font, imgres: imgres,
+                leftmost: leftmost, rightmost: rightmost,
+                lanestyles: styles, bgax: bgax, bgay: bgay,
+                poorlimit: None, gradelimit: None, lastbga: initial_bga_state(),
+            };
+
+            display.screen.fill(RGB(0,0,0));
+            display.restore_panel();
+            display.screen.flip();
+
+            Ok(display)
+        }
+
         /// Restores the panels by blitting upper and bottom panels to the screen.
         fn restore_panel(&self) {
             let screen = &self.screen;
@@ -5558,12 +5565,12 @@ Artist:   {artist}
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
                                           Centered, format!("{} COMBO",
                                                             player.lastcombo).as_slice(),
-                                          Gradient(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
+                                          Gradient::new(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 + 2 - delta, 1,
                                           Centered, "(AUTO)",
-                                          Gradient(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
+                                          Gradient::new(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
                     }
                 });
             }
@@ -5644,9 +5651,11 @@ Artist:   {artist}
         pub ticker: Ticker
     }
 
-    /// Creates a new text-only display.
-    pub fn TextDisplay() -> TextDisplay {
-        TextDisplay { ticker: Ticker() }
+    impl TextDisplay {
+        /// Creates a new text-only display.
+        pub fn new() -> TextDisplay {
+            TextDisplay { ticker: Ticker::new() }
+        }
     }
 
     impl Display for TextDisplay {
@@ -5686,11 +5695,13 @@ Artist:   {artist}
         pub lastbga: BGAState,
     }
 
-    /// Creates a new BGA-only display from the pre-created screen (usually by `init_video`) and
-    /// pre-loaded image resources.
-    pub fn BGAOnlyDisplay(screen: Surface, imgres: Vec<ImageResource>) -> BGAOnlyDisplay {
-        BGAOnlyDisplay { textdisplay: TextDisplay(), screen: screen,
-                         imgres: imgres, lastbga: initial_bga_state() }
+    impl BGAOnlyDisplay {
+        /// Creates a new BGA-only display from the pre-created screen (usually by `init_video`) and
+        /// pre-loaded image resources.
+        pub fn new(screen: Surface, imgres: Vec<ImageResource>) -> BGAOnlyDisplay {
+            BGAOnlyDisplay { textdisplay: TextDisplay::new(), screen: screen,
+                             imgres: imgres, lastbga: initial_bga_state() }
+        }
     }
 
     impl Display for BGAOnlyDisplay {
@@ -5749,7 +5760,7 @@ pub fn play(opts: player::Options) {
     for &joyidx in opts.joystick.iter() { player::init_joystick(joyidx); }
 
     // uncompress and populate the bitmap font.
-    let mut font = gfx::Font();
+    let mut font = gfx::Font::new();
     font.create_zoomed_font(1);
     font.create_zoomed_font(2);
     let font = font;
@@ -5772,7 +5783,7 @@ pub fn play(opts: player::Options) {
 
     let (sndres, imgres) = {
         // render the loading screen
-        let ticker = std::cell::RefCell::new(player::Ticker());
+        let ticker = std::cell::RefCell::new(player::Ticker::new());
         let mut saved_screen = None; // XXX should be in a trait actually
         let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
         let update_status;
@@ -5815,23 +5826,23 @@ pub fn play(opts: player::Options) {
     // create the player and transfer ownership of other resources to it
     let duration = parser::bms_duration(&bms, infos.originoffset,
                                         |sref| sndres.as_slice()[**sref as uint].duration());
-    let mut player = player::Player(opts, bms, infos, duration, keyspec, keymap, sndres);
+    let mut player = player::Player::new(opts, bms, infos, duration, keyspec, keymap, sndres);
 
     // create the display and runs the actual game play loop
     let mut display = match screen {
         Some(screen) => {
             if player.opts.is_exclusive() {
-                box player::BGAOnlyDisplay(screen, imgres) as Box<player::Display>
+                box player::BGAOnlyDisplay::new(screen, imgres) as Box<player::Display>
             } else {
-                let display_ = player::GraphicDisplay(&player.opts, &player.keyspec,
-                                                      screen, font, imgres);
+                let display_ = player::GraphicDisplay::new(&player.opts, &player.keyspec,
+                                                           screen, font, imgres);
                 match display_ {
                     Ok(display) => box display as Box<player::Display>,
                     Err(err) => die!("{}", err)
                 }
             }
         },
-        None => box player::TextDisplay() as Box<player::Display>
+        None => box player::TextDisplay::new() as Box<player::Display>
     };
     while player.tick() {
         display.render(&player);
