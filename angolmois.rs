@@ -58,7 +58,6 @@
 #![license = "GPLv2+"]
 
 extern crate libc;
-extern crate collections;
 
 extern crate sdl;
 extern crate sdl_mixer;
@@ -3172,8 +3171,8 @@ pub mod player {
     use std::{slice, cmp, num, iter, hash};
     use std::rc::Rc;
     use std::rand::Rng;
+    use std::collections::HashMap;
     use libc;
-    use collections;
     use sdl::*;
     use sdl::video::*;
     use sdl::event::*;
@@ -3620,7 +3619,7 @@ pub mod player {
     ];
 
     /// An input mapping, i.e. a mapping from the actual input to the virtual input.
-    pub type KeyMap = collections::HashMap<Input,VirtualInput>;
+    pub type KeyMap = HashMap<Input,VirtualInput>;
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<String>) -> KeyMap {
@@ -3655,7 +3654,7 @@ pub mod player {
             }
         }
 
-        let mut map = collections::HashMap::new();
+        let mut map = HashMap::new();
         let add_mapping = |map: &mut KeyMap, kind: Option<KeyKind>,
                            input: Input, vinput: VirtualInput| {
             if kind.map_or(true, |kind| vinput.active_in_key_spec(kind, keyspec)) {
@@ -3744,7 +3743,6 @@ pub mod player {
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
         use std::{str, io};
         use std::ascii::StrAsciiExt;
-        use collections::HashMap;
 
         // `std::io::fs::readdir` is different from C's `dirent.h`, as it always reads
         // the whole list of entries (and `std::io::fs::Directories` is no different).
@@ -5730,6 +5728,8 @@ Artist:   {artist}
 /// Parses the BMS file, initializes the display, shows the loading screen and runs the game play
 /// loop. (C: `play`)
 pub fn play(opts: player::Options) {
+    use std::collections::HashMap;
+
     // parses the file and sanitizes it
     let mut r = std::rand::task_rng();
     let mut bms = match parser::parse_bms(opts.bmspath.as_slice(), &mut r) {
@@ -5773,7 +5773,7 @@ pub fn play(opts: player::Options) {
         // read the input mapping (dependent to the SDL initialization)
         keymap = player::read_keymap(&keyspec, std::os::getenv);
     } else {
-        keymap = collections::HashMap::new();
+        keymap = HashMap::new();
     }
 
     // XXX we don't really need the environment here
@@ -5911,6 +5911,7 @@ Environment Variables:
 /// (C: `main`)
 pub fn main() {
     use player::*;
+    use std::collections::HashMap;
 
     let longargs = vec!(
         ("--help", 'h'), ("--version", 'V'), ("--speed", 'a'),
@@ -5921,7 +5922,7 @@ pub fn main() {
         ("--random", 'r'), ("--random-ex", 'R'), ("--preset", 'k'),
         ("--key-spec", 'K'), ("--bga", ' '), ("--no-bga", 'B'),
         ("--movie", ' '), ("--no-movie", 'M'), ("--joystick", 'j')
-    ).move_iter().collect::<collections::HashMap<&str,char>>();
+    ).move_iter().collect::<HashMap<&str,char>>();
 
     let args = std::os::args();
     let args = args.as_slice();
