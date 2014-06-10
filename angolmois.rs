@@ -3720,7 +3720,7 @@ pub mod player {
             None => {
                 // Rust: it turns out that `Path("")` is always invalid. huh?
                 let path = Path::new(opts.bmspath.as_slice()).dir_path();
-                if path.components().len() == 0 {Path::new(".")} else {path}
+                if path.components().count() == 0 {Path::new(".")} else {path}
             }
         }
     }
