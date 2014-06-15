@@ -231,7 +231,7 @@ pub mod util {
             use libc::{c_void, c_int, c_char, c_float, c_double};
             use sdl::video::ll::{SDL_RWops, SDL_Surface};
             use sdl::audio::ll::SDL_AudioSpec;
-            pub struct SMPEG { opaque: () }
+            pub enum SMPEG {}
             pub struct SMPEG_Info {
                 pub has_audio: c_int,
                 pub has_video: c_int,
@@ -4068,10 +4068,12 @@ pub mod player {
     fn displayed_info(bms: &Bms, infos: &BmsInfo,
                       keyspec: &KeySpec) -> (String, String, String, String) {
         let meta = format!("Level {level} | BPM {bpm:.2}{hasbpmchange} | \
-                            {nnotes, plural, =1{# note} other{# notes}} [{nkeys}KEY{haslongnote}]",
+                            {nnotes} {nnotes_text} [{nkeys}KEY{haslongnote}]",
                            level = bms.playlevel, bpm = *bms.initbpm,
                            hasbpmchange = if infos.hasbpmchange {"?"} else {""},
-                           nnotes = infos.nnotes as uint, nkeys = keyspec.nkeys(),
+                           nnotes = infos.nnotes as uint,
+                           nnotes_text = if infos.nnotes == 1 {"note"} else {"notes"},
+                           nkeys = keyspec.nkeys(),
                            haslongnote = if infos.haslongnote {"-LN"} else {""});
         let title = bms.title.as_ref().map_or("", |s| s.as_slice()).to_string();
         let genre = bms.genre.as_ref().map_or("", |s| s.as_slice()).to_string();
@@ -5968,24 +5970,26 @@ pub fn main() {
             let mut inside = true;
             for (j, c) in shortargs.as_slice().chars().enumerate() {
                 // Reads the argument of the option. Option string should be consumed first.
-                let fetch_arg = |opt| {
-                    let off = if inside {j+1} else {j};
-                    let nextarg =
-                        if inside && off < nshortargs {
-                            // remaining portion of `args[i]` is an argument
-                            shortargs.as_slice().slice_from(off)
-                        } else {
-                            // `args[i+1]` is an argument as a whole
-                            i += 1;
-                            if i < nargs {
-                                args[i].as_slice()
+                macro_rules! fetch_arg(
+                    ($opt:expr) => ({
+                        let off = if inside {j+1} else {j};
+                        let nextarg =
+                            if inside && off < nshortargs {
+                                // remaining portion of `args[i]` is an argument
+                                shortargs.as_slice().slice_from(off)
                             } else {
-                                die!("No argument to the option -{}", opt);
-                            }
-                        };
-                    inside = false;
-                    nextarg
-                };
+                                // `args[i+1]` is an argument as a whole
+                                i += 1;
+                                if i < nargs {
+                                    args[i].as_slice()
+                                } else {
+                                    die!("No argument to the option -{}", $opt);
+                                }
+                            };
+                        inside = false;
+                        nextarg
+                    })
+                )
 
                 match c {
                     'h' => { usage(); }
@@ -6000,11 +6004,11 @@ pub fn main() {
                     'S' => { modf = Some(ShuffleExModf); }
                     'r' => { modf = Some(RandomModf); }
                     'R' => { modf = Some(RandomExModf); }
-                    'k' => { preset = Some(fetch_arg('k').to_string()); }
-                    'K' => { leftkeys = Some(fetch_arg('K').to_string());
-                             rightkeys = Some(fetch_arg('K').to_string()); }
+                    'k' => { preset = Some(fetch_arg!('k').to_string()); }
+                    'K' => { leftkeys = Some(fetch_arg!('K').to_string());
+                             rightkeys = Some(fetch_arg!('K').to_string()); }
                     'a' => {
-                        match from_str::<f64>(fetch_arg('a')) {
+                        match from_str::<f64>(fetch_arg!('a')) {
                             Some(speed) if speed > 0.0 => {
                                 playspeed = if speed < 0.1 {0.1}
                                             else if speed > 99.0 {99.0}
@@ -6016,7 +6020,7 @@ pub fn main() {
                     'B' => { bga = NoBga; }
                     'M' => { bga = BgaButNoMovie; }
                     'j' => {
-                        match from_str::<uint>(fetch_arg('j')) {
+                        match from_str::<uint>(fetch_arg!('j')) {
                             Some(n) => { joystick = Some(n); }
                             _ => die!("Invalid argument to option -j")
                         }
