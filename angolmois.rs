@@ -83,12 +83,7 @@ pub mod util {
     use std;
     use libc;
 
-    /**
-     * String utilities for Rust. Parallels to `std::str`.
-     *
-     * NOTE: Some of these additions will be eventually sent to `libstd/str.rs` and are not subject
-     * to the above copyright notice.
-     */
+    /// String utilities for Rust. Parallels to `std::str`.
     pub mod str {
         use std::str::*;
 
@@ -106,20 +101,6 @@ pub mod util {
             /// Counts the number of bytes in the complete UTF-8 sequences up to `limit` bytes
             /// in `s` starting from `start`.
             fn count_bytes_upto(&self, start: uint, limit: uint) -> uint;
-
-            /// Returns a length of the longest prefix of given string, which `uint::from_str`
-            /// accepts without a failure, if any.
-            //
-            // Rust: actually, it is better to have `{uint,int,f64}::from_str` returning a tuple.
-            fn scan_uint(&self) -> Option<uint>;
-
-            /// Returns a length of the longest prefix of given string, which `int::from_str`
-            /// accepts without a failure, if any.
-            fn scan_int(&self) -> Option<uint>;
-
-            /// Returns a length of the longest prefix of given string, which `f64::from_str`
-            /// accepts without a failure, if any.
-            fn scan_f64(&self) -> Option<uint>;
 
             /// Work with a null-terminated UTF-16 buffer of the string. Useful for calling
             /// Win32 API.
@@ -146,33 +127,6 @@ pub mod util {
                 end - start
             }
 
-            fn scan_uint(&self) -> Option<uint> {
-                match self.find(|c| !('0' <= c && c <= '9')) {
-                    Some(first) if first > 0u => Some(first),
-                    None if self.len() > 0u => Some(self.len()),
-                    _ => None
-                }
-            }
-
-            fn scan_int(&self) -> Option<uint> {
-                if self.starts_with("-") || self.starts_with("+") {
-                    self.slice_from(1u).scan_uint().map(|pos| pos + 1u)
-                } else {
-                    self.scan_uint()
-                }
-            }
-
-            fn scan_f64(&self) -> Option<uint> {
-                self.scan_int().and_then(|pos| {
-                    if self.len() > pos && self.char_at(pos) == '.' {
-                        let pos2 = self.slice_from(pos + 1u).scan_uint();
-                        pos2.map(|pos2| pos + pos2 + 1u)
-                    } else {
-                        Some(pos)
-                    }
-                })
-            }
-
             fn as_utf16_c_str<T>(&self, f: |*u16| -> T) -> T {
                 let mut s16: Vec<u16> = self.to_utf16().move_iter().collect();
                 s16.push(0u16);
@@ -180,23 +134,115 @@ pub mod util {
             }
         }
 
+        /// A version of `std::from_str::FromStr` which parses a prefix of the input and
+        /// returns a remaining portion of the input as well.
+        //
+        // Rust: `std::num::from_str_bytes_common` does not recognize a number followed
+        //        by garbage, so we need to parse it ourselves.
+        pub trait FromStrPrefix {
+            /// Returns a parsed value and remaining string slice if possible.
+            fn from_str_prefix<'a>(s: &'a str) -> Option<(Self, &'a str)>;
+        }
+
+        /// A convenience function that invokes `FromStrPrefix::from_str_prefix`.
+        pub fn from_str_prefix<'a, T:FromStrPrefix>(s: &'a str) -> Option<(T, &'a str)> {
+            FromStrPrefix::from_str_prefix(s)
+        }
+
+        /// Returns a length of the longest prefix of given string,
+        /// which `from_str::<uint>` would in general accept without a failure, if any.
+        fn scan_uint(s: &str) -> Option<uint> {
+            match s.find(|c| !('0' <= c && c <= '9')) {
+                Some(first) if first > 0u => Some(first),
+                None if s.len() > 0u => Some(s.len()),
+                _ => None
+            }
+        }
+
+        /// Returns a length of the longest prefix of given string,
+        /// which `from_str::<int>` would in general accept without a failure, if any.
+        fn scan_int(s: &str) -> Option<uint> {
+            match s.slice_shift_char() {
+                (Some('-'), s_) | (Some('+'), s_) => scan_uint(s_).map(|pos| pos + 1u),
+                _ => scan_uint(s)
+            }
+        }
+
+        /// Returns a length of the longest prefix of given string,
+        /// which `from_str::<f64>` (and so on) would in general accept without a failure, if any.
+        fn scan_float(s: &str) -> Option<uint> {
+            scan_int(s).and_then(|pos| {
+                // scan `.` followed by digits if any
+                match s.slice_from(pos).slice_shift_char() {
+                    (Some('.'), s_) => scan_uint(s_).map(|pos2| pos + 1u + pos2),
+                    _ => Some(pos)
+                }
+            }).and_then(|pos| {
+                // scan `e` or `E` followed by an optional sign and digits if any
+                match s.slice_from(pos).slice_shift_char() {
+                    (Some('e'), s_) | (Some('E'), s_) => scan_int(s_).map(|pos2| pos + 1u + pos2),
+                    _ => Some(pos)
+                }
+            })
+        }
+
+        macro_rules! from_str_prefix_impls(
+            ($($scan:ident then $t:ty;)*) => (
+                $(
+                    impl FromStrPrefix for $t {
+                        fn from_str_prefix<'a>(s: &'a str) -> Option<($t, &'a str)> {
+                            $scan(s).and_then(|pos| {
+                                from_str::<$t>(s.slice_to(pos)).map(|v| (v, s.slice_from(pos)))
+                            })
+                        }
+                    }
+                )*
+            )
+        )
+
+        from_str_prefix_impls! {
+            scan_int   then int;
+            scan_int   then i8;
+            scan_int   then i16;
+            scan_int   then i32;
+            scan_int   then i64;
+            scan_uint  then uint;
+            scan_uint  then u8;
+            scan_uint  then u16;
+            scan_uint  then u32;
+            scan_uint  then u64;
+            scan_float then f32;
+            scan_float then f64;
+        }
+
+        impl FromStrPrefix for char {
+            fn from_str_prefix<'a>(s: &'a str) -> Option<(char, &'a str)> {
+                match s.slice_shift_char() {
+                    (Some(c), s_) => Some((c, s_)),
+                    (None, _) => None,
+                }
+            }
+        }
+
         /// A trait which provides `prefix_shifted` method. Similar to `str::starts_with`, but with
         /// swapped `self` and argument.
         pub trait ShiftablePrefix {
-            /// Returns a slice of given string with `self` at the start of the string stripped only
-            /// once, if any.
+            /// When given string starts with `self`, returns a slice of that string
+            /// excluding that prefix. Otherwise returns `None`.
             fn prefix_shifted<'r>(&self, s: &'r str) -> Option<&'r str>;
+        }
+
+        /// A convenience function that invokes `ShiftablePrefix::prefix_shifted`.
+        pub fn prefix_shifted<'a, T:ShiftablePrefix>(s: &'a str, prefix: T) -> Option<&'a str> {
+            prefix.prefix_shifted(s)
         }
 
         impl ShiftablePrefix for char {
             fn prefix_shifted<'r>(&self, s: &'r str) -> Option<&'r str> {
-                if !s.is_empty() {
-                    let CharRange {ch, next} = s.char_range_at(0u);
-                    if ch == *self {
-                        return Some(s.slice_from(next));
-                    }
+                match s.slice_shift_char() {
+                    (Some(c), s_) if c == *self => Some(s_),
+                    (_, _) => None,
                 }
-                None
             }
         }
 
@@ -209,7 +255,26 @@ pub mod util {
                 }
             }
         }
+    }
 
+    /// Option utilities for Rust. Parallels to `std::option`.
+    pub mod option {
+        /// An utility trait for an option of string or alikes.
+        pub trait StrOption {
+            /// Returns a string slice in the option if any.
+            fn as_ref_slice<'a>(&'a self) -> Option<&'a str>;
+
+            /// Returns a string slice in the option if any, or `default` otherwise.
+            fn as_ref_slice_or<'a>(&'a self, default: &'a str) -> &'a str {
+                self.as_ref_slice().unwrap_or(default)
+            }
+        }
+
+        impl<T:Str> StrOption for Option<T> {
+            fn as_ref_slice<'a>(&'a self) -> Option<&'a str> {
+                self.as_ref().map(|s| s.as_slice())
+            }
+        }
     }
 
     /**
@@ -586,73 +651,31 @@ pub mod util {
      *
      * - `ws`: Consumes one or more whitespace. (C: `%*[ \t\r\n]` or similar)
      * - `ws*`: Consumes zero or more whitespace. (C: ` `)
-     * - `int [-> e2]`: Consumes an integer and optionally saves it to `e2`. (C: `%d` and `%*d`, but
-     *   does not consume preceding whitespace) The integer syntax is slightly limited compared to
-     *   `sscanf`.
-     * - `f64 [-> e2]`: Consumes a real number and optionally saves it to `e2`. (C: `%f` etc.)
-     *   Again, the real number syntax is slightly limited; especially an exponent support is
-     *   missing.
+     * - `int [-> e2]` and so on: Any type implementing the `FromStrPrefix` trait can be used.
+     *   Optionally saves the parsed value to `e2`. The default implementations includes
+     *   all integers, floating point types and `char`. (C: `%d`/`%*d`, `%f`/`%*f`, and `%1c`
+     *   with slight lexical differences)
      * - `str [-> e2]`: Consumes a remaining input as a string and optionally saves it to `e2`.
      *   The string is at least one character long. (C: not really maps to `sscanf`, similar to
      *   `fgets`) Implies `!`. It can be followed by `ws*` which makes the string right-trimmed.
      * - `str* [-> e2]`: Same as above but the string can be empty.
-     * - `char [-> e2]`: Consumes exactly one character and optionally saves it to `e2`. Resulting
-     *   character can be whitespace. (C: `%1c`)
      * - `!`: Ensures that the entire string has been consumed. Should be the last format
      *   specification.
-     * - `"foo"` etc.: An ordinary expression is treated as a literal string or literal character.
+     * - `lit "foo"`, `lit '.'` etc.: A literal string or literal character.
      *
-     * For the use in Angolmois, the following specifications have been added:
-     *
-     * - `Key [-> e2]`: Consumes a two-letter alphanumeric key and optionally saves it to `e2`.
-     *   (C: `%2[0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ]` etc. followed by a call to `key2index`)
-     * - `Measure [-> e2]`: Consumes exactly three digits and optionally saves it to `e2`.
-     *   (C: `%1[0123456789]%1[0123456789]%1[0123456789]` followed by a call to `atoi`)
+     * Whitespaces are only trimmed when `ws` or `ws*` specification is used.
+     * Therefore `char`, for example, can read a whitespace when not prepended with `ws` or `ws*`.
      */
-    // Rust: - there is no `libc::sscanf` due to the varargs. maybe regex support will make
-    //         this obsolete in the future, but not now.
-    //       - multiple statements do not expand correctly. (#4375)
+    // Rust: - multiple statements do not expand correctly. (#4375)
     //       - it is desirable to have a matcher only accepts an integer literal or string literal,
     //         not a generic expression.
-    //       - no hygienic macro yet. possibly observable names from `$e` should be escaped for now.
     //       - it would be more useful to generate bindings for parsed result. this is related to
     //         many issues in general.
+    //       - could we elide a `lit` prefix somehow?
     macro_rules! lex(
         ($e:expr; ) => (true);
         ($e:expr; !) => ($e.is_empty());
 
-        ($e:expr; int -> $dst:expr, $($tail:tt)*) => ({
-            let _line: &str = $e;
-            // Rust: `std::num::from_str_bytes_common` does not recognize a number followed
-            //        by garbage, so we need to parse it ourselves.
-            _line.scan_int().map_or(false, |_endpos| {
-                let _prefix = _line.slice_to(_endpos);
-                from_str(_prefix).map_or(false, |_value| {
-                    $dst = _value;
-                    lex!(_line.slice_from(_endpos); $($tail)*)
-                })
-            })
-        });
-        ($e:expr; uint -> $dst:expr, $($tail:tt)*) => ({
-            let _line: &str = $e;
-            _line.scan_uint().map_or(false, |_endpos| {
-                let _prefix = _line.slice_to(_endpos);
-                from_str(_prefix).map_or(false, |_value| {
-                    $dst = _value;
-                    lex!(_line.slice_from(_endpos); $($tail)*)
-                })
-            })
-        });
-        ($e:expr; f64 -> $dst:expr, $($tail:tt)*) => ({
-            let _line: &str = $e;
-            _line.scan_f64().map_or(false, |_endpos| {
-                let _prefix = _line.slice_to(_endpos);
-                from_str(_prefix).map_or(false, |_value| {
-                    $dst = _value;
-                    lex!(_line.slice_from(_endpos); $($tail)*)
-                })
-            })
-        });
         ($e:expr; str -> $dst:expr, ws*, $($tail:tt)*) => ({
             let _line: &str = $e;
             if !_line.is_empty() {
@@ -681,37 +704,13 @@ pub mod util {
             $dst = _line;
             lex!(""; $($tail)*) // optimization!
         });
-        ($e:expr; char -> $dst:expr, $($tail:tt)*) => ({
+        ($e:expr; $t:ty -> $dst:expr, $($tail:tt)*) => ({
             let _line: &str = $e;
-            if !_line.is_empty() {
-                let _range = _line.char_range_at(0);
-                $dst = _range.ch;
-                lex!(_line.slice_from(_range.next); $($tail)*)
-            } else {
-                false
-            }
-        });
-        // start Angolmois-specific
-        ($e:expr; Key -> $dst:expr, $($tail:tt)*) => ({
-            let _line: &str = $e;
-            key2index_str(_line).map_or(false, |_value| {
-                $dst = Key(_value);
-                lex!(_line.slice_from(2u); $($tail)*)
+            ::util::str::from_str_prefix::<$t>(_line).map_or(false, |(_value, _line)| {
+                $dst = _value;
+                lex!(_line; $($tail)*)
             })
         });
-        ($e:expr; Measure -> $dst:expr, $($tail:tt)*) => ({
-            let _line: &str = $e;
-            let _isdigit = |c| { '0' <= c && c <= '9' };
-            // Rust: this is plain annoying.
-            if _line.len() >= 3 && _isdigit(_line.char_at(0)) && _isdigit(_line.char_at(1)) &&
-                    _isdigit(_line.char_at(2)) {
-                $dst = from_str(_line.slice_to(3u)).unwrap();
-                lex!(_line.slice_from(3u); $($tail)*)
-            } else {
-                false
-            }
-        });
-        // end Angolmois-specific
 
         ($e:expr; ws, $($tail:tt)*) => ({
             let _line: &str = $e;
@@ -725,71 +724,34 @@ pub mod util {
             let _line: &str = $e;
             lex!(_line.trim_left(); $($tail)*)
         });
-        ($e:expr; int, $($tail:tt)*) => ({
-            let mut _dummy: int = 0;
-            lex!($e; int -> _dummy, $($tail)*)
-        });
-        ($e:expr; uint, $($tail:tt)*) => ({
-            let mut _dummy: uint = 0;
-            lex!($e; uint -> _dummy, $($tail)*)
-        });
-        ($e:expr; f64, $($tail:tt)*) => ({
-            let mut _dummy: f64 = 0.0;
-            lex!($e; f64 -> _dummy, $($tail)*)
-        });
         ($e:expr; str, $($tail:tt)*) => ({
             !$e.is_empty() && lex!(""; $($tail)*) // optimization!
         });
         ($e:expr; str*, $($tail:tt)*) => ({
             lex!(""; $($tail)*) // optimization!
         });
-        ($e:expr; char, $($tail:tt)*) => ({
-            let mut _dummy: char = '\x00';
-            lex!($e; char -> _dummy, $($tail)*)
+        ($e:expr; $t:ty, $($tail:tt)*) => ({
+            let mut _dummy: $t; // unused
+            lex!($e; $t -> _dummy, $($tail)*)
         });
-        // start Angolmois-specific
-        ($e:expr; Key, $($tail:tt)*) => ({
-            let mut _dummy: Key = Key(0);
-            lex!($e; Key -> _dummy, $($tail)*)
-        });
-        ($e:expr; Measure, $($tail:tt)*) => ({
-            let mut _dummy: uint = 0;
-            lex!($e; Measure -> _dummy, $($tail)*)
-        });
-        // end Angolmois-specific
-        ($e:expr; $lit:expr, $($tail:tt)*) => ({
-            use util::str::ShiftablePrefix;
-            $lit.prefix_shifted($e).map_or(false, |_line| {
+        ($e:expr; lit $lit:expr, $($tail:tt)*) => ({
+            ::util::str::prefix_shifted($e, $lit).map_or(false, |_line| {
                 lex!(_line; $($tail)*)
             })
         });
 
-        ($e:expr; int -> $dst:expr) => (lex!($e; int -> $dst, ));
-        ($e:expr; uint -> $dst:expr) => (lex!($e; uint -> $dst, ));
-        ($e:expr; f64 -> $dst:expr) => (lex!($e; f64 -> $dst, ));
         ($e:expr; str -> $dst:expr) => (lex!($e; str -> $dst, ));
         ($e:expr; str -> $dst:expr, ws*) => (lex!($e; str -> $dst, ws*, ));
         ($e:expr; str* -> $dst:expr) => (lex!($e; str* -> $dst, ));
         ($e:expr; str* -> $dst:expr, ws*) => (lex!($e; str* -> $dst, ws*, ));
-        ($e:expr; char -> $dst:expr) => (lex!($e; char -> $dst, ));
-        // start Angolmois-specific
-        ($e:expr; Key -> $dst:expr) => (lex!($e; Key -> $dst, ));
-        ($e:expr; Measure -> $dst:expr) => (lex!($e; Measure -> $dst, ));
-        // end Angolmois-specific
+        ($e:expr; $t:ty -> $dst:expr) => (lex!($e; $t -> $dst, ));
 
         ($e:expr; ws) => (lex!($e; ws, ));
         ($e:expr; ws*) => (lex!($e; ws*, ));
-        ($e:expr; int) => (lex!($e; int, ));
-        ($e:expr; uint) => (lex!($e; uint, ));
-        ($e:expr; f64) => (lex!($e; f64, ));
         ($e:expr; str) => (lex!($e; str, ));
         ($e:expr; str*) => (lex!($e; str*, ));
-        ($e:expr; char) => (lex!($e; char, ));
-        // start Angolmois-specific
-        ($e:expr; Key) => (lex!($e; Key, ));
-        ($e:expr; Measure) => (lex!($e; Measure, ));
-        // end Angolmois-specific
-        ($e:expr; $lit:expr) => (lex!($e; $lit, ))
+        ($e:expr; $t:ty) => (lex!($e; $t, ));
+        ($e:expr; lit $lit:expr) => (lex!($e; lit $lit, ))
     )
 
 }
@@ -828,7 +790,7 @@ pub mod util {
 pub mod parser {
     use std::{f64, str, iter, io, fmt};
     use std::rand::Rng;
-    use util::str::StrUtil;
+    use util::str::FromStrPrefix;
 
     //----------------------------------------------------------------------------------------------
     // alphanumeric key
@@ -1583,17 +1545,34 @@ pub mod parser {
         })
     }
 
-    /// Converts the first two letters of `s` to a `Key`. (C: `key2index`)
-    pub fn key2index_str(s: &str) -> Option<int> {
-        if s.len() < 2 { return None; }
-        let str::CharRange {ch:c1, next:p1} = s.char_range_at(0);
-        getdigit(c1).and_then(|a| {
-            let str::CharRange {ch:c2, next:p2} = s.char_range_at(p1);
-            getdigit(c2).map(|b| {
-                assert!(p2 == 2); // both characters should be in ASCII
-                a * 36 + b
+    impl FromStrPrefix for Key {
+        fn from_str_prefix<'a>(s: &'a str) -> Option<(Key, &'a str)> {
+            if s.len() < 2 { return None; }
+            let str::CharRange {ch:c1, next:p1} = s.char_range_at(0);
+            getdigit(c1).and_then(|a| {
+                let str::CharRange {ch:c2, next:p2} = s.char_range_at(p1);
+                getdigit(c2).map(|b| {
+                    assert!(p2 == 2); // both characters should be in ASCII
+                    (Key(a * 36 + b), s.slice_from(p2))
+                })
             })
-        })
+        }
+    }
+
+    /// A wrapper type for a measure number. Only used for parsing.
+    struct Measure(uint);
+
+    impl FromStrPrefix for Measure {
+        fn from_str_prefix<'a>(s: &'a str) -> Option<(Measure, &'a str)> {
+            let isdigit = |c| '0' <= c && c <= '9';
+            if s.len() >= 3 && isdigit(s.char_at(0)) && isdigit(s.char_at(1))
+                            && isdigit(s.char_at(2)) {
+                let measure = from_str::<uint>(s.slice_to(3)).unwrap();
+                Some((Measure(measure), s.slice_from(3)))
+            } else {
+                None
+            }
+        }
     }
 
     /// Reads and parses the BMS file with given RNG from given reader.
@@ -1777,8 +1756,9 @@ pub mod parser {
                     let mut bc = BlitCmd { dst: ImageRef(Key(0)), src: ImageRef(Key(0)),
                                            x1: 0, y1: 0, x2: 0, y2: 0, dx: 0, dy: 0 };
                     if lex!(line; Key -> dst, ws, Key -> src, ws,
-                            int -> bc.x1, ws, int -> bc.y1, ws, int -> bc.x2, ws, int -> bc.y2, ws,
-                            int -> bc.dx, ws, int -> bc.dy) {
+                                  int -> bc.x1, ws, int -> bc.y1, ws,
+                                  int -> bc.x2, ws, int -> bc.y2, ws,
+                                  int -> bc.dx, ws, int -> bc.dy) {
                         bc.src = ImageRef(src);
                         bc.dst = ImageRef(dst);
                         bms.blitcmd.push(bc);
@@ -1797,11 +1777,12 @@ pub mod parser {
 
                 // #STP<int>.<int> <int>
                 ("STP", false) => {
-                    let mut measure = 0;
+                    let mut measure = Measure(0);
                     let mut frac = 0;
                     let mut duration = 0;
-                    if lex!(line; Measure -> measure, '.', uint -> frac, ws,
-                            int -> duration) && duration > 0 {
+                    if lex!(line; Measure -> measure, lit '.', uint -> frac, ws,
+                                  int -> duration) && duration > 0 {
+                        let Measure(measure) = measure;
                         let pos = measure as f64 + frac as f64 * 0.001;
                         let dur = Seconds(duration as f64 * 0.001);
                         bms.objs.push(Obj::Stop(pos, dur));
@@ -1870,10 +1851,12 @@ pub mod parser {
 
                 // #nnnmm:...
                 ("", false) => {
-                    let mut measure = 0;
+                    let mut measure = Measure(0);
                     let mut chan = Key(0);
                     let mut data = "";
-                    if lex!(line; Measure -> measure, Key -> chan, ':', ws*, str -> data, ws*, !) {
+                    if lex!(line; Measure -> measure, Key -> chan, lit ':', ws*,
+                                  str -> data, ws*, !) {
+                        let Measure(measure) = measure;
                         bmsline.push(BmsLine { measure: measure, chan: chan,
                                                data: data.to_string() })
                     }
@@ -2176,6 +2159,7 @@ pub mod parser {
      */
     pub fn preset_to_key_spec(bms: &Bms, preset: Option<String>) -> Option<(String, String)> {
         use std::ascii::OwnedStrAsciiExt;
+        use util::option::StrOption;
 
         let mut present = [false, ..NLANES];
         for &obj in bms.objs.iter() {
@@ -2185,7 +2169,7 @@ pub mod parser {
         }
 
         let preset = preset.map(|s| s.into_ascii_lower());
-        let preset = match preset.as_ref().map(|s| s.as_slice()) {
+        let preset = match preset.as_ref_slice() {
             None | Some("bms") | Some("bme") | Some("bml") => {
                 let isbme = present[8] || present[9] || present[36+8] || present[36+9];
                 let haspedal = present[7] || present[36+7];
@@ -2193,7 +2177,7 @@ pub mod parser {
                     COUPLE_PLAY | DOUBLE_PLAY => if isbme {"14"} else {"10"},
                     _                         => if isbme {"7" } else {"5" }
                 };
-                if haspedal {nkeys.to_string().append("/fp")} else {nkeys.to_string()}
+                if haspedal {nkeys.to_string() + "/fp"} else {nkeys.to_string()}
             },
             Some("pms") => {
                 let isbme = present[6] || present[7] || present[8] || present[9];
@@ -2229,7 +2213,7 @@ pub mod parser {
             if a.time < b.time {Less} else if a.time > b.time {Greater} else {Equal}
         });
 
-        fn sanitize(objs: &mut [Obj], to_type: |&Obj| -> Option<int>,
+        fn sanitize(objs: &mut [Obj], to_type: |&Obj| -> Option<uint>,
                     merge_types: |int| -> int) {
             let len = objs.len();
             let mut i = 0;
@@ -2267,12 +2251,12 @@ pub mod parser {
         for lane in range(0, NLANES) {
             let lane0 = Lane(lane);
 
-            static LNDONE: int = 0;
-            static LNSTART: int = 1;
-            static VISIBLE: int = 2;
-            static INVISIBLE: int = 3;
-            static BOMB: int = 4;
-            let to_type = |obj: &Obj| -> Option<int> {
+            static LNDONE: uint = 0;
+            static LNSTART: uint = 1;
+            static VISIBLE: uint = 2;
+            static INVISIBLE: uint = 3;
+            static BOMB: uint = 4;
+            let to_type = |obj: &Obj| -> Option<uint> {
                 match obj.data {
                     Visible(lane,_) if lane == lane0 => Some(VISIBLE),
                     Invisible(lane,_) if lane == lane0 => Some(INVISIBLE),
@@ -2854,9 +2838,9 @@ pub mod gfx {
     }
 
     /// A scaling factor for the calculation of convolution kernel.
-    static FP_SHIFT1: int = 11;
+    static FP_SHIFT1: uint = 11;
     /// A scaling factor for the summation of weighted pixels.
-    static FP_SHIFT2: int = 16;
+    static FP_SHIFT2: uint = 16;
 
     /// Returns `2^FP_SHIFT * W(x/y)` where `W(x)` is a bicubic kernel function. `y` should be
     /// positive. (C: `bicubic_kernel`)
@@ -3293,6 +3277,7 @@ pub mod player {
     /// Parses a key specification from the options.
     pub fn key_spec(bms: &Bms, opts: &Options) -> Result<KeySpec,String> {
         use std::ascii::StrAsciiExt;
+        use util::option::StrOption;
 
         let (leftkeys, rightkeys) =
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
@@ -3307,12 +3292,12 @@ pub mod player {
                     Some(leftright) => leftright,
                     None => {
                         return Err(format!("Invalid preset name: {}",
-                                           opts.preset.as_ref().map_or("", |s| s.as_slice())));
+                                           opts.preset.as_ref_slice_or("")));
                     }
                 }
             } else {
-                (opts.leftkeys.as_ref().map_or("", |s| s.as_slice()).to_string(),
-                 opts.rightkeys.as_ref().map_or("", |s| s.as_slice()).to_string())
+                (opts.leftkeys.as_ref_slice_or("").to_string(),
+                 opts.rightkeys.as_ref_slice_or("").to_string())
             };
 
         let mut keyspec = KeySpec { split: 0, order: Vec::new(),
@@ -3623,7 +3608,6 @@ pub mod player {
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<String>) -> KeyMap {
-        use util::str::StrUtil;
         use std::ascii::{StrAsciiExt, OwnedStrAsciiExt};
 
         /// Finds an SDL virtual key with the given name. Matching is done case-insensitively.
@@ -3645,9 +3629,9 @@ pub mod player {
         fn parse_input(s: &str) -> Option<Input> {
             let mut idx = 0;
             let s = s.trim();
-            if lex!(s; "button", ws, uint -> idx) {
+            if lex!(s; lit "button", ws, uint -> idx) {
                 Some(JoyButtonInput(idx))
-            } else if lex!(s; "axis", ws, uint -> idx) {
+            } else if lex!(s; lit "axis", ws, uint -> idx) {
                 Some(JoyAxisInput(idx))
             } else {
                 sdl_key_from_name(s).map(|key| KeyInput(key))
@@ -3806,7 +3790,7 @@ pub mod player {
                         Some(idx) => {
                             let namenoext = name.as_slice().slice_to(idx);
                             for ext in exts.iter() {
-                                if namenoext.to_string().append(*ext) == lastpart {
+                                if namenoext.to_string() + *ext == lastpart {
                                     found = true;
                                     break;
                                 }
@@ -4050,11 +4034,11 @@ pub mod player {
 
         fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
                   x: uint, y: uint) {
-            screen.fill_area((x,y), (256,256), RGB(0,0,0));
+            screen.fill_area((x,y), (256u,256u), RGB(0,0,0));
             for &layer in layers.iter() {
                 for &iref in self[layer as uint].iter() {
                     for &surface in imgres[**iref as uint].surface().iter() {
-                        screen.blit_area(surface, (0,0), (x,y), (256,256));
+                        screen.blit_area(surface, (0u,0u), (x,y), (256u,256u));
                     }
                 }
             }
@@ -4067,6 +4051,8 @@ pub mod player {
     /// Returns the interface string common to the graphical and textual loading screen.
     fn displayed_info(bms: &Bms, infos: &BmsInfo,
                       keyspec: &KeySpec) -> (String, String, String, String) {
+        use util::option::StrOption;
+
         let meta = format!("Level {level} | BPM {bpm:.2}{hasbpmchange} | \
                             {nnotes} {nnotes_text} [{nkeys}KEY{haslongnote}]",
                            level = bms.playlevel, bpm = *bms.initbpm,
@@ -4075,9 +4061,9 @@ pub mod player {
                            nnotes_text = if infos.nnotes == 1 {"note"} else {"notes"},
                            nkeys = keyspec.nkeys(),
                            haslongnote = if infos.haslongnote {"-LN"} else {""});
-        let title = bms.title.as_ref().map_or("", |s| s.as_slice()).to_string();
-        let genre = bms.genre.as_ref().map_or("", |s| s.as_slice()).to_string();
-        let artist = bms.artist.as_ref().map_or("", |s| s.as_slice()).to_string();
+        let title = bms.title.as_ref_slice_or("").to_string();
+        let genre = bms.genre.as_ref_slice_or("").to_string();
+        let artist = bms.artist.as_ref_slice_or("").to_string();
         (meta, title, genre, artist)
     }
 
@@ -4181,7 +4167,7 @@ Artist:   {artist}
     /// Saves a portion of the screen for the use in `graphic_update_status`.
     pub fn save_screen_for_loading(screen: &Surface) -> Surface {
         let saved_screen = new_surface(SCREENW, 20);
-        saved_screen.blit_area(screen, (0,SCREENH-20), (0,0), (SCREENW,20));
+        saved_screen.blit_area(screen, (0u,SCREENH-20), (0u,0u), (SCREENW,20u));
         saved_screen
     }
 
@@ -5214,7 +5200,8 @@ Artist:   {artist}
             // render a background sprite (0 at top, <1 at bottom)
             let backcolor = Gradient { zero: RGB(0,0,0), one: self.basecolor };
             for i in range(140, SCREENH - 80) {
-                sprite.fill_area((left, i), (self.width, 1), backcolor.blend(i as int - 140, 1000));
+                sprite.fill_area((left, i), (self.width, 1u),
+                                 backcolor.blend(i as int - 140, 1000));
             }
 
             // render note and bomb sprites (1/2 at middle, 1 at border)
@@ -5223,31 +5210,31 @@ Artist:   {artist}
             let bombcolor = Gradient { zero: RGB(0,0,0),          one: RGB(0xc0,0,0) };
             for i in range(0, self.width / 2) {
                 let num = (self.width - i) as int;
-                sprite.fill_area((noteleft+i, 0), (self.width-i*2, SCREENH),
+                sprite.fill_area((noteleft+i, 0u), (self.width-i*2, SCREENH),
                                  notecolor.blend(num, denom));
-                sprite.fill_area((bombleft+i, 0), (self.width-i*2, SCREENH),
+                sprite.fill_area((bombleft+i, 0u), (self.width-i*2, SCREENH),
                                  bombcolor.blend(num, denom));
             }
         }
 
         /// Renders the lane background to the screen from the sprite.
         pub fn render_back(&self, screen: &Surface, sprite: &Surface, pressed: bool) {
-            screen.fill_area((self.left, 30), (self.width, SCREENH-110), RGB(0,0,0));
+            screen.fill_area((self.left, 30u), (self.width, SCREENH-110), RGB(0,0,0));
             if pressed {
-                screen.blit_area(sprite, (self.spriteleft, 140), (self.left, 140),
+                screen.blit_area(sprite, (self.spriteleft, 140u), (self.left, 140u),
                                  (self.width, SCREENH-220));
             }
         }
 
         /// Renders an object to the screen from the sprite.
         pub fn render_note(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
-            screen.blit_area(sprite, (self.spriteleft + SCREENW, 0),
+            screen.blit_area(sprite, (self.spriteleft + SCREENW, 0u),
                              (self.left, top), (self.width, bottom - top));
         }
 
         /// Renders a bomb object to the screen from the sprite.
         pub fn render_bomb(&self, screen: &Surface, sprite: &Surface, top: uint, bottom: uint) {
-            screen.blit_area(sprite, (self.spritebombleft + SCREENW, 0),
+            screen.blit_area(sprite, (self.spritebombleft + SCREENW, 0u),
                              (self.left, top), (self.width, bottom - top));
         }
     }
@@ -5318,13 +5305,13 @@ Artist:   {artist}
         sprite.with_pixels(|pixels| {
             let topgrad = Gradient { zero: RGB(0x60,0x60,0x60), one: RGB(0xc0,0xc0,0xc0) };
             let botgrad = Gradient { zero: RGB(0x40,0x40,0x40), one: RGB(0xc0,0xc0,0xc0) };
-            for j in range(-244, 556) {
-                for i in range(-10, 20) {
+            for j in range(-244i, 556) {
+                for i in range(-10i, 20) {
                     let c = (i*2+j*3+750) % 2000;
                     pixels.put_pixel((j+244) as uint, (i+10) as uint,
                                      topgrad.blend(850 - num::abs(c-1000), 700));
                 }
-                for i in range(-20, 60) {
+                for i in range(-20i, 60) {
                     let c = (i*3+j*2+750) % 2000;
                     let bottom = (SCREENH - 60) as int;
                     pixels.put_pixel((j+244) as uint, (i+bottom) as uint,
@@ -5332,18 +5319,18 @@ Artist:   {artist}
                 }
             }
         });
-        sprite.fill_area((10, SCREENH-36), (leftmost, 1), gray);
+        sprite.fill_area((10u, SCREENH-36), (leftmost, 1u), gray);
 
         // erase portions of panels left unused
         let leftgap = leftmost + 20;
         let rightgap = rightmost.map_or(SCREENW, |x| x - 20);
         let gapwidth = rightgap - leftgap;
-        sprite.fill_area((leftgap, 0), (gapwidth, 30), black);
-        sprite.fill_area((leftgap, SCREENH-80), (gapwidth, 80), black);
+        sprite.fill_area((leftgap, 0u), (gapwidth, 30u), black);
+        sprite.fill_area((leftgap, SCREENH-80), (gapwidth, 80u), black);
         sprite.with_pixels(|pixels| {
             for i in range(0, 20u) {
                 // Rust: this cannot be `uint` since `-1u` underflows!
-                for j in iter::range_step(20, 0, -1) {
+                for j in iter::range_step(20i, 0, -1) {
                     let j = j as uint;
                     if i*i + j*j <= 400 { break; } // circled border
                     pixels.put_pixel(leftmost + j, 10 + i, black);
@@ -5358,8 +5345,8 @@ Artist:   {artist}
 
         // draw the gauge bar if needed
         if !opts.is_autoplay() {
-            sprite.fill_area((0, SCREENH-16), (368, 16), gray);
-            sprite.fill_area((4, SCREENH-12), (360, 8), black);
+            sprite.fill_area((0u, SCREENH-16), (368u, 16u), gray);
+            sprite.fill_area((4u, SCREENH-12), (360u, 8u), black);
         }
 
         sprite
@@ -5443,8 +5430,8 @@ Artist:   {artist}
         fn restore_panel(&self) {
             let screen = &self.screen;
             let sprite = &self.sprite;
-            screen.blit_area(sprite, (0,0), (0,0), (SCREENW,30));
-            screen.blit_area(sprite, (0,SCREENH-80), (0,SCREENH-80), (SCREENW,80));
+            screen.blit_area(sprite, (0u,0u), (0u,0u), (SCREENW,30u));
+            screen.blit_area(sprite, (0u,SCREENH-80), (0u,SCREENH-80), (SCREENW,80u));
         }
     }
 
@@ -5480,16 +5467,16 @@ Artist:   {artist}
             }
 
             // fill the lanes to the border color
-            screen.fill_area((0, 30), (self.leftmost, SCREENH-110), RGB(0x40,0x40,0x40));
+            screen.fill_area((0u, 30u), (self.leftmost, SCREENH-110), RGB(0x40,0x40,0x40));
             for &rightmost in self.rightmost.iter() {
-                screen.fill_area((rightmost, 30), (SCREENH-rightmost, 490), RGB(0x40,0x40,0x40));
+                screen.fill_area((rightmost, 30u), (SCREENH-rightmost, 490u), RGB(0x40,0x40,0x40));
             }
             for &(lane,style) in self.lanestyles.iter() {
                 style.render_back(screen, sprite, player.key_pressed(lane));
             }
 
             // set the clip area to avoid drawing on the panels
-            screen.set_clip_area((0, 30), (SCREENW, SCREENH-110));
+            screen.set_clip_area((0u, 30u), (SCREENW, SCREENH-110));
 
             // render objects
             let time_to_y = |time| {
@@ -5546,9 +5533,9 @@ Artist:   {artist}
             // render measure bars
             for i in range(player.bottom.floor() as int, player.top.floor() as int + 1) {
                 let y = time_to_y(i as f64);
-                screen.fill_area((0, y), (self.leftmost, 1), RGB(0xc0,0xc0,0xc0));
+                screen.fill_area((0u, y), (self.leftmost, 1u), RGB(0xc0,0xc0,0xc0));
                 for &rightmost in self.rightmost.iter() {
-                    screen.fill_area((rightmost, y), (800-rightmost, 1), RGB(0xc0,0xc0,0xc0));
+                    screen.fill_area((rightmost, y), (800-rightmost, 1u), RGB(0xc0,0xc0,0xc0));
                 }
             }
 
@@ -5613,7 +5600,7 @@ Artist:   {artist}
                 let width = cmp::min(cmp::max(width, 5), 360);
                 let color = if player.gauge >= player.survival {RGB(0xc0,0,0)}
                             else {RGB(0xc0 - ((cycle * 4.0) as u8), 0, 0)};
-                screen.fill_area((4, SCREENH-12), (width, 8), color);
+                screen.fill_area((4u, SCREENH-12), (width, 8u), color);
             }
 
             screen.flip();
