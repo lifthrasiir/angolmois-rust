@@ -104,7 +104,7 @@ pub mod util {
 
             /// Work with a null-terminated UTF-16 buffer of the string. Useful for calling
             /// Win32 API.
-            fn as_utf16_c_str<T>(&self, f: |*u16| -> T) -> T;
+            fn as_utf16_c_str<T>(&self, f: |*const u16| -> T) -> T;
         }
 
         impl<'r> StrUtil<'r> for &'r str {
@@ -127,7 +127,7 @@ pub mod util {
                 end - start
             }
 
-            fn as_utf16_c_str<T>(&self, f: |*u16| -> T) -> T {
+            fn as_utf16_c_str<T>(&self, f: |*const u16| -> T) -> T {
                 let mut s16: Vec<u16> = self.to_utf16().move_iter().collect();
                 s16.push(0u16);
                 f(s16.as_ptr())
@@ -288,7 +288,7 @@ pub mod util {
 
         use std;
         use libc::{c_int, c_float};
-        use std::ptr::null;
+        use std::ptr::mut_null;
         use sdl::video::Surface;
         use self::ll::SMPEGstatus;
 
@@ -296,7 +296,7 @@ pub mod util {
             use libc::{c_void, c_int, c_char, c_float, c_double};
             use sdl::video::ll::{SDL_RWops, SDL_Surface};
             use sdl::audio::ll::SDL_AudioSpec;
-            pub enum SMPEG {}
+            pub struct SMPEG { _opaque: () }
             pub struct SMPEG_Info {
                 pub has_audio: c_int,
                 pub has_video: c_int,
@@ -311,6 +311,7 @@ pub mod util {
                 pub current_time: c_double,
                 pub total_time: c_double
             }
+            #[deriving(PartialEq, Eq, Clone)]
             #[repr(C)]
             pub enum SMPEGstatus {
                 SMPEG_ERROR = -1,
@@ -319,52 +320,53 @@ pub mod util {
             }
             #[link(name = "smpeg")]
             extern {
-                pub fn SMPEG_new(file: *c_char, info: *SMPEG_Info,
-                                 sdl_audio: c_int) -> *SMPEG;
-                pub fn SMPEG_new_descr(file: c_int, info: *SMPEG_Info,
-                                       sdl_audio: c_int) -> *SMPEG;
-                pub fn SMPEG_new_data(data: *c_void, size: c_int, info: *SMPEG_Info,
-                                      sdl_audio: c_int) -> *SMPEG;
-                pub fn SMPEG_new_rwops(src: *SDL_RWops, info: *SMPEG_Info,
-                                       sdl_audio: c_int) -> *SMPEG;
-                pub fn SMPEG_getinfo(mpeg: *SMPEG, info: *SMPEG_Info);
-                pub fn SMPEG_enableaudio(mpeg: *SMPEG, enable: c_int);
-                pub fn SMPEG_enablevideo(mpeg: *SMPEG, enable: c_int);
-                pub fn SMPEG_delete(mpeg: *SMPEG);
-                pub fn SMPEG_status(mpeg: *SMPEG) -> SMPEGstatus;
-                pub fn SMPEG_setvolume(mpeg: *SMPEG, volume: c_int);
+                pub fn SMPEG_new(file: *const c_char, info: *mut SMPEG_Info,
+                                 sdl_audio: c_int) -> *mut SMPEG;
+                pub fn SMPEG_new_descr(file: c_int, info: *mut SMPEG_Info,
+                                       sdl_audio: c_int) -> *mut SMPEG;
+                pub fn SMPEG_new_data(data: *mut c_void, size: c_int, info: *mut SMPEG_Info,
+                                      sdl_audio: c_int) -> *mut SMPEG;
+                pub fn SMPEG_new_rwops(src: *mut SDL_RWops, info: *mut SMPEG_Info,
+                                       sdl_audio: c_int) -> *mut SMPEG;
+                pub fn SMPEG_getinfo(mpeg: *mut SMPEG, info: *mut SMPEG_Info);
+                pub fn SMPEG_enableaudio(mpeg: *mut SMPEG, enable: c_int);
+                pub fn SMPEG_enablevideo(mpeg: *mut SMPEG, enable: c_int);
+                pub fn SMPEG_delete(mpeg: *mut SMPEG);
+                pub fn SMPEG_status(mpeg: *mut SMPEG) -> SMPEGstatus;
+                pub fn SMPEG_setvolume(mpeg: *mut SMPEG, volume: c_int);
                 // XXX SDL_Mutex and SMPEG_DisplayCallback unimplemented
-                pub fn SMPEG_setdisplay(mpeg: *SMPEG, dst: *SDL_Surface,
-                                        surfLock: *c_void, callback: *c_void);
-                pub fn SMPEG_loop(mpeg: *SMPEG, repeat: c_int);
-                pub fn SMPEG_scaleXY(mpeg: *SMPEG, width: c_int, height: c_int);
-                pub fn SMPEG_scale(mpeg: *SMPEG, scale: c_int);
-                pub fn SMPEG_move(mpeg: *SMPEG, x: c_int, y: c_int);
-                pub fn SMPEG_setdisplayregion(mpeg: *SMPEG, x: c_int, y: c_int,
+                pub fn SMPEG_setdisplay(mpeg: *mut SMPEG, dst: *mut SDL_Surface,
+                                        surfLock: *mut c_void, callback: *mut c_void);
+                pub fn SMPEG_loop(mpeg: *mut SMPEG, repeat: c_int);
+                pub fn SMPEG_scaleXY(mpeg: *mut SMPEG, width: c_int, height: c_int);
+                pub fn SMPEG_scale(mpeg: *mut SMPEG, scale: c_int);
+                pub fn SMPEG_move(mpeg: *mut SMPEG, x: c_int, y: c_int);
+                pub fn SMPEG_setdisplayregion(mpeg: *mut SMPEG, x: c_int, y: c_int,
                                               w: c_int, h: c_int);
-                pub fn SMPEG_play(mpeg: *SMPEG);
-                pub fn SMPEG_pause(mpeg: *SMPEG);
-                pub fn SMPEG_stop(mpeg: *SMPEG);
-                pub fn SMPEG_rewind(mpeg: *SMPEG);
-                pub fn SMPEG_seek(mpeg: *SMPEG, bytes: c_int);
-                pub fn SMPEG_skip(mpeg: *SMPEG, seconds: c_float);
-                pub fn SMPEG_renderFrame(mpeg: *SMPEG, framenum: c_int);
-                pub fn SMPEG_renderFinal(mpeg: *SMPEG, dst: *SDL_Surface, x: c_int, y: c_int);
+                pub fn SMPEG_play(mpeg: *mut SMPEG);
+                pub fn SMPEG_pause(mpeg: *mut SMPEG);
+                pub fn SMPEG_stop(mpeg: *mut SMPEG);
+                pub fn SMPEG_rewind(mpeg: *mut SMPEG);
+                pub fn SMPEG_seek(mpeg: *mut SMPEG, bytes: c_int);
+                pub fn SMPEG_skip(mpeg: *mut SMPEG, seconds: c_float);
+                pub fn SMPEG_renderFrame(mpeg: *mut SMPEG, framenum: c_int);
+                pub fn SMPEG_renderFinal(mpeg: *mut SMPEG, dst: *mut SDL_Surface,
+                                         x: c_int, y: c_int);
                 // XXX SMPEG_Filter unimplemented
-                pub fn SMPEG_filter(mpeg: *SMPEG, filter: *c_void) -> *c_void;
-                pub fn SMPEG_error(mpeg: *SMPEG) -> *c_char;
-                pub fn SMPEG_playAudio(mpeg: *SMPEG, stream: *u8, len: c_int) -> c_int;
-                pub fn SMPEG_playAudioSDL(mpeg: *c_void, stream: *u8, len: c_int) -> c_int;
-                pub fn SMPEG_wantedSpec(mpeg: *SMPEG, wanted: *SDL_AudioSpec) -> c_int;
-                pub fn SMPEG_actualSpec(mpeg: *SMPEG, spec: *SDL_AudioSpec);
+                pub fn SMPEG_filter(mpeg: *mut SMPEG, filter: *mut c_void) -> *mut c_void;
+                pub fn SMPEG_error(mpeg: *mut SMPEG) -> *mut c_char;
+                pub fn SMPEG_playAudio(mpeg: *mut SMPEG, stream: *mut u8, len: c_int) -> c_int;
+                pub fn SMPEG_playAudioSDL(mpeg: *mut c_void, stream: *mut u8, len: c_int) -> c_int;
+                pub fn SMPEG_wantedSpec(mpeg: *mut SMPEG, wanted: *mut SDL_AudioSpec) -> c_int;
+                pub fn SMPEG_actualSpec(mpeg: *mut SMPEG, spec: *mut SDL_AudioSpec);
             }
         }
 
         pub struct MPEG {
-            pub raw: *ll::SMPEG
+            pub raw: *mut ll::SMPEG
         }
 
-        fn wrap_mpeg(raw: *ll::SMPEG) -> MPEG {
+        fn wrap_mpeg(raw: *mut ll::SMPEG) -> MPEG {
             MPEG { raw: raw }
         }
 
@@ -378,7 +380,7 @@ pub mod util {
             pub fn from_path(path: &Path) -> Result<MPEG, String> {
                 let raw = unsafe {
                     path.to_c_str().with_ref(|buf| {
-                        ll::SMPEG_new(buf, null(), 0)
+                        ll::SMPEG_new(buf, mut_null(), 0)
                     })
                 };
 
@@ -396,7 +398,7 @@ pub mod util {
 
             pub fn set_display(&self, surface: &Surface) {
                 unsafe {
-                    ll::SMPEG_setdisplay(self.raw, surface.raw, null(), null());
+                    ll::SMPEG_setdisplay(self.raw, surface.raw, mut_null(), mut_null());
                 }
             }
 
@@ -499,9 +501,9 @@ pub mod util {
                 pub nFileExtension: WORD,
                 pub lpstrDefExt: LPCWSTR,
                 pub lCustData: DWORD,
-                pub lpfnHook: *(), // XXX LPOFNHOOKPROC = fn(HWND,c_uint,WPARAM,LPARAM)->c_uint
+                pub lpfnHook: *mut (), // XXX LPOFNHOOKPROC = fn(HWND,c_uint,WPARAM,LPARAM)->c_uint
                 pub lpTemplateName: LPCWSTR,
-                pub pvReserved: *c_void,
+                pub pvReserved: *mut c_void,
                 pub dwReserved: DWORD,
                 pub FlagsEx: DWORD,
             }
@@ -526,8 +528,9 @@ pub mod util {
             #[link(name = "kernel32")]
             extern "system" {
                 pub fn FindFirstFileA(lpFileName: LPCSTR,
-                                      lpFindFileData: *WIN32_FIND_DATAA) -> HANDLE;
-                pub fn FindNextFileA(hFindFile: HANDLE, lpFindFileData: *WIN32_FIND_DATAA) -> BOOL;
+                                      lpFindFileData: *mut WIN32_FIND_DATAA) -> HANDLE;
+                pub fn FindNextFileA(hFindFile: HANDLE,
+                                     lpFindFileData: *mut WIN32_FIND_DATAA) -> BOOL;
                 pub fn FindClose(hFindFile: HANDLE) -> BOOL;
             }
 
@@ -539,7 +542,7 @@ pub mod util {
 
             #[link(name = "comdlg32")]
             extern "system" {
-                pub fn GetOpenFileNameW(lpofn: *OPENFILENAMEW) -> BOOL;
+                pub fn GetOpenFileNameW(lpofn: *mut OPENFILENAMEW) -> BOOL;
             }
         }
     }
@@ -2784,7 +2787,7 @@ pub mod gfx {
     /// A proxy to `sdl::video::Surface` for the direct access to pixels. For now, it is for 32 bits
     /// per pixel only.
     pub struct SurfacePixels<'r> {
-        fmt: *ll::SDL_PixelFormat,
+        fmt: *mut ll::SDL_PixelFormat,
         width: uint,
         height: uint,
         pitch: uint,
@@ -2815,12 +2818,12 @@ pub mod gfx {
     impl<'r> SurfacePixels<'r> {
         /// Returns a pixel at given position. (C: `getpixel`)
         pub fn get_pixel(&self, x: uint, y: uint) -> Color {
-            Color::from_mapped(self.pixels[x + y * self.pitch], self.fmt)
+            Color::from_mapped(self.pixels[x + y * self.pitch], self.fmt as *const _)
         }
 
         /// Sets a pixel to given position. (C: `putpixel`)
         pub fn put_pixel(&mut self, x: uint, y: uint, c: Color) {
-            self.pixels[x + y * self.pitch] = c.to_mapped(self.fmt);
+            self.pixels[x + y * self.pitch] = c.to_mapped(self.fmt as *const _);
         }
 
         /// Sets or blends (if `c` is `RGBA`) a pixel to given position. (C: `putblendedpixel`)
@@ -3827,6 +3830,14 @@ pub mod player {
             }
         }
 
+        /// Returns the associated chunk if any.
+        pub fn mut_chunk<'r>(&'r mut self) -> Option<&'r mut Chunk> {
+            match *self {
+                NoSound => None,
+                Sound(ref mut chunk) => Some(chunk)
+            }
+        }
+
         /// Returns the length of associated sound chunk in seconds. This is used for determining
         /// the actual duration of the song in presence of key and background sounds, so it may
         /// return 0.0 if no sound is present.
@@ -4231,7 +4242,7 @@ Artist:   {artist}
 
     /// Returns true if two pointers share the common BMS data.
     fn has_same_bms(lhs: &Pointer, rhs: &Pointer) -> bool {
-        lhs.bms.deref() as *Bms == rhs.bms.deref() as *Bms
+        lhs.bms.deref() as *const Bms == rhs.bms.deref() as *const Bms
     }
 
     impl PartialEq for Pointer {
@@ -4653,7 +4664,7 @@ Artist:   {artist}
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
             |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
         unsafe {
-            slice::raw::buf_as_slice(samples.as_ptr() as *u8, samples.len() * 4, |samples| {
+            slice::raw::buf_as_slice(samples.as_ptr() as *const u8, samples.len() * 4, |samples| {
                 sdl_mixer::Chunk::new(Vec::from_slice(samples), 128)
             })
         }
@@ -4808,7 +4819,7 @@ Artist:   {artist}
             // the last channel info is removed)
             let mut ch;
             loop {
-                ch = self.sndres.as_slice()[sref].chunk().unwrap().play(lastch, 0);
+                ch = self.sndres.as_mut_slice()[sref].mut_chunk().unwrap().play(lastch, 0);
                 if ch >= 0 { break; }
                 self.allocate_more_channels(32);
             }
@@ -4833,7 +4844,7 @@ Artist:   {artist}
 
         /// Plays a beep. The beep is always played in the channel 0, which is excluded from
         /// the uniform key sound and BGM management. (C: `Mix_PlayChannel(0, beep, 0)`)
-        pub fn play_beep(&self) {
+        pub fn play_beep(&mut self) {
             self.beep.play(Some(0), 0);
         }
 
