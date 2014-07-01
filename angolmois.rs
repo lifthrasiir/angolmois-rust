@@ -379,9 +379,8 @@ pub mod util {
         impl MPEG {
             pub fn from_path(path: &Path) -> Result<MPEG, String> {
                 let raw = unsafe {
-                    path.to_c_str().with_ref(|buf| {
-                        ll::SMPEG_new(buf, mut_null(), 0)
-                    })
+                    let path = path.to_c_str();
+                    ll::SMPEG_new(path.as_ptr(), mut_null(), 0)
                 };
 
                 if raw.is_null() { Err(::sdl::get_error()) }
@@ -4255,21 +4254,9 @@ Artist:   {artist}
     }
 
     impl PartialOrd for Pointer {
-        fn lt(&self, other: &Pointer) -> bool {
+        fn partial_cmp(&self, other: &Pointer) -> Option<Ordering> {
             assert!(has_same_bms(self, other));
-            self.pos < other.pos
-        }
-        fn le(&self, other: &Pointer) -> bool {
-            assert!(has_same_bms(self, other));
-            self.pos <= other.pos
-        }
-        fn ge(&self, other: &Pointer) -> bool {
-            assert!(has_same_bms(self, other));
-            self.pos >= other.pos
-        }
-        fn gt(&self, other: &Pointer) -> bool {
-            assert!(has_same_bms(self, other));
-            self.pos > other.pos
+            self.pos.partial_cmp(&other.pos)
         }
     }
 
