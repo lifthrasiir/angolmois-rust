@@ -49,7 +49,7 @@
  * * TODO - other problems unrelated to Rust.
  */
 
-#![crate_id = "angolmois#2.0.0-alpha2"]
+#![crate_name = "angolmois"]
 #![crate_type = "bin"]
 
 #![feature(globs, macro_rules)]
