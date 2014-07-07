@@ -19,13 +19,13 @@ $(BIN): $(SRC) $(LIBSDL) $(LIBSDLIMAGE) $(LIBSDLMIXER)
 	$(RUSTC) $(RUSTFLAGS) -L $(RUSTSDL) $(SRC) -o $(BIN)
 
 $(LIBSDL): $(RUSTSDL)/src/sdl/lib.rs
-	$(RUSTC) $(RUSTPKGFLAGS) $< --out-dir $(dir $@)
+	$(RUSTC) $(RUSTPKGFLAGS) $< -C extra-filename=_rust --out-dir $(dir $@)
 
 $(LIBSDLIMAGE): $(RUSTSDL)/src/sdl_image/lib.rs $(LIBSDL)
-	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< --out-dir $(dir $@)
+	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< -C extra-filename=_rust --out-dir $(dir $@)
 
 $(LIBSDLMIXER): $(RUSTSDL)/src/sdl_mixer/lib.rs $(LIBSDL)
-	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< --out-dir $(dir $@)
+	$(RUSTC) $(RUSTPKGFLAGS) -L $(RUSTSDL) $< -C extra-filename=_rust --out-dir $(dir $@)
 
 doc:
 	$(RUSTDOC) -L $(RUSTSDL) $(SRC)
