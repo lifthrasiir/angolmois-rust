@@ -3675,7 +3675,7 @@ pub mod player {
         for &lane in keyspec.order.iter() {
             let key = Key(36 + *lane as int);
             let kind = keyspec.kinds.as_slice()[*lane].unwrap();
-            let envvar = format!("ANGOLMOIS_{}{}_KEY", key.to_str(), kind.to_char());
+            let envvar = format!("ANGOLMOIS_{}{}_KEY", key, kind.to_char());
             for s in getenv(envvar.as_slice()).iter() {
                 match parse_input(s.as_slice()) {
                     Some(input) => { add_mapping(&mut map, Some(kind), input, LaneInput(lane)); }
@@ -3860,7 +3860,7 @@ pub mod player {
         match res {
             Ok(res) => Sound(res),
             Err(_) => {
-                warn!("failed to load sound \\#WAV{} ({})", key.to_str(), path);
+                warn!("failed to load sound \\#WAV{} ({})", key, path);
                 NoSound
             }
         }
@@ -3947,7 +3947,7 @@ pub mod player {
                         movie.set_display(&surface);
                         return Movie(surface, movie);
                     }
-                    Err(_) => { warn!("failed to load image \\#BMP{} ({})", key.to_str(), path); }
+                    Err(_) => { warn!("failed to load image \\#BMP{} ({})", key, path); }
                 }
             }
         } else if opts.has_bga() {
@@ -3959,7 +3959,7 @@ pub mod player {
             };
             match res {
                 Ok(res) => { return res; },
-                Err(_) => { warn!("failed to load image \\#BMP{} ({})", key.to_str(), path); }
+                Err(_) => { warn!("failed to load image \\#BMP{} ({})", key, path); }
             }
         }
         NoImage
