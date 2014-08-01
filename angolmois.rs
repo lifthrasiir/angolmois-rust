@@ -63,8 +63,6 @@ extern crate sdl;
 extern crate sdl_mixer;
 extern crate sdl_image;
 
-use std::{char, str};
-
 /// Returns a version string. (C: `VERSION`)
 pub fn version() -> String { "Angolmois 2.0.0 alpha 2 (rust edition)".to_string() }
 
@@ -459,7 +457,7 @@ pub mod util {
             pub fn get_error(&self) -> String {
                 unsafe {
                     let cstr = ll::SMPEG_error(self.raw);
-                    std::str::raw::from_c_str(std::mem::transmute(&cstr))
+                    std::string::raw::from_buf(std::mem::transmute(&cstr))
                 }
             }
         }
@@ -629,7 +627,7 @@ pub mod util {
                         Some(idx) => buf.slice(0, idx),
                         None => buf.as_slice()
                     };
-                    std::str::from_utf16(path)
+                    String::from_utf16(path)
                 } else {
                     None
                 }
@@ -1666,7 +1664,7 @@ pub mod parser {
 
         let file = try!(f.read_to_end());
         for line0 in file.as_slice().split(|&ch| ch == 10u8) {
-            let line0 = str::from_utf8_lossy(line0).into_string();
+            let line0 = String::from_utf8_lossy(line0).into_string();
             let line = line0.as_slice();
 
             // skip non-command lines
@@ -5944,7 +5942,7 @@ pub fn main() {
             let shortargs =
                 if arg.starts_with("--") {
                     match longargs.find(&arg) {
-                        Some(&c) => str::from_char(c),
+                        Some(&c) => c.to_string(),
                         None => die!("Invalid option: {}", arg)
                     }
                 } else {
@@ -6011,7 +6009,7 @@ pub fn main() {
                         }
                     }
                     ' ' => {} // for ignored long options
-                    '1'..'9' => { playspeed = char::to_digit(c, 10).unwrap() as f64; }
+                    '1'..'9' => { playspeed = c.to_digit(10).unwrap() as f64; }
                     _ => die!("Invalid option: -{}", c)
                 }
                 if !inside { break; }
