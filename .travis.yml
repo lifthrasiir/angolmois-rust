@@ -2,16 +2,17 @@ env:
   global:
     - secure: Wvt1H+1UmE6loztT4GrjpekDmEjwtpMm+GiENGGdeC5SlyCq7FXg0ezj53oWZ/F7RBi82WglllrlF3aCAue5TaoODuO7VhzgeqMezLIytVVUJYE2zmEh4tAXk6s3w/pXBgV/K3fKxe/Sc5rw7e8OZNuoRr/e8hSEBMx2UnxLtwM=
 before_install:
-#  - yes | sudo add-apt-repository ppa:hansjorg/rust
   - sudo apt-get update
-  - curl -O http://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - tar xfz rust-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - (cd rust-nightly-x86_64-unknown-linux-gnu/ && sudo ./install.sh)
-#  - sudo apt-get install rust-nightly
   - sudo apt-get install libsdl1.2-dev libsdl-mixer1.2-dev libsdl-image1.2-dev libsmpeg-dev
+  - curl -O http://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
+  - curl -O http://static.rust-lang.org/cargo-dist/cargo-nightly-linux.tar.gz
+  - tar xfz rust-nightly-x86_64-unknown-linux-gnu.tar.gz
+  - tar xfz cargo-nightly-linux.tar.gz
+  - (cd rust-nightly-x86_64-unknown-linux-gnu/ && sudo ./install.sh)
+  - (cd cargo-nightly/ && sudo ./install.sh)
 script:
-  - make RUSTFLAGS= RUSTPKGFLAGS=
-  - make doc
+  - cargo build
+  - cargo doc
 branches:
   only:
     - master
