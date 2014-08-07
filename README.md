@@ -27,11 +27,10 @@ Angolmois is distributed under GNU GPL version 2+, so is this translation. The p
 
 Clone this repo and run the following commands (yes, you need the MinGW shell for Windows):
 
-    git submodule init
-    git submodule update
-    make
+    cargo build --release
+    target/release/angolmois --help
 
-You require the most recent Rust master. Consider using unofficial nightly builds if you don't want to compile rustc. (See the [separate document](https://github.com/mozilla/rust/wiki/Doc-how-to-install-an-unofficial-nightly-for-Windows) for Windows.)
+You require the most recent Rust master and [Cargo](https://github.com/rust-lang/cargo). You can install nightlies for both.
 
 ### Why did you put everything to one file?
 

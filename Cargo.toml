@@ -1,0 +1,18 @@
+[package]
+name = "angolmois"
+version = "2.0.0-alpha2"
+authors = ["Kang Seonghoon <public+git@mearie.org>"]
+
+[dependencies.sdl]
+git = "https://github.com/lifthrasiir/rust-sdl.git"
+
+[dependencies.sdl_image]
+git = "https://github.com/lifthrasiir/rust-sdl.git"
+
+[dependencies.sdl_mixer]
+git = "https://github.com/lifthrasiir/rust-sdl.git"
+
+[[bin]]
+name = "angolmois"
+path = "angolmois.rs"
+
