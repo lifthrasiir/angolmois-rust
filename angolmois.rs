@@ -470,8 +470,7 @@ pub mod util {
             #![allow(non_camel_case_types)]
 
             use libc::{c_int, c_uint, c_void};
-            use libc::types::os::arch::extra::{BOOL, CHAR, WORD, DWORD, HANDLE};
-            use libc::types::os::arch::extra::{LPCSTR, LPWSTR, LPCWSTR};
+            use libc::types::os::arch::extra::{BOOL, WORD, DWORD, HANDLE, LPWSTR, LPCWSTR};
 
             pub type HWND = HANDLE;
             pub type HINSTANCE = HANDLE;
@@ -479,6 +478,7 @@ pub mod util {
             pub static OFN_HIDEREADONLY: DWORD = 4;
 
             #[allow(uppercase_variables)]
+            #[repr(C)]
             pub struct OPENFILENAMEW {
                 pub lStructSize: DWORD,
                 pub hwndOwner: HWND,
@@ -503,32 +503,6 @@ pub mod util {
                 pub pvReserved: *mut c_void,
                 pub dwReserved: DWORD,
                 pub FlagsEx: DWORD,
-            }
-
-            pub struct FILETIME {
-                pub dwLowDateTime: DWORD,
-                pub dwHighDateTime: DWORD,
-            }
-
-            pub struct WIN32_FIND_DATAA {
-                pub dwFileAttributes: DWORD,
-                pub ftCreationTime: FILETIME,
-                pub ftLastAccessTime: FILETIME,
-                pub ftLastWriteTime: FILETIME,
-                pub nFileSizeHigh: DWORD,
-                pub nFileSizeLow: DWORD,
-                pub dwReserved0: DWORD,
-                pub dwReserved1: DWORD,
-                pub cFileName: [CHAR, ..260],
-            }
-
-            #[link(name = "kernel32")]
-            extern "system" {
-                pub fn FindFirstFileA(lpFileName: LPCSTR,
-                                      lpFindFileData: *mut WIN32_FIND_DATAA) -> HANDLE;
-                pub fn FindNextFileA(hFindFile: HANDLE,
-                                     lpFindFileData: *mut WIN32_FIND_DATAA) -> BOOL;
-                pub fn FindClose(hFindFile: HANDLE) -> BOOL;
             }
 
             #[link(name = "user32")]
@@ -604,7 +578,7 @@ pub mod util {
             "Choose a file to play".as_utf16_c_str(|title| {
                 let mut buf = [0u16, ..512];
                 let ofnsz = std::mem::size_of::<win32::ll::OPENFILENAMEW>();
-                let ofn = win32::ll::OPENFILENAMEW {
+                let mut ofn = win32::ll::OPENFILENAMEW {
                     lStructSize: ofnsz as libc::DWORD,
                     lpstrFilter: filter,
                     lpstrFile: buf.as_mut_ptr(),
@@ -621,7 +595,7 @@ pub mod util {
                     lpTemplateName: null(), pvReserved: mut_null(),
                     dwReserved: 0, FlagsEx: 0,
                 };
-                let ret = unsafe {win32::ll::GetOpenFileNameW(std::mem::transmute(&ofn))};
+                let ret = unsafe {win32::ll::GetOpenFileNameW(&mut ofn)};
                 if ret != 0 {
                     let path: &[u16] = match buf.position_elem(&0) {
                         Some(idx) => buf.slice(0, idx),
