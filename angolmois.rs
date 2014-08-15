@@ -462,7 +462,7 @@ pub mod util {
     }
 
     /// Win32 API wrappers.
-    #[cfg(target_os = "win32")]
+    #[cfg(target_os = "windows")]
     pub mod win32 {
         pub mod ll {
             #![allow(non_camel_case_types)]
@@ -523,7 +523,7 @@ pub mod util {
     }
 
     /// Exits with an error message. Internally used in the `die!` macro below.
-    #[cfg(target_os = "win32")]
+    #[cfg(target_os = "windows")]
     pub fn die(s: &str) -> ! {
         use util::str::StrUtil;
         ::exename().as_slice().as_utf16_c_str(|caption| {
@@ -535,7 +535,7 @@ pub mod util {
     }
 
     /// Exits with an error message. Internally used in the `die!` macro below.
-    #[cfg(not(target_os = "win32"))]
+    #[cfg(not(target_os = "windows"))]
     pub fn die(s: &str) -> ! {
         let mut stderr = std::io::stderr();
         let _ = writeln!(&mut stderr, "{}: {}", ::exename(), s);
@@ -560,7 +560,7 @@ pub mod util {
 
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
-    #[cfg(target_os = "win32")]
+    #[cfg(target_os = "windows")]
     pub fn get_path_from_dialog() -> Option<String> {
         use std::ptr::{null, mut_null};
         use util::str::StrUtil;
@@ -609,7 +609,7 @@ pub mod util {
 
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
-    #[cfg(not(target_os = "win32"))]
+    #[cfg(not(target_os = "windows"))]
     pub fn get_path_from_dialog() -> Option<String> {
         None
     }
