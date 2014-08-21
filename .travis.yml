@@ -5,11 +5,11 @@ before_install:
   - sudo apt-get update
   - sudo apt-get install libsdl1.2-dev libsdl-mixer1.2-dev libsdl-image1.2-dev libsmpeg-dev
   - curl -O http://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - curl -O http://static.rust-lang.org/cargo-dist/cargo-nightly-linux.tar.gz
+  - curl -O http://static.rust-lang.org/cargo-dist/cargo-nightly-x86_64-unknown-linux-gnu.tar.gz
   - tar xfz rust-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - tar xfz cargo-nightly-linux.tar.gz
+  - tar xfz cargo-nightly-x86_64-unknown-linux-gnu.tar.gz
   - (cd rust-nightly-x86_64-unknown-linux-gnu/ && sudo ./install.sh)
-  - (cd cargo-nightly/ && sudo ./install.sh)
+  - (cd cargo-nightly-x86_64-unknown-linux-gnu/ && sudo ./install.sh)
 script:
   - cargo build
   - cargo doc
@@ -17,4 +17,4 @@ branches:
   only:
     - master
 after_script:
-  - curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh
+  - cd target && curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh
