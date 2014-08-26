@@ -292,7 +292,9 @@ pub mod util {
             use libc::{c_void, c_int, c_char, c_float, c_double};
             use sdl::video::ll::{SDL_RWops, SDL_Surface};
             use sdl::audio::ll::SDL_AudioSpec;
+            #[repr(C)]
             pub struct SMPEG { _opaque: () }
+            #[repr(C)]
             pub struct SMPEG_Info {
                 pub has_audio: c_int,
                 pub has_video: c_int,
