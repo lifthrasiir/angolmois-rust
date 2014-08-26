@@ -1,20 +1,19 @@
+language: rust
+os:
+  - linux
+  - osx
 env:
   global:
+    - LD_LIBRARY_PATH: /usr/local/lib
     - secure: Wvt1H+1UmE6loztT4GrjpekDmEjwtpMm+GiENGGdeC5SlyCq7FXg0ezj53oWZ/F7RBi82WglllrlF3aCAue5TaoODuO7VhzgeqMezLIytVVUJYE2zmEh4tAXk6s3w/pXBgV/K3fKxe/Sc5rw7e8OZNuoRr/e8hSEBMx2UnxLtwM=
 before_install:
   - sudo apt-get update
   - sudo apt-get install libsdl1.2-dev libsdl-mixer1.2-dev libsdl-image1.2-dev libsmpeg-dev
-  - curl -O http://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - curl -O http://static.rust-lang.org/cargo-dist/cargo-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - tar xfz rust-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - tar xfz cargo-nightly-x86_64-unknown-linux-gnu.tar.gz
-  - (cd rust-nightly-x86_64-unknown-linux-gnu/ && sudo ./install.sh)
-  - (cd cargo-nightly-x86_64-unknown-linux-gnu/ && sudo ./install.sh)
+before_script:
+  - rustc -v
+  - cargo -V
 script:
-  - cargo build
+  - cargo build -v
   - cargo doc
-branches:
-  only:
-    - master
 after_script:
   - cd target && curl http://www.rust-ci.org/artifacts/put?t=$RUSTCI_TOKEN | sh
