@@ -477,7 +477,7 @@ pub mod util {
 
             pub static OFN_HIDEREADONLY: DWORD = 4;
 
-            #[allow(uppercase_variables)]
+            #[allow(non_snake_case)]
             #[repr(C)]
             pub struct OPENFILENAMEW {
                 pub lStructSize: DWORD,
@@ -1279,7 +1279,7 @@ pub mod parser {
         pub data: ObjData
     }
 
-    #[allow(non_snake_case_functions)]
+    #[allow(non_snake_case)]
     impl Obj {
         /// Creates a `Visible` object.
         pub fn Visible(time: f64, lane: Lane, sref: Option<Key>) -> Obj {
@@ -3711,6 +3711,7 @@ pub mod player {
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
         use std::{str, io};
         use std::ascii::StrAsciiExt;
+        use std::io::fs::PathExtensions;
 
         // `std::io::fs::readdir` is different from C's `dirent.h`, as it always reads
         // the whole list of entries (and `std::io::fs::Directories` is no different).
@@ -4891,7 +4892,9 @@ Artist:   {artist}
                     Stop(duration) => {
                         let msecs = duration.to_msec(self.bpm);
                         let newstoptime = msecs as uint + self.now;
-                        self.stoptime.mutate_or_set(newstoptime, |t| cmp::max(t, newstoptime));
+                        self.stoptime =
+                            Some(self.stoptime.map_or(newstoptime,
+                                                      |t| cmp::max(t, newstoptime)));
                         self.startoffset = time;
                     }
                     Visible(_,sref) | LNStart(_,sref) => {
@@ -5428,11 +5431,13 @@ Artist:   {artist}
                 if grade == MISS {
                     // switches to the normal BGA after 600ms
                     let minlimit = when + 600;
-                    self.poorlimit.mutate_or_set(minlimit, |t| cmp::max(t, minlimit));
+                    self.poorlimit = Some(self.poorlimit.map_or(minlimit,
+                                                                |t| cmp::max(t, minlimit)));
                 }
                 // grade disappears after 700ms
                 let minlimit = when + 700;
-                self.gradelimit.mutate_or_set(minlimit, |t| cmp::max(t, minlimit));
+                self.gradelimit = Some(self.gradelimit.map_or(minlimit,
+                                                              |t| cmp::max(t, minlimit)));
             }
             if self.poorlimit < Some(player.now) { self.poorlimit = None; }
             if self.gradelimit < Some(player.now) { self.gradelimit = None; }
@@ -5761,13 +5766,13 @@ pub fn play(opts: player::Options) {
         let _ = saved_screen; // Rust: avoids incorrect warning. (#3796)
         let update_status;
         if !opts.is_exclusive() {
-            let screen_: &Surface = screen.get_ref();
+            let screen_: &Surface = screen.as_ref().unwrap();
             player::show_stagefile_screen(&bms, &infos, &keyspec, &opts, screen_, &font);
             if opts.showinfo {
                 saved_screen = Some(player::save_screen_for_loading(screen_));
                 update_status = |path| {
-                    let screen: &Surface = screen.get_ref();
-                    let saved_screen: &Surface = saved_screen.get_ref();
+                    let screen: &Surface = screen.as_ref().unwrap();
+                    let saved_screen: &Surface = saved_screen.as_ref().unwrap();
                     player::graphic_update_status(path, screen, saved_screen, &font,
                                                   ticker.borrow_mut().deref_mut(), || atexit())
                 };
