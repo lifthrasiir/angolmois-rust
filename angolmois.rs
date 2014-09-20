@@ -284,7 +284,7 @@ pub mod util {
 
         use std;
         use libc::{c_int, c_float};
-        use std::ptr::mut_null;
+        use std::ptr::null_mut;
         use sdl::video::Surface;
         use self::ll::SMPEGstatus;
 
@@ -378,7 +378,7 @@ pub mod util {
             pub fn from_path(path: &Path) -> Result<MPEG, String> {
                 let raw = unsafe {
                     let path = path.to_c_str();
-                    ll::SMPEG_new(path.as_ptr(), mut_null(), 0)
+                    ll::SMPEG_new(path.as_ptr(), null_mut(), 0)
                 };
 
                 if raw.is_null() { Err(::sdl::get_error()) }
@@ -395,7 +395,7 @@ pub mod util {
 
             pub fn set_display(&self, surface: &Surface) {
                 unsafe {
-                    ll::SMPEG_setdisplay(self.raw, surface.raw, mut_null(), mut_null());
+                    ll::SMPEG_setdisplay(self.raw, surface.raw, null_mut(), null_mut());
                 }
             }
 
@@ -530,7 +530,7 @@ pub mod util {
         use util::str::StrUtil;
         ::exename().as_slice().as_utf16_c_str(|caption| {
             s.as_slice().as_utf16_c_str(|text| {
-                unsafe { win32::ll::MessageBoxW(std::ptr::mut_null(), text, caption, 0); }
+                unsafe { win32::ll::MessageBoxW(std::ptr::null_mut(), text, caption, 0); }
             })
         });
         exit(1)
@@ -564,7 +564,7 @@ pub mod util {
     /// refused to do so or the platform is unsupported. (C: `filedialog`)
     #[cfg(target_os = "windows")]
     pub fn get_path_from_dialog() -> Option<String> {
-        use std::ptr::{null, mut_null};
+        use std::ptr::{null, null_mut};
         use util::str::StrUtil;
 
         let filter =
@@ -587,12 +587,12 @@ pub mod util {
                     Flags: win32::ll::OFN_HIDEREADONLY,
 
                     // zero-initialized fields
-                    hwndOwner: mut_null(), hInstance: mut_null(),
-                    lpstrCustomFilter: mut_null(), nMaxCustFilter: 0, nFilterIndex: 0,
-                    lpstrFileTitle: mut_null(), nMaxFileTitle: 0,
+                    hwndOwner: null_mut(), hInstance: null_mut(),
+                    lpstrCustomFilter: null_mut(), nMaxCustFilter: 0, nFilterIndex: 0,
+                    lpstrFileTitle: null_mut(), nMaxFileTitle: 0,
                     lpstrInitialDir: null(), nFileOffset: 0, nFileExtension: 0,
-                    lpstrDefExt: null(), lCustData: 0, lpfnHook: mut_null(),
-                    lpTemplateName: null(), pvReserved: mut_null(),
+                    lpstrDefExt: null(), lCustData: 0, lpfnHook: null_mut(),
+                    lpTemplateName: null(), pvReserved: null_mut(),
                     dwReserved: 0, FlagsEx: 0,
                 };
                 let ret = unsafe {win32::ll::GetOpenFileNameW(&mut ofn)};
@@ -1798,7 +1798,7 @@ pub mod parser {
                     if lex!(line; ws, int -> val) {
                         let val = if val <= 0 {None} else {Some(val)};
 
-                        let last = blk.mut_last().unwrap();
+                        let last = blk.last_mut().unwrap();
                         last.state =
                             if (prefix == "IF" && !last.state.inactive()) || last.state == Ignore {
                                 if val.is_none() || val != last.val {Ignore} else {Process}
@@ -1810,7 +1810,7 @@ pub mod parser {
 
                 // #ELSE
                 ("ELSE", _) => {
-                    let last = blk.mut_last().unwrap();
+                    let last = blk.last_mut().unwrap();
                     last.state = if last.state == Ignore {Process} else {NoFurther};
                 }
 
@@ -1820,7 +1820,7 @@ pub mod parser {
                         if idx > 0 { blk.truncate(idx + 1); }
                     }
 
-                    blk.mut_last().unwrap().state = Outside;
+                    blk.last_mut().unwrap().state = Outside;
                 }
 
                 // #nnnmm:...
@@ -2302,7 +2302,7 @@ pub mod parser {
     /// Removes insignificant objects (i.e. not in visible lanes) and ensures that there is no
     /// `Deleted` object. (C: `analyze_and_compact_bms`)
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
-        for obj in bms.objs.mut_iter() {
+        for obj in bms.objs.iter_mut() {
             for &Lane(lane) in obj.object_lane().iter() {
                 if keyspec.kinds.as_slice()[lane].is_none() {
                     remove_or_replace_note(obj)
@@ -2420,7 +2420,7 @@ pub mod parser {
             map.as_mut_slice()[from] = to;
         }
 
-        for obj in bms.objs.mut_iter() {
+        for obj in bms.objs.iter_mut() {
             update_object_lane(obj, |Lane(lane)| map.as_slice()[lane]);
         }
     }
@@ -2435,7 +2435,7 @@ pub mod parser {
             map.as_mut_slice()[from] = to;
         }
 
-        for obj in bms.objs.mut_iter() {
+        for obj in bms.objs.iter_mut() {
             update_object_lane(obj, |Lane(lane)| map.as_slice()[lane]);
         }
     }
@@ -2449,7 +2449,7 @@ pub mod parser {
         let mut map = Vec::from_fn(NLANES, |lane| Lane(lane));
 
         let mut lasttime = f64::NEG_INFINITY;
-        for obj in bms.objs.mut_iter() {
+        for obj in bms.objs.iter_mut() {
             if obj.is_lnstart() {
                 let lane = obj.object_lane().unwrap();
                 match movable.iter().position(|&i| i == lane) {
@@ -5900,7 +5900,7 @@ pub fn main() {
         ("--random", 'r'), ("--random-ex", 'R'), ("--preset", 'k'),
         ("--key-spec", 'K'), ("--bga", ' '), ("--no-bga", 'B'),
         ("--movie", ' '), ("--no-movie", 'M'), ("--joystick", 'j')
-    ).move_iter().collect::<HashMap<&str,char>>();
+    ).into_iter().collect::<HashMap<&str,char>>();
 
     let args = std::os::args();
     let args = args.as_slice();
