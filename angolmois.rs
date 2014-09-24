@@ -1996,7 +1996,11 @@ pub mod parser {
                     let mut shorten = 0.0;
                     if lex!(line.data.as_slice(); ws*, f64 -> shorten) {
                         if shorten > 0.001 {
-                            bms.shortens.grow_set(line.measure, &1.0, shorten);
+                            if bms.shortens.len() < line.measure {
+                                let ncopies = line.measure - bms.shortens.len();
+                                bms.shortens.grow(ncopies, 1.0);
+                            }
+                            bms.shortens.as_mut_slice()[line.measure] = shorten;
                         }
                     }
                 } else {
@@ -2428,7 +2432,7 @@ pub mod parser {
     /// Swaps given lanes in the random order. (C: `shuffle_bms` with
     /// `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
     pub fn apply_shuffle_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
-        let mut shuffled = Vec::from_slice(lanes);
+        let mut shuffled = lanes.to_vec();
         r.shuffle(shuffled.as_mut_slice());
         let mut map = Vec::from_fn(NLANES, |lane| Lane(lane));
         for (&Lane(from), &to) in lanes.iter().zip(shuffled.iter()) {
@@ -2445,7 +2449,7 @@ pub mod parser {
     /// another LN object, or place two objects in the same or very close time position to the same
     /// lane. (C: `shuffle_bms` with `RANDOM_MODF`/`RANDOMEX_MODF`)
     pub fn apply_random_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
-        let mut movable = Vec::from_slice(lanes);
+        let mut movable = lanes.to_vec();
         let mut map = Vec::from_fn(NLANES, |lane| Lane(lane));
 
         let mut lasttime = f64::NEG_INFINITY;
@@ -3067,7 +3071,11 @@ pub mod gfx {
                     }
                 }
             }
-            self.pixels.grow_set(zoom, &Vec::new(), pixels);
+            if self.pixels.len() < zoom {
+                let ncopies = zoom - self.pixels.len();
+                self.pixels.grow(ncopies, Vec::new());
+            }
+            self.pixels.as_mut_slice()[zoom] = pixels;
         }
 
         /// Prints a glyph with given position and color (possibly gradient). This method is
@@ -4637,7 +4645,7 @@ Artist:   {artist}
             |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
         unsafe {
             slice::raw::buf_as_slice(samples.as_ptr() as *const u8, samples.len() * 4, |samples| {
-                sdl_mixer::Chunk::new(Vec::from_slice(samples), 128)
+                sdl_mixer::Chunk::new(samples.to_vec(), 128)
             })
         }
     }
@@ -4774,7 +4782,8 @@ Artist:   {artist}
             let nchannels = sdl_mixer::allocate_channels(-1 as libc::c_int);
             let nchannels = sdl_mixer::allocate_channels(nchannels + howmany) as uint;
             if self.lastchsnd.len() < nchannels {
-                self.lastchsnd.grow(nchannels, &None);
+                let ncopies = nchannels - self.lastchsnd.len();
+                self.lastchsnd.grow(ncopies, None);
             }
         }
 
