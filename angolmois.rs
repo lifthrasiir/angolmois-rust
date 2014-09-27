@@ -72,7 +72,7 @@ pub fn version() -> String { "Angolmois 2.0.0 alpha 2 (rust edition)".to_string(
 /// Returns an executable name used in the command line if any. (C: `argv0`)
 pub fn exename() -> String {
     let args = std::os::args();
-    if args.is_empty() {"angolmois".to_string()} else {args.as_slice()[0].clone()}
+    if args.is_empty() {"angolmois".to_string()} else {args[0].clone()}
 }
 
 /// Utility functions.
@@ -598,8 +598,8 @@ pub mod util {
                 let ret = unsafe {win32::ll::GetOpenFileNameW(&mut ofn)};
                 if ret != 0 {
                     let path: &[u16] = match buf.position_elem(&0) {
-                        Some(idx) => buf.slice(0, idx),
-                        None => buf.as_slice()
+                        Some(idx) => buf[..idx],
+                        None => buf[]
                     };
                     String::from_utf16(path)
                 } else {
@@ -892,7 +892,7 @@ pub mod parser {
         pub fn all() -> &'static [KeyKind] {
             static ALL: [KeyKind, ..10] = [WhiteKey, WhiteKeyAlt, BlackKey, Scratch, FootPedal,
                                            Button1, Button2, Button3, Button4, Button5];
-            ALL.as_slice()
+            ALL
         }
 
         /// Converts a mnemonic character to an appropriate key kind. Used for parsing a key
@@ -1453,7 +1453,7 @@ pub mod parser {
             if measure < 0 || measure as uint >= self.shortens.len() {
                 1.0
             } else {
-                self.shortens.as_slice()[measure as uint]
+                self.shortens[measure as uint]
             }
         }
 
@@ -1637,7 +1637,7 @@ pub mod parser {
         let mut lnobj = None;
 
         let file = try!(f.read_to_end());
-        for line0 in file.as_slice().split(|&ch| ch == 10u8) {
+        for line0 in file[].split(|&ch| ch == 10u8) {
             let line0 = String::from_utf8_lossy(line0).into_string();
             let line = line0.as_slice();
 
@@ -1675,7 +1675,7 @@ pub mod parser {
                     let mut path = "";
                     if lex!(line; Key -> key, ws, str -> path, ws*, !) {
                         let Key(key) = key;
-                        bms.$paths.as_mut_slice()[key as uint] = Some(path.to_string());
+                        bms.$paths[mut][key as uint] = Some(path.to_string());
                     }
                 })
             )
@@ -1695,7 +1695,7 @@ pub mod parser {
                     let mut bpm = 0.0;
                     if lex!(line; Key -> key, ws, f64 -> bpm) {
                         let Key(key) = key;
-                        bpmtab.as_mut_slice()[key as uint] = BPM(bpm);
+                        bpmtab[mut][key as uint] = BPM(bpm);
                     } else if lex!(line; ws, f64 -> bpm) {
                         bms.initbpm = BPM(bpm);
                     }
@@ -1745,7 +1745,7 @@ pub mod parser {
                     let mut duration = 0;
                     if lex!(line; Key -> key, ws, int -> duration) {
                         let Key(key) = key;
-                        stoptab.as_mut_slice()[key as uint] = Measures(duration as f64 / 192.0);
+                        stoptab[mut][key as uint] = Measures(duration as f64 / 192.0);
                     }
                 }
 
@@ -1897,11 +1897,11 @@ pub mod parser {
 
                     // channel #08: BPM defined by #BPMxx
                     // TODO bpmtab validity check
-                    8 => { add(bms, Obj::SetBPM(t, bpmtab.as_slice()[*v as uint])); }
+                    8 => { add(bms, Obj::SetBPM(t, bpmtab[*v as uint])); }
 
                     // channel #09: scroll stopper defined by #STOPxx
                     // TODO stoptab validity check
-                    9 => { add(bms, Obj::Stop(t, stoptab.as_slice()[*v as uint])); }
+                    9 => { add(bms, Obj::Stop(t, stoptab[*v as uint])); }
 
                     // channel #0A: BGA layer 3
                     10 => { add(bms, Obj::SetBGA(t, Layer3, Some(v))); }
@@ -1913,9 +1913,8 @@ pub mod parser {
                             // change the last inserted visible object to the start of LN if any.
                             let lastvispos = lastvis[*lane];
                             for &pos in lastvispos.iter() {
-                                assert!(bms.objs.as_slice()[pos].is_visible());
-                                bms.objs.as_mut_slice()[pos] =
-                                    bms.objs.as_slice()[pos].to_lnstart();
+                                assert!(bms.objs[pos].is_visible());
+                                bms.objs[mut][pos] = bms.objs[pos].to_lnstart();
                                 add(bms, Obj::LNDone(t, lane, Some(v)));
                                 lastvis[*lane] = None;
                             }
@@ -1956,14 +1955,13 @@ pub mod parser {
                         // in which case the end of LN is simply moved from `t` to `t2`
                         // (effectively increasing the length of previous LN).
                         match lastln[*lane] {
-                            Some(pos) if bms.objs.as_slice()[pos].time == t => {
-                                assert!(bms.objs.as_slice()[pos].is_lndone());
-                                bms.objs.as_mut_slice()[pos].time = t2;
+                            Some(pos) if bms.objs[pos].time == t => {
+                                assert!(bms.objs[pos].is_lndone());
+                                bms.objs[mut][pos].time = t2;
                             }
                             _ => {
                                 add(bms, Obj::LNStart(t, lane, Some(v)));
-                                lastln.as_mut_slice()[*lane] =
-                                    mark(bms, Obj::LNDone(t2, lane, Some(v)));
+                                lastln[mut][*lane] = mark(bms, Obj::LNDone(t2, lane, Some(v)));
                             }
                         }
                     }
@@ -2000,7 +1998,7 @@ pub mod parser {
                                 let ncopies = line.measure - bms.shortens.len() + 1;
                                 bms.shortens.grow(ncopies, 1.0);
                             }
-                            bms.shortens.as_mut_slice()[line.measure] = shorten;
+                            bms.shortens[mut][line.measure] = shorten;
                         }
                     }
                 } else {
@@ -2009,7 +2007,7 @@ pub mod parser {
                     let max = data.len() / 2 * 2;
                     let count = max as f64;
                     for i in iter::range_step(0, max, 2) {
-                        let v = key2index(data.slice(i, i+2));
+                        let v = key2index(data[i..i+2]);
                         for &v in v.iter() {
                             if v != 0 { // ignores 00
                                 let t = measure + i as f64 / count;
@@ -2075,13 +2073,13 @@ pub mod parser {
         /// Returns a list of lanes on the left side, from left to right.
         pub fn left_lanes<'r>(&'r self) -> &'r [Lane] {
             assert!(self.split <= self.order.len());
-            self.order.slice(0, self.split)
+            self.order[..self.split]
         }
 
         /// Returns a list of lanes on the right side if any, from left to right.
         pub fn right_lanes<'r>(&'r self) -> &'r [Lane] {
             assert!(self.split <= self.order.len());
-            self.order.slice(self.split, self.order.len())
+            self.order[self.split..]
         }
     }
 
@@ -2246,7 +2244,7 @@ pub mod parser {
             };
 
             let mut inside = false;
-            sanitize(bms.objs.as_mut_slice(), |obj| to_type(obj), |mut types| {
+            sanitize(bms.objs[mut], |obj| to_type(obj), |mut types| {
                 static LNMASK: int = (1 << LNSTART) | (1 << LNDONE);
 
                 // remove overlapping LN endpoints altogether
@@ -2283,14 +2281,14 @@ pub mod parser {
             if inside {
                 // remove last starting longnote which is unfinished
                 match bms.objs.iter().rposition(|obj| to_type(obj).is_some()) {
-                    Some(pos) if bms.objs.as_slice()[pos].is_lnstart() =>
-                        remove_or_replace_note(&mut bms.objs.as_mut_slice()[pos]),
+                    Some(pos) if bms.objs[pos].is_lnstart() =>
+                        remove_or_replace_note(&mut bms.objs[mut][pos]),
                     _ => {}
                 }
             }
         }
 
-        sanitize(bms.objs.as_mut_slice(),
+        sanitize(bms.objs[mut],
                  |&obj| match obj.data {
                             SetBGA(Layer1,_) => Some(0),
                             SetBGA(Layer2,_) => Some(1),
@@ -2308,7 +2306,7 @@ pub mod parser {
     pub fn compact_bms(bms: &mut Bms, keyspec: &KeySpec) {
         for obj in bms.objs.iter_mut() {
             for &Lane(lane) in obj.object_lane().iter() {
-                if keyspec.kinds.as_slice()[lane].is_none() {
+                if keyspec.kinds[lane].is_none() {
                     remove_or_replace_note(obj)
                 }
             }
@@ -2421,11 +2419,11 @@ pub mod parser {
     pub fn apply_mirror_modf(bms: &mut Bms, lanes: &[Lane]) {
         let mut map = Vec::from_fn(NLANES, |lane| Lane(lane));
         for (&Lane(from), &to) in lanes.iter().zip(lanes.iter().rev()) {
-            map.as_mut_slice()[from] = to;
+            map[mut][from] = to;
         }
 
         for obj in bms.objs.iter_mut() {
-            update_object_lane(obj, |Lane(lane)| map.as_slice()[lane]);
+            update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
 
@@ -2433,14 +2431,14 @@ pub mod parser {
     /// `SHUFFLE_MODF`/`SHUFFLEEX_MODF`)
     pub fn apply_shuffle_modf<R:Rng>(bms: &mut Bms, r: &mut R, lanes: &[Lane]) {
         let mut shuffled = lanes.to_vec();
-        r.shuffle(shuffled.as_mut_slice());
+        r.shuffle(shuffled[mut]);
         let mut map = Vec::from_fn(NLANES, |lane| Lane(lane));
         for (&Lane(from), &to) in lanes.iter().zip(shuffled.iter()) {
-            map.as_mut_slice()[from] = to;
+            map[mut][from] = to;
         }
 
         for obj in bms.objs.iter_mut() {
-            update_object_lane(obj, |Lane(lane)| map.as_slice()[lane]);
+            update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
 
@@ -2464,16 +2462,16 @@ pub mod parser {
             if lasttime < obj.time { // reshuffle required
                 lasttime = obj.time + 1e-4;
                 let mut shuffled = movable.clone();
-                r.shuffle(shuffled.as_mut_slice());
+                r.shuffle(shuffled[mut]);
                 for (&Lane(from), &to) in movable.iter().zip(shuffled.iter()) {
-                    map.as_mut_slice()[from] = to;
+                    map[mut][from] = to;
                 }
             }
             if obj.is_lnstart() {
                 let lane = obj.object_lane().unwrap();
                 movable.push(lane);
             }
-            update_object_lane(obj, |Lane(lane)| map.as_slice()[lane]);
+            update_object_lane(obj, |Lane(lane)| map[lane]);
         }
     }
 
@@ -3004,14 +3002,14 @@ pub mod gfx {
                     let code = indices[i] as uint;
                     i += 1;
                     match code {
-                        33..97 => { glyphs.push(words.as_slice()[code - 33]); }
+                        33..97 => { glyphs.push(words[code - 33]); }
                         98..126 => {
                             let length = code - 95; // code=98 -> length=3
                             let distance = indices[i] as uint - 32;
                             i += 1;
                             let start = glyphs.len() - distance;
                             for i in range(start, start + length) {
-                                let v = glyphs.as_slice()[i];
+                                let v = glyphs[i];
                                 glyphs.push(v);
                             }
                         }
@@ -3030,7 +3028,7 @@ pub mod gfx {
         pub fn create_zoomed_font(&mut self, zoom: uint) {
             assert!(zoom > 0);
             assert!(zoom <= (8 * std::mem::size_of::<ZoomedFontRow>()) / 8);
-            if zoom < self.pixels.len() && !self.pixels.as_slice()[zoom].is_empty() { return; }
+            if zoom < self.pixels.len() && !self.pixels[zoom].is_empty() { return; }
 
             let nrows = 16;
             let nglyphs = self.glyphs.len() / nrows / 2;
@@ -3052,8 +3050,7 @@ pub mod gfx {
                         // intact since we don't draw diagonals for aesthetic reason. such case
                         // must be specially handled.
                         if (v & mask) != 0 || v == 15 {
-                            pixels.as_mut_slice()[glyph]
-                                  .as_mut_slice()[zoomrow+r] |= 1 << (zoomcol+c);
+                            pixels[mut][glyph][mut][zoomrow+r] |= 1 << (zoomcol+c);
                         }
                     }
                 }
@@ -3062,8 +3059,7 @@ pub mod gfx {
             let mut i = 0;
             for glyph in range(0, nglyphs) {
                 for row in range(0, nrows) {
-                    let data = (self.glyphs.as_slice()[i] as u32 << 16) |
-                               (self.glyphs.as_slice()[i+1] as u32);
+                    let data = (self.glyphs[i] as u32 << 16) | (self.glyphs[i+1] as u32);
                     i += 2;
                     for col in range(0, 8u) {
                         let v = (data >> (4 * col)) & 15;
@@ -3075,7 +3071,7 @@ pub mod gfx {
                 let ncopies = zoom - self.pixels.len() + 1;
                 self.pixels.grow(ncopies, Vec::new());
             }
-            self.pixels.as_mut_slice()[zoom] = pixels;
+            self.pixels[mut][zoom] = pixels;
         }
 
         /// Prints a glyph with given position and color (possibly gradient). This method is
@@ -3083,9 +3079,9 @@ pub mod gfx {
         /// (character code -1 in C). (C: `printchar`)
         pub fn print_glyph<ColorT:Blend>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
                                          zoom: uint, glyph: uint, color: ColorT) {
-            assert!(!self.pixels.as_slice()[zoom].is_empty());
+            assert!(!self.pixels[zoom].is_empty());
             for iy in range(0, 16 * zoom) {
-                let row = self.pixels.as_slice()[zoom].as_slice()[glyph].as_slice()[iy];
+                let row = self.pixels[zoom][glyph][iy];
                 let rowcolor = color.blend(iy as int, 16 * zoom as int);
                 for ix in range(0, 8 * zoom) {
                     if ((row >> ix) & 1) != 0 {
@@ -3298,9 +3294,9 @@ pub mod player {
                 Some(left) => {
                     let mut err = false;
                     for &(lane,kind) in left.iter() {
-                        if keyspec.kinds.as_slice()[*lane].is_some() { err = true; break; }
+                        if keyspec.kinds[*lane].is_some() { err = true; break; }
                         keyspec.order.push(lane);
-                        keyspec.kinds.as_mut_slice()[*lane] = Some(kind);
+                        keyspec.kinds[mut][*lane] = Some(kind);
                     }
                     if err {None} else {Some(left.len())}
                 }
@@ -3337,8 +3333,8 @@ pub mod player {
                               keyspec: &KeySpec, begin: uint, end: uint) {
         let mut lanes = Vec::new();
         for i in range(begin, end) {
-            let lane = keyspec.order.as_slice()[i];
-            let kind = keyspec.kinds.as_slice()[*lane];
+            let lane = keyspec.order[i];
+            let kind = keyspec.kinds[*lane];
             if modf == ShuffleExModf || modf == RandomExModf ||
                     kind.map_or(false, |kind| kind.counts_as_key()) {
                 lanes.push(lane);
@@ -3346,9 +3342,9 @@ pub mod player {
         }
 
         match modf {
-            MirrorModf => parser::apply_mirror_modf(bms, lanes.as_slice()),
-            ShuffleModf | ShuffleExModf => parser::apply_shuffle_modf(bms, r, lanes.as_slice()),
-            RandomModf | RandomExModf => parser::apply_random_modf(bms, r, lanes.as_slice())
+            MirrorModf => parser::apply_mirror_modf(bms, lanes[]),
+            ShuffleModf | ShuffleExModf => parser::apply_shuffle_modf(bms, r, lanes[]),
+            RandomModf | RandomExModf => parser::apply_random_modf(bms, r, lanes[])
         }
     }
 
@@ -3538,7 +3534,7 @@ pub mod player {
         /// Returns true if the virtual input has a specified key kind in the key specification.
         pub fn active_in_key_spec(&self, kind: KeyKind, keyspec: &KeySpec) -> bool {
             match *self {
-                LaneInput(Lane(lane)) => keyspec.kinds.as_slice()[lane] == Some(kind),
+                LaneInput(Lane(lane)) => keyspec.kinds[lane] == Some(kind),
                 SpeedDownInput | SpeedUpInput => true
             }
         }
@@ -3664,7 +3660,7 @@ pub mod player {
 
         for &lane in keyspec.order.iter() {
             let key = Key(36 + *lane as int);
-            let kind = keyspec.kinds.as_slice()[*lane].unwrap();
+            let kind = keyspec.kinds[*lane].unwrap();
             let envvar = format!("ANGOLMOIS_{}{}_KEY", key, kind.to_char());
             for s in getenv(envvar.as_slice()).iter() {
                 match parse_input(s.as_slice()) {
@@ -4168,7 +4164,7 @@ Artist:   {artist}
             }).collect();
 
         for bc in bms.blitcmd.iter() {
-            apply_blitcmd(imgres.as_mut_slice(), bc);
+            apply_blitcmd(imgres[mut], bc);
         }
         (sndres, imgres)
     }
@@ -4212,7 +4208,7 @@ Artist:   {artist}
                     use util::str::StrUtil;
                     let path = if path.len() < 63 {path}
                                else {path.as_slice().slice_upto(0, 63).to_string()};
-                    update_line(format!("Loading: {}", path.as_slice()).as_slice());
+                    update_line(format!("Loading: {}", path).as_slice());
                 }
                 None => { update_line("Loading done."); }
             }
@@ -4302,7 +4298,7 @@ Artist:   {artist}
         }
 
         /// Returns a reference to the list of underlying objects.
-        fn objs<'r>(&'r self) -> &'r [Obj] { self.bms.objs.as_slice() }
+        fn objs<'r>(&'r self) -> &'r [Obj] { self.bms.objs[] }
 
         /// Returns the time of pointed object.
         pub fn time(&self) -> f64 { self.objs()[self.pos].time }
@@ -4320,7 +4316,7 @@ Artist:   {artist}
 
         /// Seeks to the first object which time is past the limit, if any.
         pub fn seek_until(&mut self, limit: f64) {
-            let objs = self.bms.objs.as_slice();
+            let objs = self.bms.objs[];
             let nobjs = objs.len();
             while self.pos < nobjs {
                 if objs[self.pos].time >= limit { break; }
@@ -4332,12 +4328,12 @@ Artist:   {artist}
         /// Tries to advance to the next object which time is within the limit.
         /// Returns false if it's impossible.
         pub fn next_until(&mut self, limit: f64) -> bool {
-            let objs = self.bms.objs.as_slice();
+            let objs = self.bms.objs[];
             match self.next {
                 Some(next) => { self.pos = next; }
                 None => {}
             }
-            if self.pos < objs.len() && objs.as_slice()[self.pos].time < limit {
+            if self.pos < objs.len() && objs[self.pos].time < limit {
                 self.next = Some(self.pos + 1);
                 true
             } else {
@@ -4375,7 +4371,7 @@ Artist:   {artist}
 
         /// Tries to advance to the next object. Returns false if it's the end of objects.
         pub fn next_to_end(&mut self) -> bool {
-            let objs = self.bms.objs.as_slice();
+            let objs = self.bms.objs[];
             match self.next {
                 Some(next) => { self.pos = next; }
                 None => {}
@@ -4387,7 +4383,7 @@ Artist:   {artist}
 
         /// Finds the next object that satisfies given condition if any, without updating itself.
         pub fn find_next_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let objs = self.bms.objs.as_slice();
+            let objs = self.bms.objs[];
             let nobjs = objs.len();
             let mut i = self.pos;
             while i < nobjs {
@@ -4402,7 +4398,7 @@ Artist:   {artist}
         /// Finds the previous object that satisfies given condition if any, without updating
         /// itself.
         pub fn find_previous_of_type(&self, cond: |&Obj| -> bool) -> Option<Pointer> {
-            let objs = self.bms.objs.as_slice();
+            let objs = self.bms.objs[];
             let mut i = self.pos;
             while i > 0 {
                 i -= 1;
@@ -4799,14 +4795,14 @@ Artist:   {artist}
         pub fn play_sound(&mut self, sref: SoundRef, bgm: bool) {
             let sref = **sref as uint;
 
-            if self.sndres.as_slice()[sref].chunk().is_none() { return; }
-            let lastch = self.sndlastch.as_slice()[sref].map(|ch| ch as libc::c_int);
+            if self.sndres[sref].chunk().is_none() { return; }
+            let lastch = self.sndlastch[sref].map(|ch| ch as libc::c_int);
 
             // try to play on the last channel if it is not occupied by other sounds (in this case
             // the last channel info is removed)
             let mut ch;
             loop {
-                ch = self.sndres.as_mut_slice()[sref].mut_chunk().unwrap().play(lastch, 0);
+                ch = self.sndres[mut][sref].mut_chunk().unwrap().play(lastch, 0);
                 if ch >= 0 { break; }
                 self.allocate_more_channels(32);
             }
@@ -4816,11 +4812,11 @@ Artist:   {artist}
             sdl_mixer::group_channel(Some(ch), Some(group));
 
             let ch = ch as uint;
-            for &idx in self.lastchsnd.as_slice()[ch].iter() {
-                self.sndlastch.as_mut_slice()[idx] = None;
+            for &idx in self.lastchsnd[ch].iter() {
+                self.sndlastch[mut][idx] = None;
             }
-            self.sndlastch.as_mut_slice()[sref] = Some(ch);
-            self.lastchsnd.as_mut_slice()[ch] = Some(sref);
+            self.sndlastch[mut][sref] = Some(ch);
+            self.lastchsnd[mut][ch] = Some(sref);
         }
 
         /// Plays a given sound if `sref` is not zero. This reflects the fact that an alphanumeric
@@ -4932,17 +4928,17 @@ Artist:   {artist}
                                self.bms.shorten(self.pcheck.measure()) * self.gradefactor;
                     if dist < BAD_CUTOFF { break; }
 
-                    if !self.nograding.as_slice()[self.pcheck.pos] {
+                    if !self.nograding[self.pcheck.pos] {
                         for &Lane(lane) in self.pcheck.object_lane().iter() {
                             let missable =
                                 match self.pcheck.data() {
                                     Visible(..) | LNStart(..) => true,
-                                    LNDone(..) => self.pthru.as_slice()[lane].is_some(),
+                                    LNDone(..) => self.pthru[lane].is_some(),
                                     _ => false,
                                 };
                             if missable {
                                 self.update_grade_to_miss();
-                                self.pthru.as_mut_slice()[lane] = None;
+                                self.pthru[mut][lane] = None;
                             }
                         }
                     }
@@ -5023,7 +5019,7 @@ Artist:   {artist}
                     // if LN grading is in progress and it is not within the threshold then
                     // MISS grade is issued
                     let nextlndone =
-                        player.pthru.as_slice()[*lane].as_ref().and_then(|thru| {
+                        player.pthru[*lane].as_ref().and_then(|thru| {
                             thru.find_next_of_type(|obj| {
                                 obj.object_lane() == Some(lane) &&
                                 obj.is_lndone()
@@ -5033,12 +5029,12 @@ Artist:   {artist}
                         let delta = player.bpm.measure_to_msec(p.time() - player.line) *
                                     lineshorten * player.gradefactor;
                         if num::abs(delta) < BAD_CUTOFF {
-                            player.nograding.as_mut_slice()[p.pos] = true;
+                            player.nograding[mut][p.pos] = true;
                         } else {
                             player.update_grade_to_miss();
                         }
                     }
-                    player.pthru.as_mut_slice()[*lane] = None;
+                    player.pthru[mut][*lane] = None;
                 };
 
                 let process_press = |player: &mut Player, lane: Lane| {
@@ -5058,16 +5054,16 @@ Artist:   {artist}
                         obj.object_lane() == Some(lane) && obj.is_gradable()
                     });
                     for p in gradable.iter() {
-                        if p.pos >= player.pcheck.pos && !player.nograding.as_slice()[p.pos] &&
+                        if p.pos >= player.pcheck.pos && !player.nograding[p.pos] &&
                                                          !p.is_lndone() {
                             let dist = player.bpm.measure_to_msec(p.time() - player.line) *
                                        lineshorten * player.gradefactor;
                             if num::abs(dist) < BAD_CUTOFF {
                                 if p.is_lnstart() {
-                                    player.pthru.as_mut_slice()[*lane] =
+                                    player.pthru[mut][*lane] =
                                         Some(Pointer::new_with_pos(player.bms.clone(), p.pos));
                                 }
-                                player.nograding.as_mut_slice()[p.pos] = true;
+                                player.nograding[mut][p.pos] = true;
                                 player.update_grade_from_distance(dist);
                             }
                         }
@@ -5112,7 +5108,7 @@ Artist:   {artist}
                     match prevpcur.data() {
                         Bomb(lane,sref,damage) if self.key_pressed(lane) => {
                             // ongoing long note is not graded twice
-                            self.pthru.as_mut_slice()[*lane] = None;
+                            self.pthru[mut][*lane] = None;
                             for &sref in sref.iter() {
                                 self.play_sound(sref, false);
                             }
@@ -5246,7 +5242,7 @@ Artist:   {artist}
         let mut rightmost = SCREENW;
         let mut styles = Vec::new();
         for &lane in keyspec.left_lanes().iter() {
-            let kind = keyspec.kinds.as_slice()[*lane];
+            let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.unwrap();
             let style = LaneStyle::from_kind(kind, leftmost, false);
@@ -5257,7 +5253,7 @@ Artist:   {artist}
             }
         }
         for &lane in keyspec.right_lanes().iter() {
-            let kind = keyspec.kinds.as_slice()[*lane];
+            let kind = keyspec.kinds[*lane];
             assert!(kind.is_some());
             let kind = kind.unwrap();
             let style = LaneStyle::from_kind(kind, rightmost, true);
@@ -5273,14 +5269,14 @@ Artist:   {artist}
         let cutoff = 165;
         if leftmost < cutoff {
             for i in range(0, keyspec.split) {
-                let (_lane, ref mut style) = styles.as_mut_slice()[i];
+                let (_lane, ref mut style) = styles[mut][i];
                 style.left += (cutoff - leftmost) / 2;
             }
             leftmost = cutoff;
         }
         if rightmost.map_or(false, |x| x > SCREENW - cutoff) {
             for i in range(keyspec.split, styles.len()) {
-                let (_lane, ref mut style) = styles.as_mut_slice()[i];
+                let (_lane, ref mut style) = styles[mut][i];
                 style.left -= (rightmost.unwrap() - (SCREENW - cutoff)) / 2;
             }
             rightmost = Some(SCREENW - cutoff);
@@ -5410,7 +5406,7 @@ Artist:   {artist}
             let centerwidth = rightmost.unwrap_or(SCREENW) - leftmost;
             let bgax = leftmost + (centerwidth - BGAW) / 2;
             let bgay = (SCREENH - BGAH) / 2;
-            let sprite = create_sprite(opts, leftmost, rightmost, styles.as_slice());
+            let sprite = create_sprite(opts, leftmost, rightmost, styles[]);
 
             let display = GraphicDisplay {
                 sprite: sprite, screen: screen, font: font, imgres: imgres,
@@ -5456,16 +5452,14 @@ Artist:   {artist}
             }
             if self.poorlimit < Some(player.now) { self.poorlimit = None; }
             if self.gradelimit < Some(player.now) { self.gradelimit = None; }
-            self.lastbga.update(&player.bga, self.imgres.as_slice());
+            self.lastbga.update(&player.bga, self.imgres[]);
 
             // render BGAs (should render before the lanes since lanes can overlap with BGAs)
             if player.opts.has_bga() {
                 static POOR_LAYERS: [BGALayer, ..1] = [PoorBGA];
                 static NORM_LAYERS: [BGALayer, ..3] = [Layer1, Layer2, Layer3];
-                let layers = if self.poorlimit.is_some() {POOR_LAYERS.as_slice()}
-                             else {NORM_LAYERS.as_slice()};
-                self.lastbga.render(&self.screen, layers, self.imgres.as_slice(),
-                                    self.bgax, self.bgay);
+                let layers = if self.poorlimit.is_some() {POOR_LAYERS[]} else {NORM_LAYERS[]};
+                self.lastbga.render(&self.screen, layers, self.imgres[], self.bgax, self.bgay);
             }
 
             // fill the lanes to the border color
@@ -5500,9 +5494,9 @@ Artist:   {artist}
                     let mut nextbottom = None;
                     let nobjs = player.bms.objs.len();
                     let top = player.top;
-                    while i < nobjs && player.bms.objs.as_slice()[i].time <= top {
-                        let y = time_to_y(player.bms.objs.as_slice()[i].time);
-                        match player.bms.objs.as_slice()[i].data {
+                    while i < nobjs && player.bms.objs[i].time <= top {
+                        let y = time_to_y(player.bms.objs[i].time);
+                        match player.bms.objs[i].data {
                             LNStart(lane0,_) if lane0 == lane => {
                                 assert!(nextbottom.is_none());
                                 nextbottom = Some(y);
@@ -5695,10 +5689,10 @@ Artist:   {artist}
 
     impl Display for BGAOnlyDisplay {
         fn render(&mut self, player: &Player) {
-            self.lastbga.update(&player.bga, self.imgres.as_slice());
+            self.lastbga.update(&player.bga, self.imgres[]);
 
             let layers = &[Layer1, Layer2, Layer3];
-            self.lastbga.render(&self.screen, layers, self.imgres.as_slice(), 0, 0);
+            self.lastbga.render(&self.screen, layers, self.imgres[], 0, 0);
             self.screen.flip();
 
             self.textdisplay.render(player);
@@ -5818,7 +5812,7 @@ pub fn play(opts: player::Options) {
 
     // create the player and transfer ownership of other resources to it
     let duration = parser::bms_duration(&bms, infos.originoffset,
-                                        |sref| sndres.as_slice()[**sref as uint].duration());
+                                        |sref| sndres[**sref as uint].duration());
     let mut player = player::Player::new(opts, bms, infos, duration, keyspec, keymap, sndres);
 
     // create the display and runs the actual game play loop
@@ -5918,7 +5912,6 @@ pub fn main() {
     ).into_iter().collect::<HashMap<&str,char>>();
 
     let args = std::os::args();
-    let args = args.as_slice();
     let nargs = args.len();
 
     let mut bmspath = None;
