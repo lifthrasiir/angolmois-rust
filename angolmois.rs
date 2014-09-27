@@ -1996,8 +1996,8 @@ pub mod parser {
                     let mut shorten = 0.0;
                     if lex!(line.data.as_slice(); ws*, f64 -> shorten) {
                         if shorten > 0.001 {
-                            if bms.shortens.len() < line.measure {
-                                let ncopies = line.measure - bms.shortens.len();
+                            if bms.shortens.len() <= line.measure {
+                                let ncopies = line.measure - bms.shortens.len() + 1;
                                 bms.shortens.grow(ncopies, 1.0);
                             }
                             bms.shortens.as_mut_slice()[line.measure] = shorten;
@@ -3071,8 +3071,8 @@ pub mod gfx {
                     }
                 }
             }
-            if self.pixels.len() < zoom {
-                let ncopies = zoom - self.pixels.len();
+            if self.pixels.len() <= zoom {
+                let ncopies = zoom - self.pixels.len() + 1;
                 self.pixels.grow(ncopies, Vec::new());
             }
             self.pixels.as_mut_slice()[zoom] = pixels;
@@ -3719,6 +3719,7 @@ pub mod player {
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
         use std::{str, io};
         use std::ascii::StrAsciiExt;
+        use std::collections::hashmap::{Occupied, Vacant};
         use std::io::fs::PathExtensions;
 
         // `std::io::fs::readdir` is different from C's `dirent.h`, as it always reads
@@ -3732,12 +3733,17 @@ pub mod player {
                 Some(cache) => cache,
                 None => HashMap::new()
             };
-            {
-                let ret = cache.find_or_insert_with(path, |path| {
-                    match io::fs::readdir(path) { Ok(ret) => ret, Err(..) => Vec::new() }
-                });
-                cb(ret.as_slice());
+
+            match cache.entry(path.clone()) {
+                Occupied(entry) => {
+                    cb(entry.get()[]);
+                }
+                Vacant(entry) => {
+                    let files = io::fs::readdir(&path).ok().unwrap_or(Vec::new());
+                    cb(entry.set(files)[mut]);
+                }
             }
+
             key_readdir_cache.replace(Some(cache));
         }
 
@@ -4781,8 +4787,8 @@ Artist:   {artist}
             let howmany = howmany as libc::c_int;
             let nchannels = sdl_mixer::allocate_channels(-1 as libc::c_int);
             let nchannels = sdl_mixer::allocate_channels(nchannels + howmany) as uint;
-            if self.lastchsnd.len() < nchannels {
-                let ncopies = nchannels - self.lastchsnd.len();
+            if self.lastchsnd.len() <= nchannels {
+                let ncopies = nchannels - self.lastchsnd.len() + 1;
                 self.lastchsnd.grow(ncopies, None);
             }
         }
