@@ -419,7 +419,7 @@ pub mod util {
                 unsafe { ll::SMPEG_scale(self.raw, scale as c_int); }
             }
 
-            pub fn move(&self, x: int, y: int) {
+            pub fn move_by(&self, x: int, y: int) {
                 unsafe { ll::SMPEG_move(self.raw, x as c_int, y as c_int); }
             }
 
