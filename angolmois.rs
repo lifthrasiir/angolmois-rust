@@ -109,7 +109,7 @@ pub mod util {
 
         impl<'r> StrUtil<'r> for &'r str {
             fn slice_upto(&self, begin: uint, end: uint) -> &'r str {
-                self.slice(begin, begin + self.count_bytes_upto(begin, end))
+                (*self)[begin..begin + self.count_bytes_upto(begin, end)]
             }
 
             fn count_bytes_upto(&self, start: uint, limit: uint) -> uint {
@@ -173,13 +173,13 @@ pub mod util {
         fn scan_float(s: &str) -> Option<uint> {
             scan_int(s).and_then(|pos| {
                 // scan `.` followed by digits if any
-                match s.slice_from(pos).slice_shift_char() {
+                match s[pos..].slice_shift_char() {
                     (Some('.'), s_) => scan_uint(s_).map(|pos2| pos + 1u + pos2),
                     _ => Some(pos)
                 }
             }).and_then(|pos| {
                 // scan `e` or `E` followed by an optional sign and digits if any
-                match s.slice_from(pos).slice_shift_char() {
+                match s[pos..].slice_shift_char() {
                     (Some('e'), s_) | (Some('E'), s_) => scan_int(s_).map(|pos2| pos + 1u + pos2),
                     _ => Some(pos)
                 }
@@ -192,7 +192,7 @@ pub mod util {
                     impl FromStrPrefix for $t {
                         fn from_str_prefix<'a>(s: &'a str) -> Option<($t, &'a str)> {
                             $scan(s).and_then(|pos| {
-                                from_str::<$t>(s.slice_to(pos)).map(|v| (v, s.slice_from(pos)))
+                                from_str::<$t>(s[..pos]).map(|v| (v, s[pos..]))
                             })
                         }
                     }
@@ -249,7 +249,7 @@ pub mod util {
         impl<'r> ShiftablePrefix for &'r str {
             fn prefix_shifted<'r>(&self, s: &'r str) -> Option<&'r str> {
                 if s.starts_with(*self) {
-                    Some(s.slice_from(self.len()))
+                    Some(s[self.len()..])
                 } else {
                     None
                 }
@@ -532,8 +532,8 @@ pub mod util {
     #[cfg(target_os = "windows")]
     pub fn die(s: &str) -> ! {
         use util::str::StrUtil;
-        ::exename().as_slice().as_utf16_c_str(|caption| {
-            s.as_slice().as_utf16_c_str(|text| {
+        ::exename()[].as_utf16_c_str(|caption| {
+            s[].as_utf16_c_str(|text| {
                 unsafe { win32::ll::MessageBoxW(std::ptr::null_mut(), text, caption, 0); }
             })
         });
@@ -556,12 +556,12 @@ pub mod util {
 
     /// Exits with a formatted error message. (C: `die`)
     macro_rules! die(
-        ($($e:expr),+) => (::util::die(format!($($e),+).as_slice()))
+        ($($e:expr),+) => (::util::die(format!($($e),+)[]))
     )
 
     /// Prints a formatted warning message. (C: `warn`)
     macro_rules! warn(
-        ($($e:expr),+) => (::util::warn(format!($($e),+).as_slice()))
+        ($($e:expr),+) => (::util::warn(format!($($e),+)[]))
     )
 
     /// Reads a path string from the user in the platform-dependent way. Returns `None` if the user
@@ -1531,7 +1531,7 @@ pub mod parser {
                 let str::CharRange {ch:c2, next:p2} = s.char_range_at(p1);
                 getdigit(c2).map(|b| {
                     assert!(p2 == 2); // both characters should be in ASCII
-                    (Key(a * 36 + b), s.slice_from(p2))
+                    (Key(a * 36 + b), s[p2..])
                 })
             })
         }
@@ -1545,8 +1545,8 @@ pub mod parser {
             let isdigit = |c| '0' <= c && c <= '9';
             if s.len() >= 3 && isdigit(s.char_at(0)) && isdigit(s.char_at(1))
                             && isdigit(s.char_at(2)) {
-                let measure = from_str::<uint>(s.slice_to(3)).unwrap();
-                Some((Measure(measure), s.slice_from(3)))
+                let measure = from_str::<uint>(s[..3]).unwrap();
+                Some((Measure(measure), s[3..]))
             } else {
                 None
             }
@@ -1643,25 +1643,24 @@ pub mod parser {
         let file = try!(f.read_to_end());
         for line0 in file[].split(|&ch| ch == 10u8) {
             let line0 = String::from_utf8_lossy(line0).into_string();
-            let line = line0.as_slice();
+            let line = line0[];
 
             // skip non-command lines
             let line = line.trim_left();
             if !line.starts_with("#") { continue; }
-            let line = line.slice_from(1);
+            let line = line[1..];
 
             // search for header prefix. the header list (`bmsheader`) is in the decreasing order
             // of prefix length.
             let mut prefix = "";
             for &header in bmsheader.iter() {
                 use std::ascii::StrAsciiExt;
-                if line.len() >= header.len() &&
-                   line.slice_to(header.len()).to_ascii_upper() == header.to_string() {
+                if line.len() >= header.len() && line[..header.len()].to_ascii_upper()[] == header {
                     prefix = header;
                     break;
                 }
             }
-            let line = line.slice_from(prefix.len());
+            let line = line[prefix.len()..];
 
             // Common readers.
             macro_rules! read(
@@ -1996,7 +1995,7 @@ pub mod parser {
             for line in bmsline.iter() {
                 if line.chan == Key(2) {
                     let mut shorten = 0.0;
-                    if lex!(line.data.as_slice(); ws*, f64 -> shorten) {
+                    if lex!(line.data[]; ws*, f64 -> shorten) {
                         if shorten > 0.001 {
                             if bms.shortens.len() <= line.measure {
                                 let ncopies = line.measure - bms.shortens.len() + 1;
@@ -2007,7 +2006,7 @@ pub mod parser {
                     }
                 } else {
                     let measure = line.measure as f64;
-                    let data: Vec<char> = line.data.as_slice().chars().collect();
+                    let data: Vec<char> = line.data[].chars().collect();
                     let max = data.len() / 2 * 2;
                     let count = max as f64;
                     for i in iter::range_step(0, max, 2) {
@@ -2168,7 +2167,7 @@ pub mod parser {
         };
 
         for &(name, leftkeys, rightkeys) in PRESETS.iter() {
-            if name == preset.as_slice() {
+            if name == preset[] {
                 return Some((leftkeys.to_string(), rightkeys.to_string()));
             }
         }
@@ -3272,7 +3271,7 @@ pub mod player {
             if opts.leftkeys.is_none() && opts.rightkeys.is_none() {
                 let preset =
                     if opts.preset.is_none() &&
-                       opts.bmspath.as_slice().to_ascii_lower().as_slice().ends_with(".pms") {
+                       opts.bmspath[].to_ascii_lower()[].ends_with(".pms") {
                         Some("pms".to_string())
                     } else {
                         opts.preset.clone()
@@ -3308,7 +3307,7 @@ pub mod player {
         };
 
         if !leftkeys.is_empty() {
-            match parse_and_add(&mut keyspec, leftkeys.as_slice()) {
+            match parse_and_add(&mut keyspec, leftkeys[]) {
                 None => {
                     return Err(format!("Invalid key spec for left hand side: {}", leftkeys));
                 }
@@ -3318,7 +3317,7 @@ pub mod player {
             return Err(format!("No key model is specified using -k or -K"));
         }
         if !rightkeys.is_empty() {
-            match parse_and_add(&mut keyspec, rightkeys.as_slice()) {
+            match parse_and_add(&mut keyspec, rightkeys[]) {
                 None => {
                     return Err(format!("Invalid key spec for right hand side: {}", rightkeys));
                 }
@@ -3447,7 +3446,7 @@ pub mod player {
         if !exclusive {
             sdl::mouse::set_cursor_visible(false);
         }
-        sdl::wm::set_caption(::version().as_slice(), "");
+        sdl::wm::set_caption(::version()[], "");
         screen
     }
 
@@ -3643,7 +3642,7 @@ pub mod player {
             let spec = spec.unwrap_or(keyset.default.to_string());
 
             let mut i = 0;
-            for part in spec.as_slice().split('|') {
+            for part in spec[].split('|') {
                 let (kind, vinputs) = keyset.mapping[i];
                 for s in part.split('%') {
                     match parse_input(s) {
@@ -3666,8 +3665,8 @@ pub mod player {
             let key = Key(36 + *lane as int);
             let kind = keyspec.kinds[*lane].unwrap();
             let envvar = format!("ANGOLMOIS_{}{}_KEY", key, kind.to_char());
-            for s in getenv(envvar.as_slice()).iter() {
-                match parse_input(s.as_slice()) {
+            for s in getenv(envvar[]).iter() {
+                match parse_input(s[]) {
                     Some(input) => { add_mapping(&mut map, Some(kind), input, LaneInput(lane)); }
                     None => {
                         die!("Unknown key name in the environment variable {}: {}", envvar, *s);
@@ -3692,10 +3691,10 @@ pub mod player {
         // TODO this logic assumes that #PATH_WAV is always interpreted as a native path, which
         // the C version doesn't assume. this difference barely makes the practical issue though.
         match bms.basepath {
-            Some(ref basepath) => { Path::new(basepath.as_slice()) }
+            Some(ref basepath) => { Path::new(basepath[]) }
             None => {
                 // Rust: it turns out that `Path("")` is always invalid. huh?
-                let path = Path::new(opts.bmspath.as_slice()).dir_path();
+                let path = Path::new(opts.bmspath[]).dir_path();
                 if path.components().count() == 0 {Path::new(".")} else {path}
             }
         }
@@ -3785,9 +3784,9 @@ pub mod player {
                 let mut found = name.as_ref().map_or(false, |name| *name == lastpart);
                 if !found && name.is_some() {
                     let name = name.unwrap();
-                    match name.as_slice().rfind('.') {
+                    match name[].rfind('.') {
                         Some(idx) => {
-                            let namenoext = name.as_slice().slice_to(idx);
+                            let namenoext = name[..idx];
                             for ext in exts.iter() {
                                 if namenoext.to_string() + *ext == lastpart {
                                     found = true;
@@ -3932,7 +3931,7 @@ pub mod player {
             }
         }
 
-        if path.to_ascii_lower().as_slice().ends_with(".mpg") {
+        if path.to_ascii_lower()[].ends_with(".mpg") {
             if opts.has_movie() {
                 let res = match resolve_relative_path(basedir, path, []) {
                     Some(fullpath) => MPEG::from_path(&fullpath),
@@ -4091,7 +4090,7 @@ pub mod player {
         screen.with_pixels(|pixels| {
             for path in bms.stagefile.iter() {
                 let basedir = get_basedir(bms, opts);
-                for path in resolve_relative_path(&basedir, path.as_slice(), IMAGE_EXTS).iter() {
+                for path in resolve_relative_path(&basedir, path[], IMAGE_EXTS).iter() {
                     match sdl_image::load(path).and_then(|s| s.display_format()) {
                         Ok(surface) => {
                             surface.with_pixels(|srcpixels| {
@@ -4114,10 +4113,10 @@ pub mod player {
                         pixels.put_blended_pixel(i, j, bg);
                     }
                 }
-                font.print_string(pixels, 6, 4, 2, LeftAligned, title.as_slice(), fg);
-                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre.as_slice(), fg);
-                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist.as_slice(), fg);
-                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta.as_slice(), fg);
+                font.print_string(pixels, 6, 4, 2, LeftAligned, title[], fg);
+                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre[], fg);
+                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist[], fg);
+                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta[], fg);
             }
         });
 
@@ -4151,7 +4150,7 @@ Artist:   {artist}
                 match *path {
                     Some(ref path) => {
                         callback(Some(path.to_string()));
-                        load_sound(Key(i as int), path.as_slice(), &basedir)
+                        load_sound(Key(i as int), path[], &basedir)
                     },
                     None => NoSound
                 }
@@ -4161,7 +4160,7 @@ Artist:   {artist}
                 match *path {
                     Some(ref path) => {
                         callback(Some(path.to_string()));
-                        load_image(Key(i as int), path.as_slice(), opts, &basedir)
+                        load_image(Key(i as int), path[], opts, &basedir)
                     },
                     None => NoImage
                 }
@@ -4192,7 +4191,7 @@ Artist:   {artist}
             let msg = path.unwrap_or("loading...".to_string());
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             screen.with_pixels(|pixels| {
-                font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg.as_slice(),
+                font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg[],
                                   Gradient::new(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
             });
             screen.flip();
@@ -4210,9 +4209,8 @@ Artist:   {artist}
             match mem::replace(&mut path, None) {
                 Some(path) => {
                     use util::str::StrUtil;
-                    let path = if path.len() < 63 {path}
-                               else {path.as_slice().slice_upto(0, 63).to_string()};
-                    update_line(format!("Loading: {}", path).as_slice());
+                    let path = if path.len() < 63 {path[]} else {path[].slice_upto(0, 63)};
+                    update_line(format!("Loading: {}", path)[]);
                 }
                 None => { update_line("Loading done."); }
             }
@@ -5551,7 +5549,7 @@ Artist:   {artist}
                     if player.lastcombo > 1 {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
                                           Centered, format!("{} COMBO",
-                                                            player.lastcombo).as_slice(),
+                                                            player.lastcombo)[],
                                           Gradient::new(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
@@ -5573,18 +5571,18 @@ Artist:   {artist}
             screen.with_pixels(|pixels| {
                 let black = RGB(0,0,0);
                 font.print_string(pixels, 10, 8, 1, LeftAligned,
-                                  format!("SCORE {:07}", player.score).as_slice(), black);
+                                  format!("SCORE {:07}", player.score)[], black);
                 let nominalplayspeed = player.nominal_playspeed();
                 font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
-                                  format!("{:4.1}x", nominalplayspeed).as_slice(), black);
+                                  format!("{:4.1}x", nominalplayspeed)[], black);
                 font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, LeftAligned,
                                   format!("{:02}:{:02} / {:02}:{:02}",
                                           elapsed/60, elapsed%60,
-                                          duration/60, duration%60).as_slice(), black);
+                                          duration/60, duration%60)[], black);
                 font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
-                                  format!("@{:9.4}", player.bottom).as_slice(), black);
+                                  format!("@{:9.4}", player.bottom)[], black);
                 font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
-                                  format!("BPM {:6.2}", *player.bpm).as_slice(), black);
+                                  format!("BPM {:6.2}", *player.bpm)[], black);
                 let timetick = cmp::min(self.leftmost, (player.now - player.origintime) *
                                                        self.leftmost / durationmsec);
                 font.print_glyph(pixels, 6 + timetick, SCREENH-52, 1,
@@ -5658,7 +5656,7 @@ Artist:   {artist}
                                     duration/600, duration/10%60, duration%10,
                                     pos = player.bottom, bpm = *player.bpm,
                                     lastcombo = player.lastcombo,
-                                    nnotes = player.infos.nnotes).as_slice());
+                                    nnotes = player.infos.nnotes)[]);
             });
         }
 
@@ -5723,7 +5721,7 @@ pub fn play(opts: player::Options) {
 
     // parses the file and sanitizes it
     let mut r = std::rand::task_rng();
-    let mut bms = match parser::parse_bms(opts.bmspath.as_slice(), &mut r) {
+    let mut bms = match parser::parse_bms(opts.bmspath[], &mut r) {
         Ok(bms) => bms,
         Err(err) => die!("Couldn't load BMS file: {}", err)
     };
@@ -5932,7 +5930,7 @@ pub fn main() {
 
     let mut i = 1;
     while i < nargs {
-        let arg = args[i].as_slice();
+        let arg = args[i][];
         if !arg.starts_with("-") {
             if bmspath.is_none() {
                 bmspath = Some(arg.to_string());
@@ -5951,12 +5949,12 @@ pub fn main() {
                         None => die!("Invalid option: {}", arg)
                     }
                 } else {
-                    arg.slice_from(1).to_string()
+                    arg[1..].to_string()
                 };
             let nshortargs = shortargs.len();
 
             let mut inside = true;
-            for (j, c) in shortargs.as_slice().chars().enumerate() {
+            for (j, c) in shortargs[].chars().enumerate() {
                 // Reads the argument of the option. Option string should be consumed first.
                 macro_rules! fetch_arg(
                     ($opt:expr) => ({
@@ -5964,12 +5962,12 @@ pub fn main() {
                         let nextarg =
                             if inside && off < nshortargs {
                                 // remaining portion of `args[i]` is an argument
-                                shortargs.as_slice().slice_from(off)
+                                shortargs[off..]
                             } else {
                                 // `args[i+1]` is an argument as a whole
                                 i += 1;
                                 if i < nargs {
-                                    args[i].as_slice()
+                                    args[i][]
                                 } else {
                                     die!("No argument to the option -{}", $opt);
                                 }
