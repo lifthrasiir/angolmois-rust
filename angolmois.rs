@@ -54,6 +54,10 @@
 
 #![feature(macro_rules)]
 
+// XXX temporarily cope with the nightly
+#![allow(unknown_features)]
+#![feature(slicing_syntax)]
+
 #![comment = "Angolmois"]
 #![license = "GPLv2+"]
 
@@ -1504,9 +1508,9 @@ pub mod parser {
     /// Converts a single alphanumeric (base-36) letter to an integer. (C: `getdigit`)
     fn getdigit(n: char) -> Option<int> {
         match n {
-            '0'..'9' => Some((n as int) - ('0' as int)),
-            'a'..'z' => Some((n as int) - ('a' as int) + 10),
-            'A'..'Z' => Some((n as int) - ('A' as int) + 10),
+            '0'...'9' => Some((n as int) - ('0' as int)),
+            'a'...'z' => Some((n as int) - ('a' as int) + 10),
+            'A'...'Z' => Some((n as int) - ('A' as int) + 10),
             _ => None
         }
     }
@@ -1907,7 +1911,7 @@ pub mod parser {
                     10 => { add(bms, Obj::SetBGA(t, Layer3, Some(v))); }
 
                     // channels #1x/2x: visible object, possibly LNs when #LNOBJ is in active
-                    36/*1*36*/..107/*3*36-1*/ => {
+                    36/*1*36*/...107/*3*36-1*/ => {
                         let lane = Lane::from_channel(chan);
                         if lnobj.is_some() && lnobj == Some(v) {
                             // change the last inserted visible object to the start of LN if any.
@@ -1924,13 +1928,13 @@ pub mod parser {
                     }
 
                     // channels #3x/4x: invisible object
-                    108/*3*36*/..179/*5*36-1*/ => {
+                    108/*3*36*/...179/*5*36-1*/ => {
                         let lane = Lane::from_channel(chan);
                         add(bms, Obj::Invisible(t, lane, Some(v)));
                     }
 
                     // channels #5x/6x, #LNTYPE 1: LN endpoints
-                    180/*5*36*/..251/*7*36-1*/ if !consecutiveln => {
+                    180/*5*36*/...251/*7*36-1*/ if !consecutiveln => {
                         let lane = Lane::from_channel(chan);
 
                         // a pair of non-00 alphanumeric keys designate one LN. if there are an odd
@@ -1944,7 +1948,7 @@ pub mod parser {
                     }
 
                     // channels #5x/6x, #LNTYPE 2: LN areas
-                    180/*5*36*/..251/*7*36-1*/ if consecutiveln => {
+                    180/*5*36*/...251/*7*36-1*/ if consecutiveln => {
                         let lane = Lane::from_channel(chan);
 
                         // one non-00 alphanumeric key, in the absence of other information,
@@ -1968,10 +1972,10 @@ pub mod parser {
 
                     // channels #Dx/Ex: bombs, base-36 damage value (unit of 0.5% of the full gauge)
                     // or instant death (ZZ)
-                    468/*0xD*36*/..539/*0xF*36-1*/ => {
+                    468/*0xD*36*/...539/*0xF*36-1*/ => {
                         let lane = Lane::from_channel(chan);
                         let damage = match v {
-                            Key(v @ 1..200) => Some(GaugeDamage(v as f64 / 200.0)),
+                            Key(v @ 1...200) => Some(GaugeDamage(v as f64 / 200.0)),
                             Key(1295) => Some(InstantDeath), // XXX 1295=MAXKEY-1
                             _ => None
                         };
@@ -2094,7 +2098,7 @@ pub mod parser {
                 return None;
             }
             match (chan, KeyKind::from_char(kind)) {
-                (Key(chan @ 36/*1*36*/..107/*3*36-1*/), Some(kind)) => {
+                (Key(chan @ 36/*1*36*/...107/*3*36-1*/), Some(kind)) => {
                     specs.push((Lane(chan as uint - 1*36), kind));
                 }
                 (_, _) => { return None; }
@@ -3002,8 +3006,8 @@ pub mod gfx {
                     let code = indices[i] as uint;
                     i += 1;
                     match code {
-                        33..97 => { glyphs.push(words[code - 33]); }
-                        98..126 => {
+                        33...97 => { glyphs.push(words[code - 33]); }
+                        98...126 => {
                             let length = code - 95; // code=98 -> length=3
                             let distance = indices[i] as uint - 32;
                             i += 1;
@@ -6010,7 +6014,7 @@ pub fn main() {
                         }
                     }
                     ' ' => {} // for ignored long options
-                    '1'..'9' => { playspeed = c.to_digit(10).unwrap() as f64; }
+                    '1'...'9' => { playspeed = c.to_digit(10).unwrap() as f64; }
                     _ => die!("Invalid option: -{}", c)
                 }
                 if !inside { break; }
