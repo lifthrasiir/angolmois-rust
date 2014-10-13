@@ -479,7 +479,7 @@ pub mod util {
             pub type HWND = HANDLE;
             pub type HINSTANCE = HANDLE;
 
-            pub static OFN_HIDEREADONLY: DWORD = 4;
+            pub const OFN_HIDEREADONLY: DWORD = 4;
 
             #[allow(non_snake_case)]
             #[repr(C)]
@@ -779,7 +779,7 @@ pub mod parser {
     pub struct Key(pub int);
 
     /// The number of all possible alphanumeric keys. (C: `MAXKEY`)
-    pub static MAXKEY: int = 36*36;
+    pub const MAXKEY: int = 36*36;
 
     impl Deref<int> for Key {
         fn deref<'a>(&'a self) -> &'a int {
@@ -824,7 +824,7 @@ pub mod parser {
     pub struct Lane(pub uint);
 
     /// The maximum number of lanes. (C: `NNOTECHANS`)
-    pub static NLANES: uint = 72;
+    pub const NLANES: uint = 72;
 
     impl Deref<uint> for Lane {
         fn deref<'a>(&'a self) -> &'a uint {
@@ -987,7 +987,7 @@ pub mod parser {
     }
 
     /// The number of BGA layers.
-    pub static NLAYERS: uint = 4;
+    pub const NLAYERS: uint = 4;
 
     /// Beats per minute. Used as a conversion factor between the time position and actual time
     /// in BMS.
@@ -1370,7 +1370,7 @@ pub mod parser {
     // BMS data
 
     /// Default BPM. This value comes from the original BMS specification.
-    pub static DefaultBPM: BPM = BPM(130.0);
+    pub const DEFAULT_BPM: BPM = BPM(130.0);
 
     /**
      * Blit commands, which manipulate the image after the image had been loaded. This maps to BMS
@@ -1389,15 +1389,15 @@ pub mod parser {
 
     /// A value of BMS #PLAYER command signifying Single Play (SP), where only channels #1x are used
     /// for the game play.
-    pub static SINGLE_PLAY: int = 1;
+    pub const SINGLE_PLAY: int = 1;
     /// A value of BMS #PLAYER command signifying Couple Play, where channels #1x and #2x renders to
     /// the different panels. They are originally meant to be played by different players with
     /// separate gauges and scores, but this mode of game play is increasingly unsupported by modern
     /// implementations. Angolmois has only a limited support for Couple Play.
-    pub static COUPLE_PLAY: int = 2;
+    pub const COUPLE_PLAY: int = 2;
     /// A value of BMS #PLAYER command signifying Double Play (DP), where both channels #1x and #2x
     /// renders to a single wide panel. The chart is still meant to be played by one person.
-    pub static DOUBLE_PLAY: int = 3;
+    pub const DOUBLE_PLAY: int = 3;
 
     /// Loaded BMS data. It is not a global state unlike C.
     pub struct Bms {
@@ -1445,7 +1445,7 @@ pub mod parser {
         /// Creates a default value of BMS data.
         pub fn new() -> Bms {
             Bms { title: None, genre: None, artist: None, stagefile: None, basepath: None,
-                  player: SINGLE_PLAY, playlevel: 0, rank: 2, initbpm: DefaultBPM,
+                  player: SINGLE_PLAY, playlevel: 0, rank: 2, initbpm: DEFAULT_BPM,
                   sndpath: Vec::from_elem(MAXKEY as uint, None),
                   imgpath: Vec::from_elem(MAXKEY as uint, None), blitcmd: Vec::new(),
                   objs: Vec::new(), shortens: Vec::new(), nmeasures: 0 }
@@ -1558,7 +1558,7 @@ pub mod parser {
         /// The list of recognized prefixes of directives. The longest prefix should come first.
         /// Also note that not all recognized prefixes are processed (counterexample being `ENDSW`).
         /// (C: `bmsheader`)
-        static bmsheader: &'static [&'static str] = &[
+        static BMS_HEADER: &'static [&'static str] = &[
             "TITLE", "GENRE", "ARTIST", "STAGEFILE", "PATH_WAV", "BPM",
             "PLAYER", "PLAYLEVEL", "RANK", "LNTYPE", "LNOBJ", "WAV", "BMP",
             "BGA", "STOP", "STP", "RANDOM", "SETRANDOM", "ENDRANDOM", "IF",
@@ -1627,7 +1627,7 @@ pub mod parser {
         // processed in the order of measure number. (C: `bmsline`)
         let mut bmsline = Vec::new();
         // A table of BPMs. Maps to BMS #BPMxx command. (C: `bpmtab`)
-        let mut bpmtab = Vec::from_elem(MAXKEY as uint, DefaultBPM);
+        let mut bpmtab = Vec::from_elem(MAXKEY as uint, DEFAULT_BPM);
         // A table of the length of scroll stoppers. Maps to BMS #STOP/#STP commands. (C: `stoptab`)
         let mut stoptab = Vec::from_elem(MAXKEY as uint, Seconds(0.0));
 
@@ -1650,10 +1650,10 @@ pub mod parser {
             if !line.starts_with("#") { continue; }
             let line = line[1..];
 
-            // search for header prefix. the header list (`bmsheader`) is in the decreasing order
+            // search for header prefix. the header list (`BMS_HEADER`) is in the decreasing order
             // of prefix length.
             let mut prefix = "";
-            for &header in bmsheader.iter() {
+            for &header in BMS_HEADER.iter() {
                 use std::ascii::StrAsciiExt;
                 if line.len() >= header.len() && line[..header.len()].to_ascii_upper()[] == header {
                     prefix = header;
@@ -2230,11 +2230,11 @@ pub mod parser {
         for lane in range(0, NLANES) {
             let lane0 = Lane(lane);
 
-            static LNDONE: uint = 0;
-            static LNSTART: uint = 1;
-            static VISIBLE: uint = 2;
-            static INVISIBLE: uint = 3;
-            static BOMB: uint = 4;
+            const LNDONE: uint = 0;
+            const LNSTART: uint = 1;
+            const VISIBLE: uint = 2;
+            const INVISIBLE: uint = 3;
+            const BOMB: uint = 4;
             let to_type = |obj: &Obj| -> Option<uint> {
                 match obj.data {
                     Visible(lane,_) if lane == lane0 => Some(VISIBLE),
@@ -2248,7 +2248,7 @@ pub mod parser {
 
             let mut inside = false;
             sanitize(bms.objs[mut], |obj| to_type(obj), |mut types| {
-                static LNMASK: int = (1 << LNSTART) | (1 << LNDONE);
+                const LNMASK: int = (1 << LNSTART) | (1 << LNDONE);
 
                 // remove overlapping LN endpoints altogether
                 if (types & LNMASK) == LNMASK { types &= !LNMASK; }
@@ -2818,9 +2818,9 @@ pub mod gfx {
     }
 
     /// A scaling factor for the calculation of convolution kernel.
-    static FP_SHIFT1: uint = 11;
+    const FP_SHIFT1: uint = 11;
     /// A scaling factor for the summation of weighted pixels.
-    static FP_SHIFT2: uint = 16;
+    const FP_SHIFT2: uint = 16;
 
     /// Returns `2^FP_SHIFT * W(x/y)` where `W(x)` is a bicubic kernel function. `y` should be
     /// positive. (C: `bicubic_kernel`)
@@ -3156,13 +3156,13 @@ pub mod player {
     use gfx::{SurfaceAreaUtil, SurfacePixelsUtil};
 
     /// The width of screen, unless the exclusive mode.
-    pub static SCREENW: uint = 800;
+    pub const SCREENW: uint = 800;
     /// The height of screen, unless the exclusive mode.
-    pub static SCREENH: uint = 600;
+    pub const SCREENH: uint = 600;
     /// The width of BGA, or the width of screen for the exclusive mode.
-    pub static BGAW: uint = 256;
+    pub const BGAW: uint = 256;
     /// The height of BGA, or the height of screen for the exclusive mode.
-    pub static BGAH: uint = 256;
+    pub const BGAH: uint = 256;
 
     //----------------------------------------------------------------------------------------------
     // options
@@ -3390,7 +3390,7 @@ pub mod player {
         pub fn new() -> Ticker {
             /// A reasonable interval for the console and graphic display.
             /// Currently set to about 21fps. (C: `INFO_INTERVAL`)
-            static INFO_INTERVAL: uint = 47;
+            const INFO_INTERVAL: uint = 47;
             Ticker { interval: INFO_INTERVAL, lastinfo: None }
         }
 
@@ -3414,10 +3414,10 @@ pub mod player {
 
     /// An internal sampling rate for SDL_mixer. Every chunk loaded is first converted to
     /// this sampling rate for the purpose of mixing.
-    static SAMPLERATE: i32 = 44100;
+    const SAMPLERATE: i32 = 44100;
 
     /// The number of bytes in the chunk converted to an internal sampling rate.
-    static BYTESPERSEC: i32 = SAMPLERATE * 2 * 2; // stereo, 16 bits/sample
+    const BYTESPERSEC: i32 = SAMPLERATE * 2 * 2; // stereo, 16 bits/sample
 
     /// Creates a small screen for BGAs (`BGAW` by `BGAH` pixels) if `exclusive` is set,
     /// or a full-sized screen (`SCREENW` by `SCREENH` pixels) otherwise. `fullscreen` is ignored
@@ -4472,27 +4472,27 @@ Artist:   {artist}
     }
 
     /// Required time difference in milliseconds to get at least COOL grade.
-    static COOL_CUTOFF: f64 = 14.4;
+    const COOL_CUTOFF: f64 = 14.4;
     /// Required time difference in milliseconds to get at least GREAT grade.
-    static GREAT_CUTOFF: f64 = 48.0;
+    const GREAT_CUTOFF: f64 = 48.0;
     /// Required time difference in milliseconds to get at least GOOD grade.
-    static GOOD_CUTOFF: f64 = 84.0;
+    const GOOD_CUTOFF: f64 = 84.0;
     /// Required time difference in milliseconds to get at least BAD grade.
-    static BAD_CUTOFF: f64 = 144.0;
+    const BAD_CUTOFF: f64 = 144.0;
 
     /// The number of available grades.
-    static NGRADES: uint = 5;
+    const NGRADES: uint = 5;
 
     /// The maximum (internal) value for the gauge.
-    static MAXGAUGE: int = 512;
+    const MAXGAUGE: int = 512;
     /// A base score per exact input. Actual score can increase by the combo (up to 2x) or decrease
     /// by the larger time difference.
-    static SCOREPERNOTE: f64 = 300.0;
+    const SCOREPERNOTE: f64 = 300.0;
 
     /// A damage due to the MISS grading. Only applied when the grading is not due to the bomb.
-    static MISS_DAMAGE: Damage = GaugeDamage(0.059);
+    const MISS_DAMAGE: Damage = GaugeDamage(0.059);
     /// A damage due to the BAD grading.
-    static BAD_DAMAGE: Damage = GaugeDamage(0.030);
+    const BAD_DAMAGE: Damage = GaugeDamage(0.030);
 
     /// Game play states independent to the display.
     pub struct Player {
