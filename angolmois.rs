@@ -1654,7 +1654,7 @@ pub mod parser {
             // of prefix length.
             let mut prefix = "";
             for &header in BMS_HEADER.iter() {
-                use std::ascii::StrAsciiExt;
+                use std::ascii::AsciiExt;
                 if line.len() >= header.len() && line[..header.len()].to_ascii_upper()[] == header {
                     prefix = header;
                     break;
@@ -2137,7 +2137,7 @@ pub mod parser {
      * - `pms`: Selects one of two presets `9` and `9-bme`.
      */
     pub fn preset_to_key_spec(bms: &Bms, preset: Option<String>) -> Option<(String, String)> {
-        use std::ascii::OwnedStrAsciiExt;
+        use std::ascii::OwnedAsciiExt;
         use util::option::StrOption;
 
         let mut present = [false, ..NLANES];
@@ -3264,7 +3264,7 @@ pub mod player {
 
     /// Parses a key specification from the options.
     pub fn key_spec(bms: &Bms, opts: &Options) -> Result<KeySpec,String> {
-        use std::ascii::StrAsciiExt;
+        use std::ascii::AsciiExt;
         use util::option::StrOption;
 
         let (leftkeys, rightkeys) =
@@ -3599,7 +3599,7 @@ pub mod player {
 
     /// Reads an input mapping from the environment variables. (C: `read_keymap`)
     pub fn read_keymap(keyspec: &KeySpec, getenv: |&str| -> Option<String>) -> KeyMap {
-        use std::ascii::{StrAsciiExt, OwnedStrAsciiExt};
+        use std::ascii::{AsciiExt, OwnedAsciiExt};
 
         /// Finds an SDL virtual key with the given name. Matching is done case-insensitively.
         fn sdl_key_from_name(name: &str) -> Option<event::Key> {
@@ -3717,7 +3717,7 @@ pub mod player {
      */
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
         use std::{str, io};
-        use std::ascii::StrAsciiExt;
+        use std::ascii::AsciiExt;
         use std::collections::hashmap::{Occupied, Vacant};
         use std::io::fs::PathExtensions;
 
@@ -3905,7 +3905,7 @@ pub mod player {
 
     /// Loads an image resource.
     fn load_image(key: Key, path: &str, opts: &Options, basedir: &Path) -> ImageResource {
-        use std::ascii::StrAsciiExt;
+        use std::ascii::AsciiExt;
 
         /// Converts a surface to the native display format, while preserving a transparency or
         /// setting a color key if required.
