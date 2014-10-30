@@ -839,7 +839,7 @@ pub mod parser {
             let player = match *chan / 36 {
                 1 | 3 | 5 | 0xD => 0,
                 2 | 4 | 6 | 0xE => 1,
-                _ => fail!("non-object channel")
+                _ => panic!("non-object channel")
             };
             Lane(player * 36 + *chan as uint % 36)
         }
@@ -1244,7 +1244,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Visible(lane,snd),
-                _ => fail!("to_visible for non-object")
+                _ => panic!("to_visible for non-object")
             }
         }
 
@@ -1252,7 +1252,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => Invisible(lane,snd),
-                _ => fail!("to_invisible for non-object")
+                _ => panic!("to_invisible for non-object")
             }
         }
 
@@ -1260,7 +1260,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNStart(lane,snd),
-                _ => fail!("to_lnstart for non-object")
+                _ => panic!("to_lnstart for non-object")
             }
         }
 
@@ -1268,7 +1268,7 @@ pub mod parser {
             match *self {
                 Visible(lane,snd) | Invisible(lane,snd) |
                 LNStart(lane,snd) | LNDone(lane,snd) => LNDone(lane,snd),
-                _ => fail!("to_lndone for non-object")
+                _ => panic!("to_lndone for non-object")
             }
         }
     }
@@ -2459,7 +2459,7 @@ pub mod parser {
                 let lane = obj.object_lane().unwrap();
                 match movable.iter().position(|&i| i == lane) {
                     Some(i) => { movable.swap_remove(i); }
-                    None => fail!("non-sanitized BMS detected")
+                    None => panic!("non-sanitized BMS detected")
                 }
             }
             if lasttime < obj.time { // reshuffle required
@@ -3016,7 +3016,7 @@ pub mod gfx {
                                 glyphs.push(v);
                             }
                         }
-                        _ => fail!("unexpected codeword")
+                        _ => panic!("unexpected codeword")
                     }
                 }
                 glyphs
