@@ -3718,7 +3718,7 @@ pub mod player {
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
         use std::{str, io};
         use std::ascii::AsciiExt;
-        use std::collections::hashmap::{Occupied, Vacant};
+        use std::collections::hash_map::{Occupied, Vacant};
         use std::io::fs::PathExtensions;
 
         // `std::io::fs::readdir` is different from C's `dirent.h`, as it always reads
