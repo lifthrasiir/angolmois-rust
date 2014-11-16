@@ -1331,7 +1331,10 @@ pub mod parser {
         }
 
         /// Returns the number of a measure containing this object.
-        pub fn measure(&self) -> int { self.time.floor() as int }
+        pub fn measure(&self) -> int {
+            use std::num::Float;
+            self.time.floor() as int
+        }
     }
 
     impl ObjQueryOps for Obj {
@@ -1465,6 +1468,8 @@ pub mod parser {
         /// This takes account of the scaling factor, so if first four measures are scaled by 1/4,
         /// then `adjust_object_time(0.0, 2.0)` results in `5.0`. (C: `adjust_object_time`)
         pub fn adjust_object_time(&self, base: f64, offset: f64) -> f64 {
+            use std::num::Float;
+
             let basemeasure = base.floor() as int;
             let baseshorten = self.shorten(basemeasure);
             let basefrac = base - basemeasure as f64;
@@ -1489,6 +1494,8 @@ pub mod parser {
         /// between the virtual time 0.0 and 2.0 is, if the measure #000 is scaled by 1.2x,
         /// 2.2 measures instead of 2.0 measures. (C: `adjust_object_position`)
         pub fn adjust_object_position(&self, base: f64, time: f64) -> f64 {
+            use std::num::Float;
+
             let basemeasure = base.floor() as int;
             let timemeasure = time.floor() as int;
             let basefrac = base - basemeasure as f64;
@@ -2488,7 +2495,7 @@ pub mod parser {
 /// Graphic utilities.
 pub mod gfx {
     use std;
-    use std::{num, cmp};
+    use std::cmp;
     use sdl::Rect;
     use sdl::video;
     use sdl::video::{Color, RGB, RGBA, Surface};
@@ -2825,7 +2832,9 @@ pub mod gfx {
     /// Returns `2^FP_SHIFT * W(x/y)` where `W(x)` is a bicubic kernel function. `y` should be
     /// positive. (C: `bicubic_kernel`)
     fn bicubic_kernel(x: int, y: int) -> int {
-        let x = num::abs(x);
+        use std::num::SignedInt;
+
+        let x = x.abs();
         if x < y {
             // W(x/y) = 1/2 (2 - 5(x/y)^2 + 3(x/y)^3)
             ((2*y*y - 5*x*x + 3*x*x/y*x) << (FP_SHIFT1-1)) / (y*y)
@@ -3134,7 +3143,7 @@ pub mod gfx {
  */
 pub mod player {
     use {std, libc};
-    use std::{slice, cmp, num, iter, hash};
+    use std::{slice, cmp, iter, hash};
     use std::rc::Rc;
     use std::rand::Rng;
     use std::collections::HashMap;
@@ -4415,6 +4424,7 @@ Artist:   {artist}
         /// if any. `base` should lie between the pointed object and the previous object.
         /// The proximity is measured in terms of virtual time, which can differ from actual time.
         pub fn find_closest_of_type(&self, base: f64, cond: |&Obj| -> bool) -> Option<Pointer> {
+            use std::num::Float;
             let previous = self.find_previous_of_type(|obj| cond(obj));
             let next = self.find_next_of_type(|obj| cond(obj));
             match (previous, next) {
@@ -4422,8 +4432,8 @@ Artist:   {artist}
                 (None, Some(next)) => Some(next),
                 (Some(previous), None) => Some(previous),
                 (Some(previous), Some(next)) =>
-                    if num::abs(previous.time() - base) <
-                       num::abs(next.time() - base) { Some(previous) }
+                    if (previous.time() - base).abs() <
+                       (next.time() - base).abs() { Some(previous) }
                     else { Some(next) }
             }
         }
@@ -4753,7 +4763,8 @@ Artist:   {artist}
         /// the actual time difference when `gradefactor` is 1.0. (C: `update_grade(grade,
         /// scoredelta, 0)` where `grade` and `scoredelta` are pre-calculated from `dist`)
         pub fn update_grade_from_distance(&mut self, dist: f64) {
-            let dist = num::abs(dist);
+            use std::num::Float;
+            let dist = dist.abs();
             let (grade, damage) = if      dist <  COOL_CUTOFF {(COOL,None)}
                                   else if dist < GREAT_CUTOFF {(GREAT,None)}
                                   else if dist <  GOOD_CUTOFF {(GOOD,None)}
@@ -4843,11 +4854,13 @@ Artist:   {artist}
 
         /// Updates the player state. (C: `play_process`)
         pub fn tick(&mut self) -> bool {
+            use std::num::Float;
+
             // smoothly change the play speed
             if self.targetspeed.is_some() {
                 let target = self.targetspeed.unwrap();
                 let delta = target - self.playspeed;
-                if num::abs(delta) < 0.001 {
+                if delta.abs() < 0.001 {
                     self.playspeed = target;
                     self.targetspeed = None;
                 } else {
@@ -4969,7 +4982,7 @@ Artist:   {artist}
                         (JoyAxisInput(axis as uint), Neutral),
                     _ => { continue; }
                 };
-                let vkey = match self.keymap.find(&key) {
+                let vkey = match self.keymap.get(&key) {
                     Some(&vkey) => vkey,
                     None => { continue; }
                 };
@@ -5030,7 +5043,7 @@ Artist:   {artist}
                     for p in nextlndone.iter() {
                         let delta = player.bpm.measure_to_msec(p.time() - player.line) *
                                     lineshorten * player.gradefactor;
-                        if num::abs(delta) < BAD_CUTOFF {
+                        if delta.abs() < BAD_CUTOFF {
                             player.nograding[mut][p.pos] = true;
                         } else {
                             player.update_grade_to_miss();
@@ -5060,7 +5073,7 @@ Artist:   {artist}
                                                          !p.is_lndone() {
                             let dist = player.bpm.measure_to_msec(p.time() - player.line) *
                                        lineshorten * player.gradefactor;
-                            if num::abs(dist) < BAD_CUTOFF {
+                            if dist.abs() < BAD_CUTOFF {
                                 if p.is_lnstart() {
                                     player.pthru[mut][*lane] =
                                         Some(Pointer::new_with_pos(player.bms.clone(), p.pos));
@@ -5290,6 +5303,8 @@ Artist:   {artist}
     /// Creates a sprite. (C: sprite construction portion of `play_prepare`)
     fn create_sprite(opts: &Options, leftmost: uint, rightmost: Option<uint>,
                      styles: &[(Lane,LaneStyle)]) -> Surface {
+        use std::num::SignedInt;
+
         let sprite = gfx::new_surface(SCREENW + 400, SCREENH);
         let black = RGB(0,0,0);
         let gray = RGB(0x40,0x40,0x40); // gray used for separators
@@ -5307,13 +5322,13 @@ Artist:   {artist}
                 for i in range(-10i, 20) {
                     let c = (i*2+j*3+750) % 2000;
                     pixels.put_pixel((j+244) as uint, (i+10) as uint,
-                                     topgrad.blend(850 - num::abs(c-1000), 700));
+                                     topgrad.blend(850 - (c-1000).abs(), 700));
                 }
                 for i in range(-20i, 60) {
                     let c = (i*3+j*2+750) % 2000;
                     let bottom = (SCREENH - 60) as int;
                     pixels.put_pixel((j+244) as uint, (i+bottom) as uint,
-                                     botgrad.blend(850 - num::abs(c-1000), 700));
+                                     botgrad.blend(850 - (c-1000).abs(), 700));
                 }
             }
         });
@@ -5435,6 +5450,8 @@ Artist:   {artist}
 
     impl Display for GraphicDisplay {
         fn render(&mut self, player: &Player) {
+            use std::num::Float;
+
             let screen = &self.screen;
             let sprite = &self.sprite;
             let font = &self.font;
@@ -5944,7 +5961,7 @@ pub fn main() {
         } else {
             let shortargs =
                 if arg.starts_with("--") {
-                    match longargs.find(&arg) {
+                    match longargs.get(&arg) {
                         Some(&c) => c.to_string(),
                         None => die!("Invalid option: {}", arg)
                     }
