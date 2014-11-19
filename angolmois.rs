@@ -52,11 +52,7 @@
 #![crate_name = "angolmois"]
 #![crate_type = "bin"]
 
-#![feature(macro_rules)]
-
-// XXX temporarily cope with the nightly
-#![allow(unknown_features)]
-#![feature(slicing_syntax)]
+#![feature(macro_rules, slicing_syntax)]
 
 #![comment = "Angolmois"]
 #![license = "GPLv2+"]
@@ -163,7 +159,7 @@ pub mod util {
         /// which `from_str::<int>` would in general accept without a failure, if any.
         fn scan_int(s: &str) -> Option<uint> {
             match s.slice_shift_char() {
-                (Some('-'), s_) | (Some('+'), s_) => scan_uint(s_).map(|pos| pos + 1u),
+                Some(('-', s_)) | Some(('+', s_)) => scan_uint(s_).map(|pos| pos + 1u),
                 _ => scan_uint(s)
             }
         }
@@ -174,13 +170,13 @@ pub mod util {
             scan_int(s).and_then(|pos| {
                 // scan `.` followed by digits if any
                 match s[pos..].slice_shift_char() {
-                    (Some('.'), s_) => scan_uint(s_).map(|pos2| pos + 1u + pos2),
+                    Some(('.', s_)) => scan_uint(s_).map(|pos2| pos + 1u + pos2),
                     _ => Some(pos)
                 }
             }).and_then(|pos| {
                 // scan `e` or `E` followed by an optional sign and digits if any
                 match s[pos..].slice_shift_char() {
-                    (Some('e'), s_) | (Some('E'), s_) => scan_int(s_).map(|pos2| pos + 1u + pos2),
+                    Some(('e', s_)) | Some(('E', s_)) => scan_int(s_).map(|pos2| pos + 1u + pos2),
                     _ => Some(pos)
                 }
             })
@@ -217,10 +213,7 @@ pub mod util {
 
         impl FromStrPrefix for char {
             fn from_str_prefix<'a>(s: &'a str) -> Option<(char, &'a str)> {
-                match s.slice_shift_char() {
-                    (Some(c), s_) => Some((c, s_)),
-                    (None, _) => None,
-                }
+                s.slice_shift_char()
             }
         }
 
@@ -240,8 +233,8 @@ pub mod util {
         impl ShiftablePrefix for char {
             fn prefix_shifted<'r>(&self, s: &'r str) -> Option<&'r str> {
                 match s.slice_shift_char() {
-                    (Some(c), s_) if c == *self => Some(s_),
-                    (_, _) => None,
+                    Some((c, s_)) if c == *self => Some(s_),
+                    _ => None,
                 }
             }
         }
@@ -770,6 +763,9 @@ pub mod parser {
     use std::rand::Rng;
     use util::str::FromStrPrefix;
 
+    pub use self::ObjData::{Deleted, Visible, Invisible, LNStart, LNDone, Bomb,
+                            BGM, SetBGA, SetBPM, Stop};
+
     //----------------------------------------------------------------------------------------------
     // alphanumeric key
 
@@ -894,25 +890,35 @@ pub mod parser {
         //
         // Rust: can this method be generated on the fly?
         pub fn all() -> &'static [KeyKind] {
-            static ALL: [KeyKind, ..10] = [WhiteKey, WhiteKeyAlt, BlackKey, Scratch, FootPedal,
-                                           Button1, Button2, Button3, Button4, Button5];
-            ALL
+            static ALL: [KeyKind, ..10] = [
+                KeyKind::WhiteKey,
+                KeyKind::WhiteKeyAlt,
+                KeyKind::BlackKey,
+                KeyKind::Scratch,
+                KeyKind::FootPedal,
+                KeyKind::Button1,
+                KeyKind::Button2,
+                KeyKind::Button3,
+                KeyKind::Button4,
+                KeyKind::Button5,
+            ];
+            &ALL
         }
 
         /// Converts a mnemonic character to an appropriate key kind. Used for parsing a key
         /// specification (see also `KeySpec`).
         pub fn from_char(c: char) -> Option<KeyKind> {
             match c {
-                'a' => Some(WhiteKey),
-                'y' => Some(WhiteKeyAlt),
-                'b' => Some(BlackKey),
-                's' => Some(Scratch),
-                'p' => Some(FootPedal),
-                'q' => Some(Button1),
-                'w' => Some(Button2),
-                'e' => Some(Button3),
-                'r' => Some(Button4),
-                't' => Some(Button5),
+                'a' => Some(KeyKind::WhiteKey),
+                'y' => Some(KeyKind::WhiteKeyAlt),
+                'b' => Some(KeyKind::BlackKey),
+                's' => Some(KeyKind::Scratch),
+                'p' => Some(KeyKind::FootPedal),
+                'q' => Some(KeyKind::Button1),
+                'w' => Some(KeyKind::Button2),
+                'e' => Some(KeyKind::Button3),
+                'r' => Some(KeyKind::Button4),
+                't' => Some(KeyKind::Button5),
                 _   => None
             }
         }
@@ -921,16 +927,16 @@ pub mod parser {
         /// (see also `read_keymap`).
         pub fn to_char(&self) -> char {
             match *self {
-                WhiteKey    => 'a',
-                WhiteKeyAlt => 'y',
-                BlackKey    => 'b',
-                Scratch     => 's',
-                FootPedal   => 'p',
-                Button1     => 'w',
-                Button2     => 'e',
-                Button3     => 'r',
-                Button4     => 't',
-                Button5     => 's'
+                KeyKind::WhiteKey    => 'a',
+                KeyKind::WhiteKeyAlt => 'y',
+                KeyKind::BlackKey    => 'b',
+                KeyKind::Scratch     => 's',
+                KeyKind::FootPedal   => 'p',
+                KeyKind::Button1     => 'w',
+                KeyKind::Button2     => 'e',
+                KeyKind::Button3     => 'r',
+                KeyKind::Button4     => 't',
+                KeyKind::Button5     => 's'
             }
         }
 
@@ -942,7 +948,7 @@ pub mod parser {
          * scratch but commonly said to have 7 "keys").
          */
         pub fn counts_as_key(&self) -> bool {
-            *self != Scratch && *self != FootPedal
+            *self != KeyKind::Scratch && *self != KeyKind::FootPedal
         }
     }
 
@@ -1018,8 +1024,8 @@ pub mod parser {
         /// Calculates the actual milliseconds from the current BPM.
         pub fn to_msec(&self, bpm: BPM) -> f64 {
             match *self {
-                Seconds(secs) => secs * 1000.0,
-                Measures(measures) => bpm.measure_to_msec(measures)
+                Duration::Seconds(secs) => secs * 1000.0,
+                Duration::Measures(measures) => bpm.measure_to_msec(measures)
             }
         }
     }
@@ -1028,7 +1034,7 @@ pub mod parser {
     /// (as in `MAXGAUGE`), but sometimes it may cause an instant death. Used in the `Bomb` object
     /// (normal note objects have a fixed value).
     #[deriving(PartialEq,Clone)]
-    pub enum Damage { GaugeDamage(f64), InstantDeath }
+    pub enum Damage { Gauge(f64), InstantDeath }
 
     //----------------------------------------------------------------------------------------------
     // object
@@ -1083,7 +1089,7 @@ pub mod parser {
         /// Returns true if the object is a start of LN object (`LNStart`).
         /// (C: `obj->type == LNSTART`)
         fn is_lnstart(&self) -> bool;
-        /// Returns true if the object is an end of LN object (`LNEnd`). (C: `obj->type == LNDONE`)
+        /// Returns true if the object is an end of LN object (`LNDone`). (C: `obj->type == LNDONE`)
         fn is_lndone(&self) -> bool;
         /// Returns true if the object is either a start or an end of LN object.
         /// (C: `obj->type < NOTE`)
@@ -1591,7 +1597,10 @@ pub mod parser {
             /// Returns true if lines should be ignored in the current block given that the parent
             /// block was active. (C: `state > 0`)
             fn inactive(&self) -> bool {
-                match *self { Outside | Process => false, Ignore | NoFurther => true }
+                match *self {
+                    BlockState::Outside | BlockState::Process => false,
+                    BlockState::Ignore | BlockState::NoFurther => true
+                }
             }
         }
 
@@ -1624,7 +1633,7 @@ pub mod parser {
         }
 
         // A list of nested blocks. (C: `rnd`)
-        let mut blk = vec!(Block { val: None, state: Outside, skip: false });
+        let mut blk = vec!(Block { val: None, state: BlockState::Outside, skip: false });
 
         /// An unprocessed data line of BMS file.
         #[deriving(Clone)]
@@ -1636,7 +1645,7 @@ pub mod parser {
         // A table of BPMs. Maps to BMS #BPMxx command. (C: `bpmtab`)
         let mut bpmtab = Vec::from_elem(MAXKEY as uint, DEFAULT_BPM);
         // A table of the length of scroll stoppers. Maps to BMS #STOP/#STP commands. (C: `stoptab`)
-        let mut stoptab = Vec::from_elem(MAXKEY as uint, Seconds(0.0));
+        let mut stoptab = Vec::from_elem(MAXKEY as uint, Duration::Seconds(0.0));
 
         // Allows LNs to be specified as a consecutive row of same or non-00 alphanumeric keys (MGQ
         // type, #LNTYPE 2). The default is to specify LNs as two endpoints (RDM type, #LNTYPE 1).
@@ -1755,7 +1764,7 @@ pub mod parser {
                     let mut duration = 0;
                     if lex!(line; Key -> key, ws, int -> duration) {
                         let Key(key) = key;
-                        stoptab[mut][key as uint] = Measures(duration as f64 / 192.0);
+                        stoptab[mut][key as uint] = Duration::Measures(duration as f64 / 192.0);
                     }
                 }
 
@@ -1768,7 +1777,7 @@ pub mod parser {
                                   int -> duration) && duration > 0 {
                         let Measure(measure) = measure;
                         let pos = measure as f64 + frac as f64 * 0.001;
-                        let dur = Seconds(duration as f64 * 0.001);
+                        let dur = Duration::Seconds(duration as f64 * 0.001);
                         bms.objs.push(Obj::Stop(pos, dur));
                     }
                 }
@@ -1792,7 +1801,8 @@ pub mod parser {
                                 None
                             }
                         });
-                        blk.push(Block { val: generated, state: Outside, skip: inactive });
+                        blk.push(Block { val: generated, state: BlockState::Outside,
+                                         skip: inactive });
                     }
                 }
 
@@ -1810,10 +1820,12 @@ pub mod parser {
 
                         let last = blk.last_mut().unwrap();
                         last.state =
-                            if (prefix == "IF" && !last.state.inactive()) || last.state == Ignore {
-                                if val.is_none() || val != last.val {Ignore} else {Process}
+                            if (prefix == "IF" && !last.state.inactive()) ||
+                                    last.state == BlockState::Ignore {
+                                if val.is_none() || val != last.val {BlockState::Ignore}
+                                else {BlockState::Process}
                             } else {
-                                NoFurther
+                                BlockState::NoFurther
                             };
                     }
                 }
@@ -1821,16 +1833,17 @@ pub mod parser {
                 // #ELSE
                 ("ELSE", _) => {
                     let last = blk.last_mut().unwrap();
-                    last.state = if last.state == Ignore {Process} else {NoFurther};
+                    last.state = if last.state == BlockState::Ignore {BlockState::Process}
+                                 else {BlockState::NoFurther};
                 }
 
                 // #END(IF)
                 ("END", _) => {
-                    for &idx in blk.iter().rposition(|&i| i.state != Outside).iter() {
+                    for &idx in blk.iter().rposition(|&i| i.state != BlockState::Outside).iter() {
                         if idx > 0 { blk.truncate(idx + 1); }
                     }
 
-                    blk.last_mut().unwrap().state = Outside;
+                    blk.last_mut().unwrap().state = BlockState::Outside;
                 }
 
                 // #nnnmm:...
@@ -1894,16 +1907,16 @@ pub mod parser {
                     }
 
                     // channel #04: BGA layer 1
-                    4 => { add(bms, Obj::SetBGA(t, Layer1, Some(v))); }
+                    4 => { add(bms, Obj::SetBGA(t, BGALayer::Layer1, Some(v))); }
 
                     // channel #06: POOR BGA
                     6 => {
-                        add(bms, Obj::SetBGA(t, PoorBGA, Some(v)));
+                        add(bms, Obj::SetBGA(t, BGALayer::PoorBGA, Some(v)));
                         poorbgafix = false; // we don't add artificial BGA
                     }
 
                     // channel #07: BGA layer 2
-                    7 => { add(bms, Obj::SetBGA(t, Layer2, Some(v))); }
+                    7 => { add(bms, Obj::SetBGA(t, BGALayer::Layer2, Some(v))); }
 
                     // channel #08: BPM defined by #BPMxx
                     // TODO bpmtab validity check
@@ -1914,7 +1927,7 @@ pub mod parser {
                     9 => { add(bms, Obj::Stop(t, stoptab[*v as uint])); }
 
                     // channel #0A: BGA layer 3
-                    10 => { add(bms, Obj::SetBGA(t, Layer3, Some(v))); }
+                    10 => { add(bms, Obj::SetBGA(t, BGALayer::Layer3, Some(v))); }
 
                     // channels #1x/2x: visible object, possibly LNs when #LNOBJ is in active
                     36/*1*36*/...107/*3*36-1*/ => {
@@ -1981,8 +1994,8 @@ pub mod parser {
                     468/*0xD*36*/...539/*0xF*36-1*/ => {
                         let lane = Lane::from_channel(chan);
                         let damage = match v {
-                            Key(v @ 1...200) => Some(GaugeDamage(v as f64 / 200.0)),
-                            Key(1295) => Some(InstantDeath), // XXX 1295=MAXKEY-1
+                            Key(v @ 1...200) => Some(Damage::Gauge(v as f64 / 200.0)),
+                            Key(1295) => Some(Damage::InstantDeath), // XXX 1295=MAXKEY-1
                             _ => None
                         };
                         for &damage in damage.iter() {
@@ -2031,7 +2044,7 @@ pub mod parser {
         }
 
         if poorbgafix {
-            bms.objs.push(Obj::SetBGA(0.0, PoorBGA, Some(Key(0))));
+            bms.objs.push(Obj::SetBGA(0.0, BGALayer::PoorBGA, Some(Key(0))));
         }
 
         // fix the unterminated longnote
@@ -2300,10 +2313,10 @@ pub mod parser {
 
         sanitize(bms.objs[mut],
                  |&obj| match obj.data {
-                            SetBGA(Layer1,_) => Some(0),
-                            SetBGA(Layer2,_) => Some(1),
-                            SetBGA(Layer3,_) => Some(2),
-                            SetBGA(PoorBGA,_) => Some(3),
+                            SetBGA(BGALayer::Layer1,_) => Some(0),
+                            SetBGA(BGALayer::Layer2,_) => Some(1),
+                            SetBGA(BGALayer::Layer3,_) => Some(2),
+                            SetBGA(BGALayer::PoorBGA,_) => Some(3),
                             SetBPM(..) => Some(4),
                             Stop(..) => Some(5),
                             _ => None,
@@ -2498,7 +2511,7 @@ pub mod gfx {
     use std::cmp;
     use sdl::Rect;
     use sdl::video;
-    use sdl::video::{Color, RGB, RGBA, Surface};
+    use sdl::video::{Color, RGB, RGBA, Surface, SurfaceFlag};
 
     //----------------------------------------------------------------------------------------------
     // `Rect` additions
@@ -2762,7 +2775,8 @@ pub mod gfx {
     /// Creates a new RAM-backed surface. By design, Angolmois does not use a VRAM-backed surface
     /// except for the screen. (C: `newsurface`)
     pub fn new_surface(w: uint, h: uint) -> Surface {
-        match Surface::new([video::SWSurface], w as int, h as int, 32, 0xff0000, 0xff00, 0xff, 0) {
+        match Surface::new([SurfaceFlag::SWSurface][], w as int, h as int, 32,
+                           0xff0000, 0xff00, 0xff, 0) {
             Ok(surface) => surface,
             Err(err) => die!("new_surface failed: {}", err)
         }
@@ -2959,11 +2973,11 @@ pub mod gfx {
     /// An alignment mode of `Font::print_string`.
     pub enum Alignment {
         /// Coordinates specify the top-left corner of the bounding box.
-        LeftAligned,
+        Left,
         /// Coordinates specify the top-center point of the bounding box.
-        Centered,
+        Center,
         /// Coordinates specify the top-right corner of the bounding box.
-        RightAligned
+        Right
     }
 
     // Delta-coded code words. (C: `words`)
@@ -3117,9 +3131,9 @@ pub mod gfx {
         pub fn print_string<ColorT:Blend>(&self, pixels: &mut SurfacePixels, x: uint, y: uint,
                                           zoom: uint, align: Alignment, s: &str, color: ColorT) {
             let mut x = match align {
-                LeftAligned  => x,
-                Centered     => x - s.char_len() * (8 * zoom) / 2,
-                RightAligned => x - s.char_len() * (8 * zoom),
+                Alignment::Left   => x,
+                Alignment::Center => x - s.char_len() * (8 * zoom) / 2,
+                Alignment::Right  => x - s.char_len() * (8 * zoom),
             };
             for c in s.chars() {
                 let nextx = x + 8 * zoom;
@@ -3150,18 +3164,18 @@ pub mod player {
 
     use {sdl, sdl_image, sdl_mixer};
     use sdl::{audio, video, event, joy};
-    use sdl::video::{RGB, RGBA, Surface, Color};
-    use sdl::event::{NoEvent, KeyEvent, JoyButtonEvent, JoyAxisEvent, QuitEvent};
+    use sdl::video::{RGB, RGBA, Surface, Color, SurfaceFlag, VideoFlag};
+    use sdl::event::Event;
     use sdl_mixer::Chunk;
     use util::smpeg::MPEG;
 
     use {parser, gfx};
-    use parser::{Key, Lane, NLANES, KeyKind, BPM, Damage, GaugeDamage, InstantDeath};
-    use parser::{BGALayer, NLAYERS, Layer1, Layer2, Layer3, PoorBGA};
+    use parser::{Key, Lane, NLANES, KeyKind, BPM, Damage};
+    use parser::{BGALayer, NLAYERS};
     use parser::{Obj, ObjData, ObjQueryOps, ImageRef, SoundRef, BGM, SetBGA, SetBPM, Stop,
                  Visible, LNStart, LNDone, Bomb};
     use parser::{Bms, BmsInfo, KeySpec, BlitCmd};
-    use gfx::{Gradient, Blend, Font, LeftAligned, Centered, RightAligned};
+    use gfx::{Gradient, Blend, Font, Alignment};
     use gfx::{SurfaceAreaUtil, SurfacePixelsUtil};
 
     /// The width of screen, unless the exclusive mode.
@@ -3180,44 +3194,44 @@ pub mod player {
     #[deriving(PartialEq,Eq)]
     pub enum Mode {
         /// Normal game play. The graphical display and input is enabled. (C: `PLAY_MODE`)
-        PlayMode,
+        Play,
         /// Automatic game play. The graphical display is enabled but the input is mostly ignored
         /// except for the play speed change. (C: `AUTOPLAY_MODE`)
-        AutoPlayMode,
+        AutoPlay,
         /// Exclusive (headless) mode. The graphical display is reduced to the BGA or absent at all
-        /// (when `NoBga` is also set). (C: `EXCLUSIVE_MODE`)
-        ExclusiveMode
+        /// (when `Bga::None` is also set). (C: `EXCLUSIVE_MODE`)
+        Exclusive
     }
 
     /// Modifiers that affect the game data. (C: `enum modf`)
     #[deriving(PartialEq,Eq)]
-    pub enum Modf {
+    pub enum Modifier {
         /// Swaps all "key" (i.e. `KeyKind::counts_as_key` returns true) lanes in the reverse order.
         /// See `player::apply_mirror_modf` for the detailed algorithm. (C: `MIRROR_MODF`)
-        MirrorModf,
+        Mirror,
         /// Swaps all "key" lanes in the random order. See `player::apply_shuffle_modf` for
         /// the detailed algorithm. (C: `SHUFFLE_MODF`)
-        ShuffleModf,
+        Shuffle,
         /// Swaps all lanes in the random order. (C: `SHUFFLEEX_MODF`)
-        ShuffleExModf,
+        ShuffleEx,
         /// Swaps all "key" lanes in the random order, where the order is determined per object.
         /// See `player::apply_random_modf` for the detailed algorithm. (C: `RANDOM_MODF`)
-        RandomModf,
+        Random,
         /// Swaps all lanes in the random order, where the order is determined per object.
         /// (C: `RANDOMEX_MODF`)
-        RandomExModf
+        RandomEx
     }
 
     /// Specifies how the BGA is displayed. (C: `enum bga`)
     #[deriving(PartialEq,Eq)]
     pub enum Bga {
         /// Both the BGA image and movie is displayed. (C: `BGA_AND_MOVIE`)
-        BgaAndMovie,
+        WithMovie,
         /// The BGA is displayed but the movie is not loaded. (C: `BGA_BUT_NO_MOVIE`)
-        BgaButNoMovie,
-        /// The BGA is not displayed. When used with `ExclusiveMode` it also disables the graphical
-        /// display entirely. (C: `NO_BGA`)
-        NoBga
+        WithoutMovie,
+        /// The BGA is not displayed. When used with `Mode::Exclusive` it also disables
+        /// the graphical display entirely. (C: `NO_BGA`)
+        None
     }
 
     /// Global options set from the command line and environment variables.
@@ -3228,7 +3242,7 @@ pub mod player {
         /// Game play mode. (C: `opt_mode`)
         pub mode: Mode,
         /// Modifiers that affect the game data. (C: `opt_modf`)
-        pub modf: Option<Modf>,
+        pub modf: Option<Modifier>,
         /// Specifies how the BGA is displayed. (C: `opt_bga`)
         pub bga: Bga,
         /// True if the metadata (either overlaid in the loading screen or printed separately
@@ -3251,17 +3265,17 @@ pub mod player {
     impl Options {
         /// Returns true if the exclusive mode is enabled. This enables a text-based interface.
         /// (C: `opt_mode >= EXCLUSIVE_MODE`)
-        pub fn is_exclusive(&self) -> bool { self.mode == ExclusiveMode }
+        pub fn is_exclusive(&self) -> bool { self.mode == Mode::Exclusive }
 
         /// Returns true if the input is ignored. Escape key or speed-changing keys are still
         /// available as long as the graphical screen is enabled. (C: `!!opt_mode`)
-        pub fn is_autoplay(&self) -> bool { self.mode != PlayMode }
+        pub fn is_autoplay(&self) -> bool { self.mode != Mode::Play }
 
         /// Returns true if the BGA is displayed. (C: `opt_bga < NO_BGA`)
-        pub fn has_bga(&self) -> bool { self.bga != NoBga }
+        pub fn has_bga(&self) -> bool { self.bga != Bga::None }
 
         /// Returns true if the BGA movie is enabled. (C: `opt_bga < BGA_BUT_NO_MOVIE`)
-        pub fn has_movie(&self) -> bool { self.bga == BgaAndMovie }
+        pub fn has_movie(&self) -> bool { self.bga == Bga::WithMovie }
 
         /// Returns true if the graphical screen is enabled.
         /// (C: `opt_mode < EXCLUSIVE_MODE || opt_bga < NO_BGA`)
@@ -3341,22 +3355,22 @@ pub mod player {
     /// Applies given modifier to the game data. The target lanes of the modifier is determined
     /// from given key specification. This function should be called twice for the Couple Play,
     /// since 1P and 2P should be treated separately. (C: `shuffle_bms`)
-    pub fn apply_modf<R: Rng>(bms: &mut Bms, modf: Modf, r: &mut R,
+    pub fn apply_modf<R: Rng>(bms: &mut Bms, modf: Modifier, r: &mut R,
                               keyspec: &KeySpec, begin: uint, end: uint) {
         let mut lanes = Vec::new();
         for i in range(begin, end) {
             let lane = keyspec.order[i];
             let kind = keyspec.kinds[*lane];
-            if modf == ShuffleExModf || modf == RandomExModf ||
+            if modf == Modifier::ShuffleEx || modf == Modifier::RandomEx ||
                     kind.map_or(false, |kind| kind.counts_as_key()) {
                 lanes.push(lane);
             }
         }
 
         match modf {
-            MirrorModf => parser::apply_mirror_modf(bms, lanes[]),
-            ShuffleModf | ShuffleExModf => parser::apply_shuffle_modf(bms, r, lanes[]),
-            RandomModf | RandomExModf => parser::apply_random_modf(bms, r, lanes[])
+            Modifier::Mirror => parser::apply_mirror_modf(bms, lanes[]),
+            Modifier::Shuffle | Modifier::ShuffleEx => parser::apply_shuffle_modf(bms, r, lanes[]),
+            Modifier::Random | Modifier::RandomEx => parser::apply_random_modf(bms, r, lanes[])
         }
     }
 
@@ -3368,11 +3382,11 @@ pub mod player {
     pub fn check_exit(atexit: ||) {
         loop {
             match event::poll_event() {
-                KeyEvent(event::EscapeKey,_,_,_) | QuitEvent => {
+                Event::Key(event::Key::Escape,_,_,_) | Event::Quit => {
                     atexit();
                     ::util::exit(0);
                 },
-                NoEvent => { break; },
+                Event::None => { break; },
                 _ => {}
             }
         }
@@ -3432,20 +3446,21 @@ pub mod player {
     /// or a full-sized screen (`SCREENW` by `SCREENH` pixels) otherwise. `fullscreen` is ignored
     /// when `exclusive` is set. (C: `init_ui` and `init_video`)
     pub fn init_video(exclusive: bool, fullscreen: bool) -> Surface {
-        if !sdl::init([sdl::InitVideo]) {
+        if !sdl::init([sdl::InitFlag::Video][]) {
             die!("SDL Initialization Failure: {}", sdl::get_error());
         }
-        sdl_image::init([sdl_image::InitJPG, sdl_image::InitPNG]);
+        sdl_image::init([sdl_image::InitFlag::JPG, sdl_image::InitFlag::PNG][]);
 
         let result =
             if exclusive {
                 video::set_video_mode(BGAW as int, BGAH as int, 32,
-                                      [video::SWSurface], [video::DoubleBuf])
+                                      [SurfaceFlag::SWSurface][], [VideoFlag::DoubleBuf][])
             } else if !fullscreen {
                 video::set_video_mode(SCREENW as int, SCREENH as int, 32,
-                                      [video::SWSurface], [video::DoubleBuf])
+                                      [SurfaceFlag::SWSurface][], [VideoFlag::DoubleBuf][])
             } else {
-                video::set_video_mode(SCREENW as int, SCREENH as int, 32, [], [video::Fullscreen])
+                video::set_video_mode(SCREENW as int, SCREENH as int, 32,
+                                      [][], [VideoFlag::Fullscreen][])
             };
         let screen =
             match result {
@@ -3461,7 +3476,7 @@ pub mod player {
 
     /// Initializes SDL_mixer. (C: `init_ui`)
     pub fn init_audio() {
-        if !sdl::init([sdl::InitAudio]) {
+        if !sdl::init([sdl::InitFlag::Audio][]) {
             die!("SDL Initialization Failure: {}", sdl::get_error());
         }
         //sdl_mixer::init([sdl_mixer::InitOGG, sdl_mixer::InitMP3]); // TODO
@@ -3472,7 +3487,7 @@ pub mod player {
 
     /// Initializes a joystick with given index.
     pub fn init_joystick(joyidx: uint) -> joy::Joystick {
-        if !sdl::init([sdl::InitJoystick]) {
+        if !sdl::init([sdl::InitFlag::Joystick][]) {
             die!("SDL Initialization Failure: {}", sdl::get_error());
         }
         unsafe {
@@ -3491,19 +3506,19 @@ pub mod player {
     #[deriving(PartialEq,Eq)]
     enum Input {
         /// Keyboard input.
-        KeyInput(event::Key),
+        Key(event::Key),
         /// Joystick axis input.
-        JoyAxisInput(uint),
+        JoyAxis(uint),
         /// Joystick button input.
-        JoyButtonInput(uint)
+        JoyButton(uint)
     }
 
     impl hash::Hash for Input {
         fn hash(&self, state: &mut hash::sip::SipState) {
             match *self {
-                KeyInput(key) => { 0u8.hash(state); (key as uint).hash(state); }
-                JoyAxisInput(axis) => { 1u8.hash(state); axis.hash(state); }
-                JoyButtonInput(button) => { 2u8.hash(state); button.hash(state); }
+                Input::Key(key) => { 0u8.hash(state); (key as uint).hash(state); }
+                Input::JoyAxis(axis) => { 1u8.hash(state); axis.hash(state); }
+                Input::JoyButton(button) => { 2u8.hash(state); button.hash(state); }
             }
         }
     }
@@ -3512,11 +3527,11 @@ pub mod player {
     #[deriving(PartialEq,Eq)]
     enum VirtualInput {
         /// Virtual input mapped to the lane.
-        LaneInput(Lane),
+        Lane(Lane),
         /// Speed down input (normally F3).
-        SpeedDownInput,
+        SpeedDown,
         /// Speed up input (normally F4).
-        SpeedUpInput
+        SpeedUp
     }
 
     /**
@@ -3546,8 +3561,8 @@ pub mod player {
         /// Returns true if the virtual input has a specified key kind in the key specification.
         pub fn active_in_key_spec(&self, kind: KeyKind, keyspec: &KeySpec) -> bool {
             match *self {
-                LaneInput(Lane(lane)) => keyspec.kinds[lane] == Some(kind),
-                SpeedDownInput | SpeedUpInput => true
+                VirtualInput::Lane(Lane(lane)) => keyspec.kinds[lane] == Some(kind),
+                VirtualInput::SpeedDown | VirtualInput::SpeedUp => true
             }
         }
     }
@@ -3565,42 +3580,46 @@ pub mod player {
         KeySet { envvar: "ANGOLMOIS_1P_KEYS",
                  default: "left shift%axis 3|z%button 3|s%button 6|x%button 2|d%button 7|\
                             c%button 1|f%button 4|v%axis 2|left alt",
-                 mapping: &[(Some(parser::Scratch),   &[LaneInput(Lane(6))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(1))]),
-                            (Some(parser::BlackKey),  &[LaneInput(Lane(2))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(3))]),
-                            (Some(parser::BlackKey),  &[LaneInput(Lane(4))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(5))]),
-                            (Some(parser::BlackKey),  &[LaneInput(Lane(8))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(9))]),
-                            (Some(parser::FootPedal), &[LaneInput(Lane(7))])] },
+                 mapping: &[(Some(KeyKind::Scratch),   &[VirtualInput::Lane(Lane(6))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(1))]),
+                            (Some(KeyKind::BlackKey),  &[VirtualInput::Lane(Lane(2))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(3))]),
+                            (Some(KeyKind::BlackKey),  &[VirtualInput::Lane(Lane(4))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(5))]),
+                            (Some(KeyKind::BlackKey),  &[VirtualInput::Lane(Lane(8))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(9))]),
+                            (Some(KeyKind::FootPedal), &[VirtualInput::Lane(Lane(7))])] },
         KeySet { envvar: "ANGOLMOIS_2P_KEYS",
                  default: "right alt|m|k|,|l|.|;|/|right shift",
-                 mapping: &[(Some(parser::FootPedal), &[LaneInput(Lane(36+7))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(36+1))]),
-                            (Some(parser::BlackKey),  &[LaneInput(Lane(36+2))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(36+3))]),
-                            (Some(parser::BlackKey),  &[LaneInput(Lane(36+4))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(36+5))]),
-                            (Some(parser::BlackKey),  &[LaneInput(Lane(36+8))]),
-                            (Some(parser::WhiteKey),  &[LaneInput(Lane(36+9))]),
-                            (Some(parser::Scratch),   &[LaneInput(Lane(36+6))])] },
+                 mapping: &[(Some(KeyKind::FootPedal), &[VirtualInput::Lane(Lane(36+7))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(36+1))]),
+                            (Some(KeyKind::BlackKey),  &[VirtualInput::Lane(Lane(36+2))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(36+3))]),
+                            (Some(KeyKind::BlackKey),  &[VirtualInput::Lane(Lane(36+4))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(36+5))]),
+                            (Some(KeyKind::BlackKey),  &[VirtualInput::Lane(Lane(36+8))]),
+                            (Some(KeyKind::WhiteKey),  &[VirtualInput::Lane(Lane(36+9))]),
+                            (Some(KeyKind::Scratch),   &[VirtualInput::Lane(Lane(36+6))])] },
         KeySet { envvar: "ANGOLMOIS_PMS_KEYS",
                  default: "z|s|x|d|c|f|v|g|b",
-                 mapping: &[(Some(parser::Button1), &[LaneInput(Lane(1))]),
-                            (Some(parser::Button2), &[LaneInput(Lane(2))]),
-                            (Some(parser::Button3), &[LaneInput(Lane(3))]),
-                            (Some(parser::Button4), &[LaneInput(Lane(4))]),
-                            (Some(parser::Button5), &[LaneInput(Lane(5))]),
-                            (Some(parser::Button4), &[LaneInput(Lane(8)), LaneInput(Lane(36+2))]),
-                            (Some(parser::Button3), &[LaneInput(Lane(9)), LaneInput(Lane(36+3))]),
-                            (Some(parser::Button2), &[LaneInput(Lane(6)), LaneInput(Lane(36+4))]),
-                            (Some(parser::Button1), &[LaneInput(Lane(7)), LaneInput(Lane(36+5))])]
+                 mapping: &[(Some(KeyKind::Button1), &[VirtualInput::Lane(Lane(1))]),
+                            (Some(KeyKind::Button2), &[VirtualInput::Lane(Lane(2))]),
+                            (Some(KeyKind::Button3), &[VirtualInput::Lane(Lane(3))]),
+                            (Some(KeyKind::Button4), &[VirtualInput::Lane(Lane(4))]),
+                            (Some(KeyKind::Button5), &[VirtualInput::Lane(Lane(5))]),
+                            (Some(KeyKind::Button4), &[VirtualInput::Lane(Lane(8)),
+                                                       VirtualInput::Lane(Lane(36+2))]),
+                            (Some(KeyKind::Button3), &[VirtualInput::Lane(Lane(9)),
+                                                       VirtualInput::Lane(Lane(36+3))]),
+                            (Some(KeyKind::Button2), &[VirtualInput::Lane(Lane(6)),
+                                                       VirtualInput::Lane(Lane(36+4))]),
+                            (Some(KeyKind::Button1), &[VirtualInput::Lane(Lane(7)),
+                                                       VirtualInput::Lane(Lane(36+5))])]
                },
         KeySet { envvar: "ANGOLMOIS_SPEED_KEYS",
                  default: "f3|f4",
-                 mapping: &[(None, &[SpeedDownInput]),
-                            (None, &[SpeedUpInput])] },
+                 mapping: &[(None, &[VirtualInput::SpeedDown]),
+                            (None, &[VirtualInput::SpeedUp])] },
     ];
 
     /// An input mapping, i.e. a mapping from the actual input to the virtual input.
@@ -3615,7 +3634,7 @@ pub mod player {
             let name = name.to_ascii_lower();
             unsafe {
                 let firstkey = 0u16;
-                let lastkey = std::mem::transmute(event::LastKey);
+                let lastkey = std::mem::transmute(event::Key::Last);
                 for keyidx in range(firstkey, lastkey) {
                     let key = std::mem::transmute(keyidx);
                     let keyname = event::get_key_name(key).into_ascii_lower();
@@ -3630,11 +3649,11 @@ pub mod player {
             let mut idx = 0;
             let s = s.trim();
             if lex!(s; lit "button", ws, uint -> idx) {
-                Some(JoyButtonInput(idx))
+                Some(Input::JoyButton(idx))
             } else if lex!(s; lit "axis", ws, uint -> idx) {
-                Some(JoyAxisInput(idx))
+                Some(Input::JoyAxis(idx))
             } else {
-                sdl_key_from_name(s).map(|key| KeyInput(key))
+                sdl_key_from_name(s).map(|key| Input::Key(key))
             }
         }
 
@@ -3676,7 +3695,9 @@ pub mod player {
             let envvar = format!("ANGOLMOIS_{}{}_KEY", key, kind.to_char());
             for s in getenv(envvar[]).iter() {
                 match parse_input(s[]) {
-                    Some(input) => { add_mapping(&mut map, Some(kind), input, LaneInput(lane)); }
+                    Some(input) => {
+                        add_mapping(&mut map, Some(kind), input, VirtualInput::Lane(lane));
+                    }
                     None => {
                         die!("Unknown key name in the environment variable {}: {}", envvar, *s);
                     }
@@ -3818,27 +3839,27 @@ pub mod player {
 
     /// Sound resource associated to `SoundRef`. It contains the actual SDL_mixer chunk that can be
     /// readily played. (C: the type of `sndres`)
-    pub enum SoundResource {
+    pub enum Soundlike {
         /// No sound resource is associated, or error occurred while loading.
-        NoSound,
+        None,
         /// Sound resource is associated.
         Sound(Chunk)
     }
 
-    impl SoundResource {
+    impl Soundlike {
         /// Returns the associated chunk if any.
         pub fn chunk<'r>(&'r self) -> Option<&'r Chunk> {
             match *self {
-                NoSound => None,
-                Sound(ref chunk) => Some(chunk)
+                Soundlike::None => None,
+                Soundlike::Sound(ref chunk) => Some(chunk)
             }
         }
 
         /// Returns the associated chunk if any.
         pub fn mut_chunk<'r>(&'r mut self) -> Option<&'r mut Chunk> {
             match *self {
-                NoSound => None,
-                Sound(ref mut chunk) => Some(chunk)
+                Soundlike::None => None,
+                Soundlike::Sound(ref mut chunk) => Some(chunk)
             }
         }
 
@@ -3847,8 +3868,8 @@ pub mod player {
         /// return 0.0 if no sound is present.
         pub fn duration(&self) -> f64 {
             match *self {
-                NoSound => 0.0,
-                Sound(ref chunk) => {
+                Soundlike::None => 0.0,
+                Soundlike::Sound(ref chunk) => {
                     let chunk = chunk.to_ll_chunk();
                     (unsafe {(*chunk).alen} as f64) / (BYTESPERSEC as f64)
                 }
@@ -3857,25 +3878,25 @@ pub mod player {
     }
 
     /// Loads a sound resource.
-    fn load_sound(key: Key, path: &str, basedir: &Path) -> SoundResource {
+    fn load_sound(key: Key, path: &str, basedir: &Path) -> Soundlike {
         let res = match resolve_relative_path(basedir, path, SOUND_EXTS) {
             Some(fullpath) => Chunk::from_wav(&fullpath),
             None => Err(format!("not found"))
         };
         match res {
-            Ok(res) => Sound(res),
+            Ok(res) => Soundlike::Sound(res),
             Err(_) => {
                 warn!("failed to load sound \\#WAV{} ({})", key, path);
-                NoSound
+                Soundlike::None
             }
         }
     }
 
     /// Image resource associated to `ImageRef`. It can be either a static image or a movie, and
     /// both contains an SDL surface that can be blitted to the screen. (C: the type of `imgres`)
-    pub enum ImageResource {
+    pub enum Imagelike {
         /// No image resource is associated, or error occurred while loading.
-        NoImage,
+        None,
         /// A static image is associated. The surface may have a transparency which is already
         /// handled by `load_image`.
         Image(Surface),
@@ -3885,20 +3906,20 @@ pub mod player {
         Movie(Surface, MPEG)
     }
 
-    impl ImageResource {
+    impl Imagelike {
         /// Returns an associated surface if any.
         pub fn surface<'r>(&'r self) -> Option<&'r Surface> {
             match *self {
-                NoImage => None,
-                Image(ref surface) | Movie(ref surface,_) => Some(surface)
+                Imagelike::None => None,
+                Imagelike::Image(ref surface) | Imagelike::Movie(ref surface,_) => Some(surface)
             }
         }
 
         /// Stops the movie playback if possible.
         pub fn stop_movie(&self) {
             match *self {
-                NoImage | Image(_) => {}
-                Movie(_,ref mpeg) => { mpeg.stop(); }
+                Imagelike::None | Imagelike::Image(_) => {}
+                Imagelike::Movie(_,ref mpeg) => { mpeg.stop(); }
             }
         }
 
@@ -3906,14 +3927,14 @@ pub mod player {
         /// if possible.
         pub fn start_movie(&self) {
             match *self {
-                NoImage | Image(_) => {}
-                Movie(_,ref mpeg) => { mpeg.rewind(); mpeg.play(); }
+                Imagelike::None | Imagelike::Image(_) => {}
+                Imagelike::Movie(_,ref mpeg) => { mpeg.rewind(); mpeg.play(); }
             }
         }
     }
 
     /// Loads an image resource.
-    fn load_image(key: Key, path: &str, opts: &Options, basedir: &Path) -> ImageResource {
+    fn load_image(key: Key, path: &str, opts: &Options, basedir: &Path) -> Imagelike {
         use std::ascii::AsciiExt;
 
         /// Converts a surface to the native display format, while preserving a transparency or
@@ -3923,7 +3944,7 @@ pub mod player {
                 let res = surface.display_format_alpha();
                 match res {
                     Ok(ref surface) => {
-                        surface.set_alpha([video::SrcAlpha, video::RLEAccel], 255);
+                        surface.set_alpha([SurfaceFlag::SrcAlpha, SurfaceFlag::RLEAccel][], 255);
                     }
                     _ => {}
                 }
@@ -3932,7 +3953,8 @@ pub mod player {
                 let res = surface.display_format();
                 match res {
                     Ok(ref surface) => {
-                        surface.set_color_key([video::SrcColorKey, video::RLEAccel], RGB(0,0,0));
+                        surface.set_color_key([SurfaceFlag::SrcColorKey, SurfaceFlag::RLEAccel][],
+                                              RGB(0,0,0));
                     }
                     _ => {}
                 }
@@ -3942,7 +3964,7 @@ pub mod player {
 
         if path.to_ascii_lower()[].ends_with(".mpg") {
             if opts.has_movie() {
-                let res = match resolve_relative_path(basedir, path, []) {
+                let res = match resolve_relative_path(basedir, path, [][]) {
                     Some(fullpath) => MPEG::from_path(&fullpath),
                     None => Err(format!("not found"))
                 };
@@ -3952,7 +3974,7 @@ pub mod player {
                         movie.enable_video(true);
                         movie.set_loop(true);
                         movie.set_display(&surface);
-                        return Movie(surface, movie);
+                        return Imagelike::Movie(surface, movie);
                     }
                     Err(_) => { warn!("failed to load image \\#BMP{} ({})", key, path); }
                 }
@@ -3960,7 +3982,7 @@ pub mod player {
         } else if opts.has_bga() {
             let res = match resolve_relative_path(basedir, path, IMAGE_EXTS) {
                 Some(fullpath) => sdl_image::load(&fullpath).and_then(|surface| {
-                    to_display_format(surface).and_then(|surface| Ok(Image(surface)))
+                    to_display_format(surface).and_then(|surface| Ok(Imagelike::Image(surface)))
                 }),
                 None => Err(format!("not found"))
             };
@@ -3969,11 +3991,11 @@ pub mod player {
                 Err(_) => { warn!("failed to load image \\#BMP{} ({})", key, path); }
             }
         }
-        NoImage
+        Imagelike::None
     }
 
     /// Applies the blit command to given list of image resources. (C: a part of `load_resource`)
-    fn apply_blitcmd(imgres: &mut [ImageResource], bc: &BlitCmd) {
+    fn apply_blitcmd(imgres: &mut [Imagelike], bc: &BlitCmd) {
         use std::mem;
 
         let src = **bc.src as uint;
@@ -3981,22 +4003,23 @@ pub mod player {
         if src == dst { return; }
 
         match imgres[src] {
-            Image(..) => {}
+            Imagelike::Image(..) => {}
             _ => { return; }
         }
         match imgres[dst] {
-            Image(..) => {}
-            NoImage => {
+            Imagelike::Image(..) => {}
+            Imagelike::None => {
                 let surface = gfx::new_surface(BGAW, BGAH);
                 surface.fill(RGB(0, 0, 0));
-                surface.set_color_key([video::SrcColorKey, video::RLEAccel], RGB(0, 0, 0));
-                imgres[dst] = Image(surface);
+                surface.set_color_key([SurfaceFlag::SrcColorKey, SurfaceFlag::RLEAccel][],
+                                      RGB(0, 0, 0));
+                imgres[dst] = Imagelike::Image(surface);
             }
             _ => { return; }
         }
 
         // temporarily swap imgres[src], otherwise it will cause an error
-        let savedorigin = mem::replace(&mut imgres[src], NoImage);
+        let savedorigin = mem::replace(&mut imgres[src], Imagelike::None);
         {
             let origin = savedorigin.surface().unwrap();
             let target = imgres[dst].surface().unwrap();
@@ -4024,15 +4047,15 @@ pub mod player {
     trait BGAStateOps {
         /// Updates the BGA state. This method prepares given image resources for the next
         /// rendering, notably by starting and stopping the movie playback.
-        fn update(&mut self, current: &BGAState, imgres: &[ImageResource]);
+        fn update(&mut self, current: &BGAState, imgres: &[Imagelike]);
         /// Renders the image resources for the specified layers to the specified region of
         /// `screen`.
-        fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
+        fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[Imagelike],
                   x: uint, y: uint);
     }
 
     impl BGAStateOps for BGAState {
-        fn update(&mut self, current: &BGAState, imgres: &[ImageResource]) {
+        fn update(&mut self, current: &BGAState, imgres: &[Imagelike]) {
             for layer in range(0, NLAYERS) {
                 // TODO this design can't handle the case that a BGA layer is updated to the same
                 // image reference, which should rewind the movie playback. the original Angolmois
@@ -4049,7 +4072,7 @@ pub mod player {
             *self = *current;
         }
 
-        fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[ImageResource],
+        fn render(&self, screen: &Surface, layers: &[BGALayer], imgres: &[Imagelike],
                   x: uint, y: uint) {
             screen.fill_area((x,y), (256u,256u), RGB(0,0,0));
             for &layer in layers.iter() {
@@ -4091,7 +4114,8 @@ pub mod player {
         let (meta, title, genre, artist) = displayed_info(bms, infos, keyspec);
 
         screen.with_pixels(|pixels| {
-            font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2, Centered, "loading bms file...",
+            font.print_string(pixels, SCREENW/2, SCREENH/2-16, 2,
+                              Alignment::Center, "loading bms file...",
                               Gradient::new(RGB(0x80,0x80,0x80), RGB(0x20,0x20,0x20)));
         });
         screen.flip();
@@ -4122,10 +4146,10 @@ pub mod player {
                         pixels.put_blended_pixel(i, j, bg);
                     }
                 }
-                font.print_string(pixels, 6, 4, 2, LeftAligned, title[], fg);
-                font.print_string(pixels, SCREENW-8, 4, 1, RightAligned, genre[], fg);
-                font.print_string(pixels, SCREENW-8, 20, 1, RightAligned, artist[], fg);
-                font.print_string(pixels, 3, SCREENH-18, 1, LeftAligned, meta[], fg);
+                font.print_string(pixels, 6, 4, 2, Alignment::Left, title[], fg);
+                font.print_string(pixels, SCREENW-8, 4, 1, Alignment::Right, genre[], fg);
+                font.print_string(pixels, SCREENW-8, 20, 1, Alignment::Right, artist[], fg);
+                font.print_string(pixels, 3, SCREENH-18, 1, Alignment::Left, meta[], fg);
             }
         });
 
@@ -4151,7 +4175,7 @@ Artist:   {artist}
     /// Loads the image and sound resources and calls a callback whenever a new resource has been
     /// loaded. (C: `load_resource`)
     pub fn load_resource(bms: &Bms, opts: &Options,
-                         callback: |Option<String>|) -> (Vec<SoundResource>, Vec<ImageResource>) {
+                         callback: |Option<String>|) -> (Vec<Soundlike>, Vec<Imagelike>) {
         let basedir = get_basedir(bms, opts);
 
         let sndres: Vec<_> =
@@ -4161,7 +4185,7 @@ Artist:   {artist}
                         callback(Some(path.to_string()));
                         load_sound(Key(i as int), path[], &basedir)
                     },
-                    None => NoSound
+                    None => Soundlike::None
                 }
             }).collect();
         let mut imgres: Vec<_> =
@@ -4171,7 +4195,7 @@ Artist:   {artist}
                         callback(Some(path.to_string()));
                         load_image(Key(i as int), path[], opts, &basedir)
                     },
-                    None => NoImage
+                    None => Imagelike::None
                 }
             }).collect();
 
@@ -4200,7 +4224,7 @@ Artist:   {artist}
             let msg = path.unwrap_or("loading...".to_string());
             screen.blit_at(saved_screen, 0, (SCREENH-20) as i16);
             screen.with_pixels(|pixels| {
-                font.print_string(pixels, SCREENW-3, SCREENH-18, 1, RightAligned, msg[],
+                font.print_string(pixels, SCREENW-3, SCREENH-18, 1, Alignment::Right, msg[],
                                   Gradient::new(RGB(0xc0,0xc0,0xc0), RGB(0x80,0x80,0x80)));
             });
             screen.flip();
@@ -4500,9 +4524,9 @@ Artist:   {artist}
     const SCOREPERNOTE: f64 = 300.0;
 
     /// A damage due to the MISS grading. Only applied when the grading is not due to the bomb.
-    const MISS_DAMAGE: Damage = GaugeDamage(0.059);
+    const MISS_DAMAGE: Damage = Damage::Gauge(0.059);
     /// A damage due to the BAD grading.
-    const BAD_DAMAGE: Damage = GaugeDamage(0.030);
+    const BAD_DAMAGE: Damage = Damage::Gauge(0.030);
 
     /// Game play states independent to the display.
     pub struct Player {
@@ -4524,7 +4548,7 @@ Artist:   {artist}
         /// `struct obj`)
         pub nograding: Vec<bool>,
         /// Sound resources. (C: `res` field in `sndres`)
-        pub sndres: Vec<SoundResource>,
+        pub sndres: Vec<Soundlike>,
         /// A sound chunk used for beeps. It always plays on the channel #0. (C: `beep`)
         pub beep: Chunk,
         /// Last channels in which the corresponding sound in `sndres` was played.
@@ -4611,7 +4635,7 @@ Artist:   {artist}
         pub gauge: int,
         /// The health gauge required to survive at the end of the song. Note that the gaugex
         /// less than this value (or even zero) doesn't cause the instant game over;
-        /// only `InstantDeath` value from `Damage` does. (C: `survival`)
+        /// only `Damage::InstantDeath` value does. (C: `survival`)
         pub survival: int,
 
         /// The number of keyboard or joystick keys, mapped to each lane and and currently pressed.
@@ -4621,8 +4645,8 @@ Artist:   {artist}
         pub joystate: [InputState, ..NLANES],
     }
 
-    /// A list of play speed marks. `SpeedUpInput` and `SpeedDownInput` changes the play speed to
-    /// the next/previous nearest mark. (C: `speeds`)
+    /// A list of play speed marks. `VirtualInput::SpeedUp` and `VirtualInput::SpeedDownInput`
+    /// changes the play speed to the next/previous nearest mark. (C: `speeds`)
     static SPEED_MARKS: &'static [f64] = &[0.1, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0,
         3.5, 4.0, 4.5, 5.0, 5.5, 6.0, 7.0, 8.0, 10.0, 15.0, 25.0, 40.0, 60.0, 99.0];
 
@@ -4668,7 +4692,7 @@ Artist:   {artist}
         /// Creates a new player object. The player object owns other related structures, including
         /// the options, BMS file, key specification, input mapping and sound resources.
         pub fn new(opts: Options, bms: Bms, infos: BmsInfo, duration: f64, keyspec: KeySpec,
-                   keymap: KeyMap, sndres: Vec<SoundResource>) -> Player {
+                   keymap: KeyMap, sndres: Vec<Soundlike>) -> Player {
             let now = sdl::get_ticks();
             let initplayspeed = opts.playspeed;
             let originoffset = infos.originoffset;
@@ -4702,7 +4726,7 @@ Artist:   {artist}
                 gradefactor: gradefactor, lastgrade: None, gradecounts: [0, ..NGRADES],
                 lastcombo: 0, bestcombo: 0, score: 0, gauge: initialgauge, survival: survival,
 
-                keymultiplicity: [0, ..NLANES], joystate: [Neutral, ..NLANES],
+                keymultiplicity: [0, ..NLANES], joystate: [InputState::Neutral, ..NLANES],
             };
 
             player.allocate_more_channels(64);
@@ -4713,7 +4737,7 @@ Artist:   {artist}
         /// Returns true if the specified lane is being pressed, either by keyboard, joystick
         /// buttons or axes.
         pub fn key_pressed(&self, lane: Lane) -> bool {
-            self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != Neutral
+            self.keymultiplicity[*lane] > 0 || self.joystate[*lane] != InputState::Neutral
         }
 
         /// Returns the play speed displayed. Can differ from the actual play speed
@@ -4735,11 +4759,11 @@ Artist:   {artist}
                                   (self.infos.nnotes as f64))) as uint;
 
             match grade {
-                MISS | BAD => { self.lastcombo = 0; }
-                GOOD => {}
-                GREAT | COOL => {
+                Grade::MISS | Grade::BAD => { self.lastcombo = 0; }
+                Grade::GOOD => {}
+                Grade::GREAT | Grade::COOL => {
                     // at most 5/512(1%) recover when the combo is topped
-                    let weight = if grade == GREAT {2} else {3};
+                    let weight = if grade == Grade::GREAT {2} else {3};
                     let cmbbonus = cmp::min(self.lastcombo as int, 100) / 50;
                     self.lastcombo += 1;
                     self.gauge = cmp::min(self.gauge + weight + cmbbonus, MAXGAUGE);
@@ -4748,10 +4772,10 @@ Artist:   {artist}
             self.bestcombo = cmp::max(self.bestcombo, self.lastcombo);
 
             match damage {
-                Some(GaugeDamage(ratio)) => {
+                Some(Damage::Gauge(ratio)) => {
                     self.gauge -= (MAXGAUGE as f64 * ratio) as int; true
                 }
-                Some(InstantDeath) => {
+                Some(Damage::InstantDeath) => {
                     self.gauge = cmp::min(self.gauge, 0); false
                 }
                 None => true
@@ -4765,11 +4789,11 @@ Artist:   {artist}
         pub fn update_grade_from_distance(&mut self, dist: f64) {
             use std::num::Float;
             let dist = dist.abs();
-            let (grade, damage) = if      dist <  COOL_CUTOFF {(COOL,None)}
-                                  else if dist < GREAT_CUTOFF {(GREAT,None)}
-                                  else if dist <  GOOD_CUTOFF {(GOOD,None)}
-                                  else if dist <   BAD_CUTOFF {(BAD,Some(BAD_DAMAGE))}
-                                  else                        {(MISS,Some(MISS_DAMAGE))};
+            let (grade, damage) = if      dist <  COOL_CUTOFF {(Grade::COOL,None)}
+                                  else if dist < GREAT_CUTOFF {(Grade::GREAT,None)}
+                                  else if dist <  GOOD_CUTOFF {(Grade::GOOD,None)}
+                                  else if dist <   BAD_CUTOFF {(Grade::BAD,Some(BAD_DAMAGE))}
+                                  else                        {(Grade::MISS,Some(MISS_DAMAGE))};
             let scoredelta = 1.0 - dist / BAD_CUTOFF;
             let scoredelta = if scoredelta < 0.0 {0.0} else {scoredelta};
             let keepgoing = self.update_grade(grade, scoredelta, damage);
@@ -4780,13 +4804,13 @@ Artist:   {artist}
         /// grade. May return true when the damage resulted in the instant death.
         /// (C: `update_grade(0, 0, damage)`)
         pub fn update_grade_from_damage(&mut self, damage: Damage) -> bool {
-            self.update_grade(MISS, 0.0, Some(damage))
+            self.update_grade(Grade::MISS, 0.0, Some(damage))
         }
 
         /// Same as `update_grade`, but always results in MISS grade with the standard damage value.
         /// (C: `update_grade(0, 0, 0)`)
         pub fn update_grade_to_miss(&mut self) {
-            let keepgoing = self.update_grade(MISS, 0.0, Some(MISS_DAMAGE));
+            let keepgoing = self.update_grade(Grade::MISS, 0.0, Some(MISS_DAMAGE));
             assert!(keepgoing);
         }
 
@@ -4966,20 +4990,20 @@ Artist:   {artist}
                 // and `continuous` (true if the input is not discrete and `Negative` input state
                 // matters).
                 let (key, state) = match event::poll_event() {
-                    NoEvent => { break; }
-                    QuitEvent | KeyEvent(event::EscapeKey,_,_,_) => { return false; }
-                    KeyEvent(key,true,_,_) => (KeyInput(key), Positive),
-                    KeyEvent(key,false,_,_) => (KeyInput(key), Neutral),
-                    JoyButtonEvent(_which,button,true) =>
-                        (JoyButtonInput(button as uint), Positive),
-                    JoyButtonEvent(_which,button,false) =>
-                        (JoyButtonInput(button as uint), Neutral),
-                    JoyAxisEvent(_which,axis,delta) if delta > 3200 =>
-                        (JoyAxisInput(axis as uint), Positive),
-                    JoyAxisEvent(_which,axis,delta) if delta < -3200 =>
-                        (JoyAxisInput(axis as uint), Negative),
-                    JoyAxisEvent(_which,axis,_delta) =>
-                        (JoyAxisInput(axis as uint), Neutral),
+                    Event::None => { break; }
+                    Event::Quit | Event::Key(event::Key::Escape,_,_,_) => { return false; }
+                    Event::Key(key,true,_,_) => (Input::Key(key), InputState::Positive),
+                    Event::Key(key,false,_,_) => (Input::Key(key), InputState::Neutral),
+                    Event::JoyButton(_which,button,true) =>
+                        (Input::JoyButton(button as uint), InputState::Positive),
+                    Event::JoyButton(_which,button,false) =>
+                        (Input::JoyButton(button as uint), InputState::Neutral),
+                    Event::JoyAxis(_which,axis,delta) if delta > 3200 =>
+                        (Input::JoyAxis(axis as uint), InputState::Positive),
+                    Event::JoyAxis(_which,axis,delta) if delta < -3200 =>
+                        (Input::JoyAxis(axis as uint), InputState::Negative),
+                    Event::JoyAxis(_which,axis,_delta) =>
+                        (Input::JoyAxis(axis as uint), InputState::Neutral),
                     _ => { continue; }
                 };
                 let vkey = match self.keymap.get(&key) {
@@ -4987,8 +5011,8 @@ Artist:   {artist}
                     None => { continue; }
                 };
                 let continuous = match key {
-                    KeyInput(..) | JoyButtonInput(..) => false,
-                    JoyAxisInput(..) => true
+                    Input::Key(..) | Input::JoyButton(..) => false,
+                    Input::JoyAxis(..) => true
                 };
 
                 if self.opts.is_exclusive() { continue; }
@@ -4998,8 +5022,8 @@ Artist:   {artist}
                 // the internal state but still return false.
                 let is_unpressed = |player: &mut Player, lane: Lane,
                                     continuous: bool, state: InputState| {
-                    if state == Neutral || (continuous &&
-                                            player.joystate[*lane] != state) {
+                    if state == InputState::Neutral || (continuous &&
+                                                        player.joystate[*lane] != state) {
                         if continuous {
                             player.joystate[*lane] = state; true
                         } else {
@@ -5018,7 +5042,7 @@ Artist:   {artist}
                 // the internal state but still return false.
                 let is_pressed = |player: &mut Player, lane: Lane,
                                   continuous: bool, state: InputState| {
-                    if state != Neutral {
+                    if state != InputState::Neutral {
                         if continuous {
                             player.joystate[*lane] = state; true
                         } else {
@@ -5087,21 +5111,23 @@ Artist:   {artist}
                 };
 
                 match (vkey, state) {
-                    (SpeedDownInput, Positive) | (SpeedDownInput, Negative) => {
+                    (VirtualInput::SpeedDown, InputState::Positive) |
+                    (VirtualInput::SpeedDown, InputState::Negative) => {
                         let current = self.targetspeed.unwrap_or(self.playspeed);
                         for &newspeed in next_speed_mark(current).iter() {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
                     }
-                    (SpeedUpInput, Positive) | (SpeedUpInput, Negative) => {
+                    (VirtualInput::SpeedUp, InputState::Positive) |
+                    (VirtualInput::SpeedUp, InputState::Negative) => {
                         let current = self.targetspeed.unwrap_or(self.playspeed);
                         for &newspeed in previous_speed_mark(current).iter() {
                             self.targetspeed = Some(newspeed);
                             self.play_beep();
                         }
                     }
-                    (LaneInput(lane), state) => {
+                    (VirtualInput::Lane(lane), state) => {
                         if !self.opts.is_autoplay() {
                             if is_unpressed(self, lane, continuous, state) {
                                 process_unpress(self, lane);
@@ -5185,16 +5211,16 @@ Artist:   {artist}
         /// (C: `tkeykinds`)
         pub fn from_kind(kind: KeyKind, pos: uint, right: bool) -> LaneStyle {
             let (spriteleft, spritebombleft, width, color) = match kind {
-                parser::WhiteKey    => ( 25,   0, 25, RGB(0x80,0x80,0x80)),
-                parser::WhiteKeyAlt => ( 50,   0, 25, RGB(0xf0,0xe0,0x80)),
-                parser::BlackKey    => ( 75,   0, 25, RGB(0x80,0x80,0xff)),
-                parser::Button1     => (130, 100, 30, RGB(0xe0,0xe0,0xe0)),
-                parser::Button2     => (160, 100, 30, RGB(0xff,0xff,0x40)),
-                parser::Button3     => (190, 100, 30, RGB(0x80,0xff,0x80)),
-                parser::Button4     => (220, 100, 30, RGB(0x80,0x80,0xff)),
-                parser::Button5     => (250, 100, 30, RGB(0xff,0x40,0x40)),
-                parser::Scratch     => (320, 280, 40, RGB(0xff,0x80,0x80)),
-                parser::FootPedal   => (360, 280, 40, RGB(0x80,0xff,0x80)),
+                KeyKind::WhiteKey    => ( 25,   0, 25, RGB(0x80,0x80,0x80)),
+                KeyKind::WhiteKeyAlt => ( 50,   0, 25, RGB(0xf0,0xe0,0x80)),
+                KeyKind::BlackKey    => ( 75,   0, 25, RGB(0x80,0x80,0xff)),
+                KeyKind::Button1     => (130, 100, 30, RGB(0xe0,0xe0,0xe0)),
+                KeyKind::Button2     => (160, 100, 30, RGB(0xff,0xff,0x40)),
+                KeyKind::Button3     => (190, 100, 30, RGB(0x80,0xff,0x80)),
+                KeyKind::Button4     => (220, 100, 30, RGB(0x80,0x80,0xff)),
+                KeyKind::Button5     => (250, 100, 30, RGB(0xff,0x40,0x40)),
+                KeyKind::Scratch     => (320, 280, 40, RGB(0xff,0x80,0x80)),
+                KeyKind::FootPedal   => (360, 280, 40, RGB(0x80,0xff,0x80)),
             };
             let left = if right {pos - width} else {pos};
             LaneStyle { left: left, spriteleft: spriteleft, spritebombleft: spritebombleft,
@@ -5374,7 +5400,7 @@ Artist:   {artist}
         /// Bitmap font.
         pub font: Font,
         /// Image resources. (C: `imgres`)
-        pub imgres: Vec<ImageResource>,
+        pub imgres: Vec<Imagelike>,
 
         /// The leftmost X coordinate of the area next to the lanes, that is, the total width of
         /// left-hand-side lanes. (C: `tpanel1`)
@@ -5415,7 +5441,7 @@ Artist:   {artist}
         /// image resources. The last three are owned by the display, others are not
         /// (in fact, should be owned by `Player`).
         pub fn new(opts: &Options, keyspec: &KeySpec, screen: Surface, font: Font,
-                   imgres: Vec<ImageResource>) -> Result<GraphicDisplay,String> {
+                   imgres: Vec<Imagelike>) -> Result<GraphicDisplay,String> {
             let (leftmost, rightmost, styles) = match build_lane_styles(keyspec) {
                 Ok(styles) => styles,
                 Err(err) => { return Err(err); }
@@ -5458,7 +5484,7 @@ Artist:   {artist}
 
             // update display states
             for &(grade,when) in player.lastgrade.iter() {
-                if grade == MISS {
+                if grade == Grade::MISS {
                     // switches to the normal BGA after 600ms
                     let minlimit = when + 600;
                     self.poorlimit = Some(self.poorlimit.map_or(minlimit,
@@ -5475,8 +5501,9 @@ Artist:   {artist}
 
             // render BGAs (should render before the lanes since lanes can overlap with BGAs)
             if player.opts.has_bga() {
-                static POOR_LAYERS: [BGALayer, ..1] = [PoorBGA];
-                static NORM_LAYERS: [BGALayer, ..3] = [Layer1, Layer2, Layer3];
+                static POOR_LAYERS: [BGALayer, ..1] = [BGALayer::PoorBGA];
+                static NORM_LAYERS: [BGALayer, ..3] = [BGALayer::Layer1, BGALayer::Layer2,
+                                                       BGALayer::Layer3];
                 let layers = if self.poorlimit.is_some() {POOR_LAYERS[]} else {NORM_LAYERS[]};
                 self.lastbga.render(&self.screen, layers, self.imgres[], self.bgax, self.bgay);
             }
@@ -5562,16 +5589,16 @@ Artist:   {artist}
                 let delta = (cmp::max(gradelimit - player.now, 400) - 400) / 15;
                 screen.with_pixels(|pixels| {
                     font.print_string(pixels, self.leftmost/2, SCREENH/2 - 40 - delta, 2,
-                                      Centered, gradename, gradecolor);
+                                      Alignment::Center, gradename, gradecolor);
                     if player.lastcombo > 1 {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 - 12 - delta, 1,
-                                          Centered, format!("{} COMBO",
-                                                            player.lastcombo)[],
+                                          Alignment::Center, format!("{} COMBO",
+                                                                     player.lastcombo)[],
                                           Gradient::new(RGB(0xff,0xff,0xff), RGB(0x80,0x80,0x80)));
                     }
                     if player.opts.is_autoplay() {
                         font.print_string(pixels, self.leftmost/2, SCREENH/2 + 2 - delta, 1,
-                                          Centered, "(AUTO)",
+                                          Alignment::Center, "(AUTO)",
                                           Gradient::new(RGB(0xc0,0xc0,0xc0), RGB(0x40,0x40,0x40)));
                     }
                 });
@@ -5587,18 +5614,18 @@ Artist:   {artist}
             let durationmsec = (player.duration * 1000.0) as uint;
             screen.with_pixels(|pixels| {
                 let black = RGB(0,0,0);
-                font.print_string(pixels, 10, 8, 1, LeftAligned,
+                font.print_string(pixels, 10, 8, 1, Alignment::Left,
                                   format!("SCORE {:07}", player.score)[], black);
                 let nominalplayspeed = player.nominal_playspeed();
-                font.print_string(pixels, 5, SCREENH-78, 2, LeftAligned,
+                font.print_string(pixels, 5, SCREENH-78, 2, Alignment::Left,
                                   format!("{:4.1}x", nominalplayspeed)[], black);
-                font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, LeftAligned,
+                font.print_string(pixels, self.leftmost-94, SCREENH-35, 1, Alignment::Left,
                                   format!("{:02}:{:02} / {:02}:{:02}",
                                           elapsed/60, elapsed%60,
                                           duration/60, duration%60)[], black);
-                font.print_string(pixels, 95, SCREENH-62, 1, LeftAligned,
+                font.print_string(pixels, 95, SCREENH-62, 1, Alignment::Left,
                                   format!("@{:9.4}", player.bottom)[], black);
-                font.print_string(pixels, 95, SCREENH-78, 1, LeftAligned,
+                font.print_string(pixels, 95, SCREENH-78, 1, Alignment::Left,
                                   format!("BPM {:6.2}", *player.bpm)[], black);
                 let timetick = cmp::min(self.leftmost, (player.now - player.origintime) *
                                                        self.leftmost / durationmsec);
@@ -5692,7 +5719,7 @@ Artist:   {artist}
         /// Display screen. (C: `screen`)
         pub screen: Surface,
         /// Image resources. (C: `imgres`)
-        pub imgres: Vec<ImageResource>,
+        pub imgres: Vec<Imagelike>,
         /// Currently known state of BGAs.
         pub lastbga: BGAState,
     }
@@ -5700,7 +5727,7 @@ Artist:   {artist}
     impl BGAOnlyDisplay {
         /// Creates a new BGA-only display from the pre-created screen (usually by `init_video`) and
         /// pre-loaded image resources.
-        pub fn new(screen: Surface, imgres: Vec<ImageResource>) -> BGAOnlyDisplay {
+        pub fn new(screen: Surface, imgres: Vec<Imagelike>) -> BGAOnlyDisplay {
             BGAOnlyDisplay { textdisplay: TextDisplay::new(), screen: screen,
                              imgres: imgres, lastbga: initial_bga_state() }
         }
@@ -5710,7 +5737,7 @@ Artist:   {artist}
         fn render(&mut self, player: &Player) {
             self.lastbga.update(&player.bga, self.imgres[]);
 
-            let layers = &[Layer1, Layer2, Layer3];
+            let layers = &[BGALayer::Layer1, BGALayer::Layer2, BGALayer::Layer3];
             self.lastbga.render(&self.screen, layers, self.imgres[], 0, 0);
             self.screen.flip();
 
@@ -5934,9 +5961,9 @@ pub fn main() {
     let nargs = args.len();
 
     let mut bmspath = None;
-    let mut mode = player::PlayMode;
+    let mut mode = player::Mode::Play;
     let mut modf = None;
-    let mut bga = player::BgaAndMovie;
+    let mut bga = player::Bga::WithMovie;
     let mut showinfo = true;
     let mut fullscreen = true;
     let mut joystick = None;
@@ -5997,16 +6024,16 @@ pub fn main() {
                 match c {
                     'h' => { usage(); }
                     'V' => { println!("{}", version()); return; }
-                    'v' => { mode = player::AutoPlayMode; }
-                    'x' => { mode = player::ExclusiveMode; }
-                    'X' => { mode = player::ExclusiveMode; bga = player::NoBga; }
+                    'v' => { mode = player::Mode::AutoPlay; }
+                    'x' => { mode = player::Mode::Exclusive; }
+                    'X' => { mode = player::Mode::Exclusive; bga = player::Bga::None; }
                     'w' => { fullscreen = false; }
                     'q' => { showinfo = false; }
-                    'm' => { modf = Some(player::MirrorModf); }
-                    's' => { modf = Some(player::ShuffleModf); }
-                    'S' => { modf = Some(player::ShuffleExModf); }
-                    'r' => { modf = Some(player::RandomModf); }
-                    'R' => { modf = Some(player::RandomExModf); }
+                    'm' => { modf = Some(player::Modifier::Mirror); }
+                    's' => { modf = Some(player::Modifier::Shuffle); }
+                    'S' => { modf = Some(player::Modifier::ShuffleEx); }
+                    'r' => { modf = Some(player::Modifier::Random); }
+                    'R' => { modf = Some(player::Modifier::RandomEx); }
                     'k' => { preset = Some(fetch_arg!('k').to_string()); }
                     'K' => { leftkeys = Some(fetch_arg!('K').to_string());
                              rightkeys = Some(fetch_arg!('K').to_string()); }
@@ -6020,8 +6047,8 @@ pub fn main() {
                             _ => die!("Invalid argument to option -a")
                         }
                     }
-                    'B' => { bga = player::NoBga; }
-                    'M' => { bga = player::BgaButNoMovie; }
+                    'B' => { bga = player::Bga::None; }
+                    'M' => { bga = player::Bga::WithoutMovie; }
                     'j' => {
                         match from_str::<uint>(fetch_arg!('j')) {
                             Some(n) => { joystick = Some(n); }
