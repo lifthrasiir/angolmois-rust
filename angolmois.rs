@@ -454,7 +454,7 @@ pub mod util {
             pub fn get_error(&self) -> String {
                 unsafe {
                     let cstr = ll::SMPEG_error(self.raw);
-                    std::string::raw::from_buf(std::mem::transmute(&cstr))
+                    String::from_raw_buf(std::mem::transmute(&cstr))
                 }
             }
         }
@@ -3747,6 +3747,7 @@ pub mod player {
      */
     fn resolve_relative_path(basedir: &Path, path: &str, exts: &[&str]) -> Option<Path> {
         use std::{str, io};
+        use std::cell::RefCell;
         use std::ascii::AsciiExt;
         use std::collections::hash_map::{Occupied, Vacant};
         use std::io::fs::PathExtensions;
@@ -3755,25 +3756,23 @@ pub mod player {
         // the whole list of entries (and `std::io::fs::Directories` is no different).
         // This causes a serious slowdown compared to the C version of Angolmois,
         // so we use a thread-local cache for `readdir` to avoid the performance penalty.
-        local_data_key!(key_readdir_cache: HashMap<Path,Vec<Path>>);
+        thread_local!(
+            static KEY_READDIR_CACHE: RefCell<HashMap<Path,Vec<Path>>> =
+                RefCell::new(HashMap::new())
+        );
 
         fn readdir_cache(path: Path, cb: |&[Path]|) {
-            let mut cache = match key_readdir_cache.replace(None) {
-                Some(cache) => cache,
-                None => HashMap::new()
-            };
-
-            match cache.entry(path.clone()) {
-                Occupied(entry) => {
-                    cb(entry.get()[]);
+            KEY_READDIR_CACHE.with(|cache| {
+                match cache.borrow_mut().entry(path.clone()) {
+                    Occupied(entry) => {
+                        cb(entry.get()[]);
+                    }
+                    Vacant(entry) => {
+                        let files = io::fs::readdir(&path).ok().unwrap_or(Vec::new());
+                        cb(entry.set(files)[mut]);
+                    }
                 }
-                Vacant(entry) => {
-                    let files = io::fs::readdir(&path).ok().unwrap_or(Vec::new());
-                    cb(entry.set(files)[mut]);
-                }
-            }
-
-            key_readdir_cache.replace(Some(cache));
+            })
         }
 
         let mut parts = Vec::new();
@@ -4682,9 +4681,9 @@ Artist:   {artist}
             // sawtooth wave at 3150 Hz, quadratic decay after 0.02 seconds.
             |i| { let i = i as i32; (i%28-14) * cmp::min(2000, (12000-i)*(12000-i)/50000) });
         unsafe {
-            slice::raw::buf_as_slice(samples.as_ptr() as *const u8, samples.len() * 4, |samples| {
-                sdl_mixer::Chunk::new(samples.to_vec(), 128)
-            })
+            let ptr = samples.as_ptr() as *const u8;
+            let buf = slice::from_raw_buf(&ptr, samples.len() * 4);
+            sdl_mixer::Chunk::new(buf.to_vec(), 128)
         }
     }
 
