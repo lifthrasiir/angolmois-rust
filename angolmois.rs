@@ -49,6 +49,9 @@
  * * TODO - other problems unrelated to Rust.
  */
 
+#![crate_name = "angolmois"]
+#![crate_type = "bin"]
+
 #![feature(macro_rules, slicing_syntax)]
 
 extern crate libc;
