@@ -49,13 +49,7 @@
  * * TODO - other problems unrelated to Rust.
  */
 
-#![crate_name = "angolmois"]
-#![crate_type = "bin"]
-
 #![feature(macro_rules, slicing_syntax)]
-
-#![comment = "Angolmois"]
-#![license = "GPLv2+"]
 
 extern crate libc;
 
@@ -3480,7 +3474,8 @@ pub mod player {
             die!("SDL Initialization Failure: {}", sdl::get_error());
         }
         //sdl_mixer::init([sdl_mixer::InitOGG, sdl_mixer::InitMP3]); // TODO
-        if sdl_mixer::open(SAMPLERATE, audio::S16_AUDIO_FORMAT, audio::Stereo, 2048).is_err() {
+        if sdl_mixer::open(SAMPLERATE, audio::S16_AUDIO_FORMAT,
+                           audio::Channels::Stereo, 2048).is_err() {
             die!("SDL Mixer Initialization Failure");
         }
     }
