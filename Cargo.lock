@@ -2,29 +2,88 @@
 name = "angolmois"
 version = "2.0.0-alpha2"
 dependencies = [
- "sdl 0.3.6 (git+https://github.com/lifthrasiir/rust-sdl.git)",
- "sdl_image 0.3.6 (git+https://github.com/lifthrasiir/rust-sdl.git)",
- "sdl_mixer 0.3.6 (git+https://github.com/lifthrasiir/rust-sdl.git)",
+ "sdl2 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sdl2_image 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sdl2_mixer 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
-name = "sdl"
-version = "0.3.6"
-source = "git+https://github.com/lifthrasiir/rust-sdl.git#fcf08194101ea31574e9b4a25d7c8c0a54c84e67"
+name = "bitflags"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "sdl_image"
-version = "0.3.6"
-source = "git+https://github.com/lifthrasiir/rust-sdl.git#fcf08194101ea31574e9b4a25d7c8c0a54c84e67"
+name = "bitflags"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "libc"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "num"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "sdl 0.3.6 (git+https://github.com/lifthrasiir/rust-sdl.git)",
+ "rand 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rustc-serialize 0.3.15 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
-name = "sdl_mixer"
-version = "0.3.6"
-source = "git+https://github.com/lifthrasiir/rust-sdl.git#fcf08194101ea31574e9b4a25d7c8c0a54c84e67"
+name = "rand"
+version = "0.3.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "sdl 0.3.6 (git+https://github.com/lifthrasiir/rust-sdl.git)",
+ "libc 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "rustc-serialize"
+version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "sdl2"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "bitflags 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rand 0.3.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sdl2-sys 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "sdl2-sys"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "libc 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "num 0.1.25 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "sdl2_image"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "bitflags 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sdl2 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sdl2-sys 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "sdl2_mixer"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "bitflags 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libc 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sdl2 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "sdl2-sys 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
