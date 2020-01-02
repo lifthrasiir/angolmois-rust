@@ -1,5 +1,5 @@
 #language: rust
-rust: 0.13.0
+rust: 0.12.0
 os:
   - linux
   - osx
@@ -11,8 +11,6 @@ before_install:
   - sudo apt-get update
   - sudo apt-get install libsdl1.2-dev libsdl-mixer1.2-dev libsdl-image1.2-dev libsmpeg-dev
 before_script:
-  - curl -sL https://static.rust-lang.org/dist/rust-nightly-x86_64-unknown-linux-gnu.tar.gz | tar --strip-components=1 -C ~/rust
-  - curl -sL https://static.rust-lang.org/cargo-dist/cargo-nightly-x86_64-unknown-linux-gnu.tar.gz | tar --strip-components=1 -C ~/rust -xzf -
   - rustc -v
   - cargo -V
 script:
