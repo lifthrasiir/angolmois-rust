@@ -1,5 +1,5 @@
 language: rust
-rust: 0.13.0-nightly
+rust: 0.13.0
 os:
   - linux
   - osx
